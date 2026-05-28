@@ -29,7 +29,7 @@ RUN echo "${AUTODEPLOY_VERSION}" > /autodeploy/.pinned-version
 ############################
 # Stage 3 — Runtime
 ############################
-FROM mcr.microsoft.com/powershell:7.4-debian-12-slim
+FROM mcr.microsoft.com/powershell:lts-debian-12-slim
 
 ARG AUTODEPLOY_VERSION=main
 LABEL org.opencontainers.image.title="autodeploy-web"
