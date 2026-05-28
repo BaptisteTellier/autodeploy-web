@@ -8,7 +8,7 @@ on:
       autodeploy_version:
         description: 'Tag/branch of BaptisteTellier/autodeploy to bake in'
         required: false
-        default: 'main'
+        default: 'dev'
 
 permissions:
   contents: read
