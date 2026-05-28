@@ -19,11 +19,11 @@ const (
 type Job struct {
 	ID           string    `json:"id"`
 	State        State     `json:"state"`
-	Hostname     string    `json:"hostname"`     // from config, for display
-	Appliance    string    `json:"appliance"`    // VSA/VIA/...
+	Hostname     string    `json:"hostname"`  // from config, for display
+	Appliance    string    `json:"appliance"` // VSA/VIA/...
 	SourceISO    string    `json:"source_iso"`
 	OutputISO    string    `json:"output_iso"`
-	ConfigPath   string    `json:"config_path"`  // path inside /data/configs/<id>.json
+	ConfigPath   string    `json:"config_path"` // path inside /data/configs/<id>.json
 	CreatedAt    time.Time `json:"created_at"`
 	StartedAt    time.Time `json:"started_at,omitempty"`
 	FinishedAt   time.Time `json:"finished_at,omitempty"`

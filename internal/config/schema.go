@@ -30,11 +30,11 @@ type Config struct {
 	Hostname       string `json:"Hostname"`
 
 	// --- Network
-	UseDHCP    bool             `json:"UseDHCP"`
-	StaticIP   string           `json:"StaticIP"`
-	Subnet     string           `json:"Subnet"`
-	Gateway    string           `json:"Gateway"`
-	DNSServers FlexStringArray  `json:"DNSServers"`
+	UseDHCP    bool            `json:"UseDHCP"`
+	StaticIP   string          `json:"StaticIP"`
+	Subnet     string          `json:"Subnet"`
+	Gateway    string          `json:"Gateway"`
+	DNSServers FlexStringArray `json:"DNSServers"`
 
 	// --- Veeam accounts
 	VeeamAdminPassword     string   `json:"VeeamAdminPassword"`

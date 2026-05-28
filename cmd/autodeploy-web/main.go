@@ -35,11 +35,11 @@ func main() {
 	store := config.NewStore(dataDir + "/configs")
 
 	mgr := job.NewManager(job.Options{
-		DataDir:        dataDir,
-		AutodeployDir:  autodeployDir,
-		PSScript:       psScript,
-		MaxConcurrent:  concurrency,
-		KeepCompleted:  50,
+		DataDir:       dataDir,
+		AutodeployDir: autodeployDir,
+		PSScript:      psScript,
+		MaxConcurrent: concurrency,
+		KeepCompleted: 50,
 	})
 
 	srv := server.New(server.Deps{
