@@ -1,8 +1,8 @@
 # Binaries
 /bin/
 /dist/
-autodeploy-web
-autodeploy-web.exe
+/autodeploy-web
+/autodeploy-web.exe
 *.exe
 
 # Go
@@ -14,6 +14,9 @@ vendor/
 # Local data (volumes)
 /data/
 data/
+
+# Local env override
+.env
 
 # IDE
 .idea/
