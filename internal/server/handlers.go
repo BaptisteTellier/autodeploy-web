@@ -626,7 +626,6 @@ func (s *Server) handleRenameMediaFile(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/media/"+kind, http.StatusSeeOther)
 }
 
-
 // --- Library (ISO/license/conf inventory) --------------------------------
 
 func (s *Server) handleListLibrary(w http.ResponseWriter, r *http.Request) {
