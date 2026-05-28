@@ -101,6 +101,7 @@ var KeyboardLayouts = []NamedOption{
 	{Value: "kr", Label: "kr — 한국어"},
 	{Value: "cn", Label: "cn — 中文"},
 	{Value: "ar", Label: "ar — العربية"},
+	{Value: "custom", Label: "custom — saisie libre"},
 }
 
 // Timezones lists common IANA timezone values for the dropdown.
@@ -162,4 +163,5 @@ var Timezones = []NamedOption{
 	{Value: "Australia/Sydney", Label: "Australia/Sydney (UTC+10/+11)"},
 	{Value: "Australia/Perth", Label: "Australia/Perth (UTC+8)"},
 	{Value: "Pacific/Auckland", Label: "Pacific/Auckland (UTC+12/+13)"},
+	{Value: "custom", Label: "custom — saisie libre"},
 }

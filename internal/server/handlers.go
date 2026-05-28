@@ -172,7 +172,13 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if err := r.ParseForm(); err != nil {
+		// fetch() sends FormData as multipart/form-data. r.ParseForm() sets
+		// r.Form to non-nil but empty for multipart bodies, so subsequent
+		// r.FormValue() calls skip re-parsing. ParseMultipartForm internally
+		// calls ParseForm first (populating r.Form from the URL query), then
+		// parses the multipart body. For url-encoded bodies it returns
+		// ErrNotMultipart but r.Form is still correctly populated.
+		if err := r.ParseMultipartForm(32 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

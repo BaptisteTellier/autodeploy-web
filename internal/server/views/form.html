@@ -51,7 +51,7 @@
     </label>
     <label class="block">
       <span class="text-sm font-medium">Source ISO</span>
-      <select name="SourceISO" required class="mt-1 w-full border rounded px-2 py-1">
+      <select name="SourceISO" class="mt-1 w-full border rounded px-2 py-1">
         <option value="">— select ISO —</option>
         {{range .SourceISOs}}<option value="{{.}}" {{if eq . $.Config.SourceISO}}selected{{end}}>{{.}}</option>{{end}}
       </select>
@@ -88,18 +88,24 @@
 <section class="bg-white rounded shadow p-4 space-y-3">
   <h2 class="text-lg font-semibold border-b pb-2">🌍 Regional</h2>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <label class="block">
+    <div class="block" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const k=new Set([{{range $.KeyboardLayouts}}'{{.Value}}',{{end}}]);return{kbd:k.has(v)?v:'custom',kbdTxt:k.has(v)?'':v}})()">
       <span class="text-sm font-medium">Keyboard layout</span>
-      <select name="KeyboardLayout" class="mt-1 w-full border rounded px-2 py-1">
-        {{range $.KeyboardLayouts}}<option value="{{.Value}}" {{if eq .Value $.Config.KeyboardLayout}}selected{{end}}>{{.Label}}</option>{{end}}
+      <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null" class="mt-1 w-full border rounded px-2 py-1">
+        {{range $.KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
       </select>
-    </label>
-    <label class="block">
+      <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout"
+             x-model="kbdTxt" placeholder="ex: fr-latin9"
+             class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">
+    </div>
+    <div class="block" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const k=new Set([{{range $.Timezones}}'{{.Value}}',{{end}}]);return{tz:k.has(v)?v:'custom',tzTxt:k.has(v)?'':v}})()">
       <span class="text-sm font-medium">Timezone (IANA)</span>
-      <select name="Timezone" class="mt-1 w-full border rounded px-2 py-1">
-        {{range $.Timezones}}<option value="{{.Value}}" {{if eq .Value $.Config.Timezone}}selected{{end}}>{{.Label}}</option>{{end}}
+      <select x-model="tz" :name="tz!=='custom'?'Timezone':null" class="mt-1 w-full border rounded px-2 py-1">
+        {{range $.Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
       </select>
-    </label>
+      <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone"
+             x-model="tzTxt" placeholder="ex: America/Cayman"
+             class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">
+    </div>
     <label class="block">
       <span class="text-sm font-medium">Hostname (≤15 char)</span>
       <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required class="mt-1 w-full border rounded px-2 py-1">
