@@ -16,15 +16,17 @@
 <div class="bg-white rounded shadow p-4 flex flex-wrap gap-3 items-end">
   <div>
     <label class="block text-xs font-semibold uppercase text-slate-500">Load preset</label>
-    <select class="border rounded px-2 py-1" onchange="if (this.value) location.href='/?preset='+encodeURIComponent(this.value)">
+    <select class="border rounded px-2 py-1"
+            onchange="if (this.value) { document.getElementById('preset_name').value=this.value; location.href='/?preset='+encodeURIComponent(this.value); }">
       <option value="">— select —</option>
-      {{range .Presets}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+      {{range .Presets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
     </select>
   </div>
   <div>
     <label class="block text-xs font-semibold uppercase text-slate-500">Save current as preset</label>
     <div class="flex gap-1">
-      <input id="preset_name" name="preset_name" type="text" placeholder="preset name" class="border rounded px-2 py-1">
+      <input id="preset_name" name="preset_name" type="text" placeholder="preset name"
+             value="{{.PresetName}}" class="border rounded px-2 py-1">
       <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" @click="savePreset()">💾 Save</button>
     </div>
   </div>

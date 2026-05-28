@@ -68,8 +68,10 @@ func (s *Server) Routes() http.Handler {
 	// Output = /data/output/{jobID}/ (per-job folders)
 	mux.HandleFunc("GET /media/output", s.handleMediaOutput)
 	mux.HandleFunc("GET /media/output/{jobid}", s.handleMediaOutputJob)
+	mux.HandleFunc("DELETE /media/output/{jobid}", s.handleDeleteOutputJob)
 	mux.HandleFunc("GET /media/output/{jobid}/{name}/download", s.handleOutputJobDownload)
 	mux.HandleFunc("GET /media/output/{jobid}/{name}/content", s.handleOutputJobContent)
+	mux.HandleFunc("DELETE /media/output/{jobid}/{name}", s.handleDeleteOutputJobFile)
 
 	// Licenses
 	mux.HandleFunc("GET /media/license", s.handleMediaLicense)

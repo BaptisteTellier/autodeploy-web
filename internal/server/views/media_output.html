@@ -1,9 +1,36 @@
 {{define "views/media_output.html"}}{{template "layout.html" .}}{{end}}
 
 {{define "content"}}
-<div class="space-y-6">
+<style>[x-cloak]{display:none}</style>
+<div class="space-y-6"
+     x-data="{
+       sel: {},
+       get count() { return Object.keys(this.sel).length; },
+       toggle(id) {
+         const s={...this.sel};
+         if(s[id]) delete s[id]; else s[id]=true;
+         this.sel=s;
+       },
+       allIDs: [{{range .Jobs}}{{jsonStr .JobID}},{{end}}],
+       get allChecked() { return this.allIDs.length>0 && this.allIDs.every(id=>this.sel[id]); },
+       toggleAll() { this.sel = this.allChecked ? {} : Object.fromEntries(this.allIDs.map(id=>[id,true])); },
+       async deleteSel() {
+         if(!this.count) return;
+         if(!confirm('Supprimer '+this.count+' dossier(s) de job et tous leurs fichiers ?')) return;
+         for(const id of Object.keys(this.sel))
+           await fetch('/media/output/'+encodeURIComponent(id), {method:'DELETE'});
+         location.reload();
+       }
+     }">
 
-  <h1 class="text-2xl font-bold">📦 Output</h1>
+  <div class="flex flex-wrap items-center gap-3">
+    <h1 class="text-2xl font-bold">📦 Output</h1>
+    <button x-show="count>0" x-cloak
+            @click="deleteSel()"
+            class="ml-auto bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium">
+      🗑️ Supprimer <span x-text="count"></span> sélectionné(s)
+    </button>
+  </div>
   <p class="text-sm text-slate-500">
     Un dossier par job — ISO générée, configs kickstart, logs.
     Racine : <code>/data/output</code>.
@@ -19,7 +46,11 @@
     <table class="w-full text-sm">
       <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
         <tr>
-          <th class="px-4 py-3">Job ID</th>
+          <th class="px-3 py-3 w-8">
+            <input type="checkbox" class="rounded"
+                   :checked="allChecked" @change="toggleAll()">
+          </th>
+          <th class="px-4 py-3">Job</th>
           <th class="px-4 py-3">Date</th>
           <th class="px-4 py-3">Fichiers</th>
           <th class="px-4 py-3">Taille totale</th>
@@ -28,11 +59,16 @@
       </thead>
       <tbody>
       {{range .Jobs}}
-      <tr class="border-t hover:bg-slate-50">
-        <td class="px-4 py-3 font-mono text-xs">
-          <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline font-semibold">
-            {{slice .JobID 0 8}}…
-          </a>
+      <tr class="border-t hover:bg-slate-50" :class="sel[{{jsonStr .JobID}}] ? 'bg-blue-50' : ''">
+        <td class="px-3 py-3">
+          <input type="checkbox" class="rounded"
+                 :checked="!!sel[{{jsonStr .JobID}}]"
+                 @change="toggle({{jsonStr .JobID}})">
+        </td>
+        <td class="px-4 py-3">
+          <a href="/media/output/{{.JobID}}"
+             class="font-semibold text-blue-700 hover:underline">{{.FriendlyName}}</a>
+          <div class="text-xs text-slate-400 font-mono mt-0.5">{{slice .JobID 0 8}}…</div>
         </td>
         <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
           {{.ModTime.Format "2006-01-02 15:04"}}
@@ -42,6 +78,10 @@
         <td class="px-4 py-3 text-right space-x-3 whitespace-nowrap">
           <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline text-xs">📂 Ouvrir</a>
           <a href="/jobs/{{.JobID}}" class="text-slate-500 hover:underline text-xs">🔍 Job</a>
+          <button class="text-red-500 hover:underline text-xs"
+                  @click="if(confirm('Supprimer ce dossier ?')) fetch('/media/output/'+{{jsonStr .JobID}},{method:'DELETE'}).then(()=>location.reload())">
+            🗑️
+          </button>
         </td>
       </tr>
       {{end}}

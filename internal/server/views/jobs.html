@@ -26,7 +26,7 @@
       <td class="text-xs">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "15:04:05"}}{{end}}</td>
       <td class="text-xs font-mono">{{.ExitCode}}</td>
       <td class="text-right">
-        <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">open</a>
+        <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">open job</a>
         {{if eq (printf "%s" .State) "done"}}
           <a href="/media/output/{{.ID}}" class="text-emerald-600 hover:underline text-xs ml-2">📂 output</a>
         {{end}}

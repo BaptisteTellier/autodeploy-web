@@ -11,6 +11,24 @@
          const r=await fetch(url);
          this.viewer.text=r.ok?await r.text():'Erreur de chargement';
          this.viewer.loading=false;
+       },
+       sel: {},
+       get count() { return Object.keys(this.sel).length; },
+       toggle(n) {
+         const s={...this.sel};
+         if(s[n]) delete s[n]; else s[n]=true;
+         this.sel=s;
+       },
+       allNames: [{{range .Files}}{{jsonStr .Name}},{{end}}],
+       get allChecked() { return this.allNames.length>0 && this.allNames.every(n=>this.sel[n]); },
+       toggleAll() { this.sel = this.allChecked ? {} : Object.fromEntries(this.allNames.map(n=>[n,true])); },
+       async deleteSel() {
+         if(!this.count) return;
+         if(!confirm('Supprimer '+this.count+' fichier(s) ?')) return;
+         const jobID={{jsonStr .JobID}};
+         for(const n of Object.keys(this.sel))
+           await fetch('/media/output/'+jobID+'/'+encodeURIComponent(n), {method:'DELETE'});
+         location.reload();
        }
      }">
 
@@ -18,8 +36,15 @@
   <div class="flex flex-wrap items-center gap-3">
     <a href="/media/output" class="text-slate-500 hover:underline text-sm">📦 Output</a>
     <span class="text-slate-300">/</span>
-    <h1 class="text-xl font-bold font-mono">{{slice .JobID 0 8}}…</h1>
-    <a href="/jobs/{{.JobID}}" class="text-sm text-blue-600 hover:underline ml-auto">🔍 Voir le job</a>
+    <h1 class="text-xl font-bold font-mono">{{.FriendlyName}}</h1>
+    <div class="ml-auto flex gap-2">
+      <button x-show="count>0" x-cloak
+              @click="deleteSel()"
+              class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium">
+        🗑️ Supprimer <span x-text="count"></span> sélectionné(s)
+      </button>
+      <a href="/jobs/{{.JobID}}" class="text-sm text-blue-600 hover:underline self-center">🔍 Voir le job</a>
+    </div>
   </div>
   <p class="text-sm text-slate-500">
     Dossier <code>/data/output/{{.JobID}}</code>
@@ -35,6 +60,10 @@
     <table class="w-full text-sm">
       <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
         <tr>
+          <th class="px-3 py-3 w-8">
+            <input type="checkbox" class="rounded"
+                   :checked="allChecked" @change="toggleAll()">
+          </th>
           <th class="px-4 py-3">Fichier</th>
           <th class="px-4 py-3">Taille</th>
           <th class="px-4 py-3">Modifié</th>
@@ -43,19 +72,31 @@
       </thead>
       <tbody>
       {{range .Files}}
-      <tr class="border-t hover:bg-slate-50">
-        <td class="px-4 py-3 font-mono text-sm break-all max-w-xs">{{.Name}}</td>
+      <tr class="border-t hover:bg-slate-50" :class="sel[{{jsonStr .Name}}] ? 'bg-blue-50' : ''">
+        <td class="px-3 py-3">
+          <input type="checkbox" class="rounded"
+                 :checked="!!sel[{{jsonStr .Name}}]"
+                 @change="toggle({{jsonStr .Name}})">
+        </td>
+        <td class="px-4 py-3 font-mono text-sm break-all max-w-xs">
+          {{if isTextFile .Name}}
+          <button class="text-left hover:text-blue-700 hover:underline"
+                  @click="openFile('/media/output/{{$.JobID}}/{{.Name}}/content','{{.Name}}')">
+            {{.Name}}
+          </button>
+          {{else}}
+          {{.Name}}
+          {{end}}
+        </td>
         <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .Size}}</td>
         <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{{.ModTime.Format "2006-01-02 15:04"}}</td>
         <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
-          {{if isTextFile .Name}}
-          <button class="text-purple-600 hover:underline text-xs"
-                  @click="openFile('/media/output/{{$.JobID}}/{{.Name}}/content','{{.Name}}')">
-            👁 Voir
-          </button>
-          {{end}}
           <a href="/media/output/{{$.JobID}}/{{.Name}}/download"
              class="text-emerald-600 hover:underline text-xs">⬇️ DL</a>
+          <button class="text-red-500 hover:underline text-xs"
+                  @click="if(confirm('Supprimer «{{.Name}}» ?')) fetch('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}}),{method:'DELETE'}).then(()=>location.reload())">
+            🗑️
+          </button>
         </td>
       </tr>
       {{end}}

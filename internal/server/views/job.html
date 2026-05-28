@@ -42,7 +42,7 @@
             {{if ne (printf "%s" .Job.State) "done"}}opacity-40 pointer-events-none{{end}}">
      📂 Voir les outputs
   </a>
-  <a href="/" class="bg-slate-200 px-4 py-2 rounded text-sm">← New job</a>
+  <a href="/?import={{.Job.ID}}" class="bg-slate-200 px-4 py-2 rounded text-sm">📥 Import config into new job</a>
   <a href="/jobs" class="bg-slate-200 px-4 py-2 rounded text-sm">All jobs</a>
   {{if .Job.ErrorMessage}}
   <span class="text-red-700 text-sm self-center">⚠️ {{.Job.ErrorMessage}}</span>

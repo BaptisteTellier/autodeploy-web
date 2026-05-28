@@ -20,11 +20,22 @@ import (
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Preload form with defaults; the user can switch presets via the
 	// dropdown without a full reload (HTMX swap).
-	preset := r.URL.Query().Get("preset")
+	presetName := r.URL.Query().Get("preset")
 	cfg := config.Defaults()
-	if preset != "" {
-		if loaded, err := s.deps.Store.Load(preset); err == nil {
+	if presetName != "" {
+		if loaded, err := s.deps.Store.Load(presetName); err == nil {
 			cfg = loaded
+		}
+	}
+
+	// ?import=jobID pre-fills the form from the job's stored config JSON.
+	if importID := r.URL.Query().Get("import"); importID != "" {
+		cfgPath := filepath.Join(s.deps.DataDir, "output", importID, "job-config.json")
+		if raw, err := os.ReadFile(cfgPath); err == nil {
+			var imported config.Config
+			if json.Unmarshal(raw, &imported) == nil {
+				cfg = imported
+			}
 		}
 	}
 
@@ -34,6 +45,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"Version":         s.deps.Version,
 		"Config":          cfg,
 		"Presets":         presets,
+		"PresetName":      presetName,
 		"ApplianceTypes":  config.ApplianceTypes,
 		"KeyboardLayouts": config.KeyboardLayouts,
 		"Timezones":       config.Timezones,
@@ -386,10 +398,11 @@ func (s *Server) handleWorkspaceDownload(w http.ResponseWriter, r *http.Request)
 
 // OutputJobInfo holds metadata shown on the output index page.
 type OutputJobInfo struct {
-	JobID     string
-	ModTime   time.Time
-	FileCount int
-	TotalSize int64
+	JobID        string
+	FriendlyName string // ApplianceType-Hostname[-OutputISO] or short UUID fallback
+	ModTime      time.Time
+	FileCount    int
+	TotalSize    int64
 }
 
 func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
@@ -405,17 +418,34 @@ func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
 		if info != nil {
 			modTime = info.ModTime()
 		}
-		// Count files and total size.
+		// Count files and total size (excluding the config snapshot).
 		files := listDirInfo(filepath.Join(dir, e.Name()), nil)
 		var total int64
 		for _, f := range files {
 			total += f.Size
 		}
+		// Build human-readable name from stored config JSON.
+		friendlyName := e.Name()[:min(8, len(e.Name()))] + "…"
+		cfgPath := filepath.Join(dir, e.Name(), "job-config.json")
+		if raw, err := os.ReadFile(cfgPath); err == nil {
+			var meta struct {
+				ApplianceType string `json:"ApplianceType"`
+				Hostname      string `json:"Hostname"`
+				OutputISO     string `json:"OutputISO"`
+			}
+			if json.Unmarshal(raw, &meta) == nil && meta.Hostname != "" {
+				friendlyName = meta.ApplianceType + "-" + meta.Hostname
+				if meta.OutputISO != "" {
+					friendlyName += "-" + meta.OutputISO
+				}
+			}
+		}
 		jobs = append(jobs, OutputJobInfo{
-			JobID:     e.Name(),
-			ModTime:   modTime,
-			FileCount: len(files),
-			TotalSize: total,
+			JobID:        e.Name(),
+			FriendlyName: friendlyName,
+			ModTime:      modTime,
+			FileCount:    len(files),
+			TotalSize:    total,
 		})
 	}
 	// Sort newest first.
@@ -426,6 +456,33 @@ func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDeleteOutputJob removes an entire job output folder.
+func (s *Server) handleDeleteOutputJob(w http.ResponseWriter, r *http.Request) {
+	jobID := filepath.Base(r.PathValue("jobid"))
+	dir := filepath.Join(s.deps.DataDir, "output", jobID)
+	if err := os.RemoveAll(dir); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteOutputJobFile removes a single file from a job output folder.
+func (s *Server) handleDeleteOutputJobFile(w http.ResponseWriter, r *http.Request) {
+	jobID := filepath.Base(r.PathValue("jobid"))
+	name := filepath.Base(r.PathValue("name"))
+	path := filepath.Join(s.deps.DataDir, "output", jobID, name)
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
 	jobID := filepath.Base(r.PathValue("jobid"))
 	dir := filepath.Join(s.deps.DataDir, "output", jobID)
@@ -433,10 +490,27 @@ func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Compute a human-readable name from the stored config snapshot.
+	friendlyName := jobID[:min(8, len(jobID))] + "…"
+	cfgPath := filepath.Join(dir, "job-config.json")
+	if raw, err := os.ReadFile(cfgPath); err == nil {
+		var meta struct {
+			ApplianceType string `json:"ApplianceType"`
+			Hostname      string `json:"Hostname"`
+			OutputISO     string `json:"OutputISO"`
+		}
+		if json.Unmarshal(raw, &meta) == nil && meta.Hostname != "" {
+			friendlyName = meta.ApplianceType + "-" + meta.Hostname
+			if meta.OutputISO != "" {
+				friendlyName += "-" + meta.OutputISO
+			}
+		}
+	}
 	s.render(w, "views/media_output_job.html", map[string]any{
-		"Version": s.deps.Version,
-		"JobID":   jobID,
-		"Files":   listDirInfo(dir, nil),
+		"Version":      s.deps.Version,
+		"JobID":        jobID,
+		"FriendlyName": friendlyName,
+		"Files":        listDirInfo(dir, nil),
 	})
 }
 

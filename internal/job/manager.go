@@ -165,6 +165,13 @@ func (m *Manager) runWorker(j *Job) {
 		j.State = StateDone
 	}
 
+	// Snapshot the job config JSON into the output folder so it can be
+	// reimported from the "Import config into new job" button and used to
+	// display human-readable names on the output index page.
+	jobOut := filepath.Join(m.opts.DataDir, "output", j.ID)
+	_ = os.MkdirAll(jobOut, 0o755)
+	_ = copyFile(j.ConfigPath, filepath.Join(jobOut, "job-config.json"))
+
 	j.closeSubs()
 	close(j.done)
 }
