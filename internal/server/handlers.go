@@ -283,6 +283,54 @@ func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleMediaLicense(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "views/media_license.html", map[string]any{
+		"Version": s.deps.Version,
+		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
+	})
+}
+
+func (s *Server) handleUploadLicense(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB — licence files are tiny
+	if err := r.ParseMultipartForm(4 << 20); err != nil {
+		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "no file field: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+
+	name := filepath.Base(hdr.Filename)
+	if name == "" || name == "." {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+	if !strings.EqualFold(filepath.Ext(name), ".lic") {
+		http.Error(w, "only .lic files are accepted", http.StatusBadRequest)
+		return
+	}
+	dir := filepath.Join(s.deps.DataDir, "license")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		http.Error(w, "mkdir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dst := filepath.Join(dir, name)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, f); err != nil {
+		http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/media/license", http.StatusSeeOther)
+}
+
 func (s *Server) handleUploadISO(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 25<<30) // 25 GB limit
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
@@ -329,6 +377,8 @@ func (s *Server) handleDeleteMediaFile(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(s.deps.DataDir, "iso")
 	case "output":
 		dir = filepath.Join(s.deps.DataDir, "output")
+	case "license":
+		dir = filepath.Join(s.deps.DataDir, "license")
 	default:
 		http.Error(w, "unknown kind", http.StatusBadRequest)
 		return
@@ -358,6 +408,8 @@ func (s *Server) handleRenameMediaFile(w http.ResponseWriter, r *http.Request) {
 		dir = filepath.Join(s.deps.DataDir, "iso")
 	case "output":
 		dir = filepath.Join(s.deps.DataDir, "output")
+	case "license":
+		dir = filepath.Join(s.deps.DataDir, "license")
 	default:
 		http.Error(w, "unknown kind", http.StatusBadRequest)
 		return

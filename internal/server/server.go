@@ -57,7 +57,9 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /media/iso", s.handleMediaISO)
 	mux.HandleFunc("GET /media/output", s.handleMediaOutput)
+	mux.HandleFunc("GET /media/license", s.handleMediaLicense)
 	mux.HandleFunc("POST /media/iso/upload", s.handleUploadISO)
+	mux.HandleFunc("POST /media/license/upload", s.handleUploadLicense)
 	mux.HandleFunc("DELETE /media/{kind}/{name}", s.handleDeleteMediaFile)
 	mux.HandleFunc("POST /media/{kind}/{name}/rename", s.handleRenameMediaFile)
 	mux.HandleFunc("GET /media/output/{name}/download", s.handleDownloadOutputFile)
