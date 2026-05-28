@@ -1,0 +1,15 @@
+.git
+.github
+.gitignore
+.dockerignore
+data/
+dist/
+bin/
+*.md
+!README.md
+docs/
+samples/
+.vscode
+.idea
+implementation_plan.md
+task.md

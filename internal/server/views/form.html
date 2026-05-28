@@ -1,0 +1,318 @@
+{{define "views/form.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<div x-data="formApp()" class="space-y-6">
+
+{{if .Errors}}
+<div class="bg-red-100 border border-red-300 text-red-800 rounded p-3">
+  <strong>Validation errors:</strong>
+  <ul class="list-disc list-inside text-sm mt-1">
+    {{range .Errors}}<li><code class="font-mono">{{.Field}}</code> — {{.Message}}</li>{{end}}
+  </ul>
+</div>
+{{end}}
+
+<!-- Top toolbar : presets, import/export, save -->
+<div class="bg-white rounded shadow p-4 flex flex-wrap gap-3 items-end">
+  <div>
+    <label class="block text-xs font-semibold uppercase text-slate-500">Load preset</label>
+    <select class="border rounded px-2 py-1" onchange="if (this.value) location.href='/?preset='+encodeURIComponent(this.value)">
+      <option value="">— select —</option>
+      {{range .Presets}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold uppercase text-slate-500">Save current as preset</label>
+    <div class="flex gap-1">
+      <input id="preset_name" name="preset_name" type="text" placeholder="preset name" class="border rounded px-2 py-1">
+      <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" @click="savePreset()">💾 Save</button>
+    </div>
+  </div>
+  <div class="ml-auto flex gap-2">
+    <button type="button" class="bg-slate-200 rounded px-3 py-1 text-sm" @click="exportJSON()">⬇️ Export JSON</button>
+    <label class="bg-slate-200 rounded px-3 py-1 text-sm cursor-pointer">
+      ⬆️ Import JSON
+      <input type="file" accept="application/json" class="hidden" @change="importJSON($event)">
+    </label>
+  </div>
+</div>
+
+<form id="config-form" method="POST" action="/jobs" class="space-y-4">
+
+<!-- Appliance section -->
+<section class="bg-white rounded shadow p-4 space-y-3">
+  <h2 class="text-lg font-semibold border-b pb-2">📦 Appliance</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <label class="block">
+      <span class="text-sm font-medium">Appliance type</span>
+      <select name="ApplianceType" x-model="cfg.ApplianceType" class="mt-1 w-full border rounded px-2 py-1">
+        {{range $.ApplianceTypes}}<option value="{{.}}" {{if eq . $.Config.ApplianceType}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Source ISO</span>
+      <input list="iso-list" name="SourceISO" value="{{.Config.SourceISO}}" required class="mt-1 w-full border rounded px-2 py-1">
+      <datalist id="iso-list">{{range .SourceISOs}}<option value="{{.}}">{{end}}</datalist>
+      <small class="text-slate-500">Files in <code>/data/iso</code></small>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Output ISO (optional)</span>
+      <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="auto: _customized suffix" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">GRUB timeout (s)</span>
+      <input type="number" name="GrubTimeout" min="0" max="300" value="{{.Config.GrubTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+    <label class="flex items-center gap-2 mt-6">
+      <input type="checkbox" name="InPlace" {{if .Config.InPlace}}checked{{end}}>
+      <span>InPlace modification</span>
+    </label>
+    <label class="flex items-center gap-2 mt-6">
+      <input type="checkbox" name="CreateBackup" {{if .Config.CreateBackup}}checked{{end}}>
+      <span>Create backup (when InPlace)</span>
+    </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="CleanupCFGFiles" {{if .Config.CleanupCFGFiles}}checked{{end}}>
+      <span>Cleanup temp .cfg files</span>
+    </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="CFGOnly" {{if .Config.CFGOnly}}checked{{end}}>
+      <span>CFG-only (no ISO write — for Packer/CloudInit)</span>
+    </label>
+  </div>
+</section>
+
+<!-- Regional -->
+<section class="bg-white rounded shadow p-4 space-y-3">
+  <h2 class="text-lg font-semibold border-b pb-2">🌍 Regional</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <label class="block">
+      <span class="text-sm font-medium">Keyboard layout</span>
+      <input list="kbd-list" name="KeyboardLayout" value="{{.Config.KeyboardLayout}}" class="mt-1 w-full border rounded px-2 py-1">
+      <datalist id="kbd-list">{{range $.KeyboardLayouts}}<option value="{{.}}">{{end}}</datalist>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Timezone (IANA)</span>
+      <input list="tz-list" name="Timezone" value="{{.Config.Timezone}}" class="mt-1 w-full border rounded px-2 py-1">
+      <datalist id="tz-list">{{range $.Timezones}}<option value="{{.}}">{{end}}</datalist>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Hostname (≤15 char)</span>
+      <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+  </div>
+</section>
+
+<!-- Network -->
+<section class="bg-white rounded shadow p-4 space-y-3" x-data="{ dhcp: {{if .Config.UseDHCP}}true{{else}}false{{end}} }">
+  <h2 class="text-lg font-semibold border-b pb-2 flex items-center gap-3">🌐 Network
+    <label class="text-sm font-normal flex items-center gap-2 ml-auto">
+      <input type="checkbox" name="UseDHCP" x-model="dhcp"> Use DHCP
+    </label>
+  </h2>
+  <div x-show="!dhcp" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <label class="block">
+      <span class="text-sm font-medium">Static IP</span>
+      <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Subnet mask</span>
+      <input type="text" name="Subnet" value="{{.Config.Subnet}}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Gateway</span>
+      <input type="text" name="Gateway" value="{{.Config.Gateway}}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">DNS servers (comma- or newline-separated)</span>
+      <textarea name="DNSServers" rows="2" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.DNSServers}}{{if $i}}, {{end}}{{$v}}{{end}}</textarea>
+    </label>
+  </div>
+</section>
+
+<!-- Veeam accounts -->
+<section class="bg-white rounded shadow p-4 space-y-3">
+  <h2 class="text-lg font-semibold border-b pb-2">🔐 Veeam accounts</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <fieldset class="border rounded p-3 space-y-2">
+      <legend class="text-sm font-semibold px-1">Admin (veeamadmin)</legend>
+      <label class="block">
+        <span class="text-xs">Password (≥15 chars, mixed)</span>
+        <div class="flex gap-1">
+          <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
+          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="cfg.VeeamAdminPassword=genPassword(); $refs.adminPw.value=cfg.VeeamAdminPassword" x-ref="ignored">🎲</button>
+        </div>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}> MFA enabled</label>
+      <label class="block">
+        <span class="text-xs">MFA secret (Base32, 16-32 chars)</span>
+        <div class="flex gap-1">
+          <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="flex-1 border rounded px-2 py-1 font-mono">
+          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genBase32(16)">🎲</button>
+        </div>
+      </label>
+    </fieldset>
+    <fieldset class="border rounded p-3 space-y-2">
+      <legend class="text-sm font-semibold px-1">Security Officer (veeamso)</legend>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}> SO account enabled</label>
+      <label class="block">
+        <span class="text-xs">Password (≥15 chars, mixed, ≠ admin)</span>
+        <div class="flex gap-1">
+          <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
+          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genPassword()">🎲</button>
+        </div>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}> MFA enabled</label>
+      <label class="block">
+        <span class="text-xs">MFA secret (Base32)</span>
+        <div class="flex gap-1">
+          <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" class="flex-1 border rounded px-2 py-1 font-mono">
+          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genBase32(16)">🎲</button>
+        </div>
+      </label>
+      <label class="block">
+        <span class="text-xs">Recovery token (GUID)</span>
+        <div class="flex gap-1">
+          <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}" class="flex-1 border rounded px-2 py-1 font-mono">
+          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genGUID()">🎲</button>
+        </div>
+      </label>
+    </fieldset>
+  </div>
+</section>
+
+<!-- NTP -->
+<section class="bg-white rounded shadow p-4 space-y-3">
+  <h2 class="text-lg font-semibold border-b pb-2">⏰ NTP</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <label class="block">
+      <span class="text-sm font-medium">NTP servers (one per line)</span>
+      <textarea name="NtpServer" rows="3" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.NtpServer}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
+    </label>
+    <label class="flex items-center gap-2 mt-6">
+      <input type="checkbox" name="NtpRunSync" {{if .Config.NtpRunSync}}checked{{end}}>
+      <span>Run NTP sync at boot (failure ⇒ customisation fails)</span>
+    </label>
+  </div>
+</section>
+
+<!-- VSA 13.1+ -->
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
+  <h2 class="text-lg font-semibold border-b pb-2">⚙️ VSA 13.1+ options</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <label class="flex items-center gap-2"><input type="checkbox" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> Allow external managers</label>
+    <label class="block">
+      <span class="text-sm">External managers timeout (s, 60-86400)</span>
+      <input type="number" name="ExternalManagersInstallationTimeout" min="60" max="86400" value="{{.Config.ExternalManagersInstallationTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> High Availability mode</label>
+    <label class="block">
+      <span class="text-sm">HA timeout (s)</span>
+      <input type="number" name="HighAvailabilityTimeout" min="60" max="86400" value="{{.Config.HighAvailabilityTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+  </div>
+</section>
+
+<!-- Monitoring -->
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
+  <h2 class="text-lg font-semibold border-b pb-2">📈 Monitoring (VSA only)</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> Enable node_exporter (built-in VSA 13.1+)</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> TLS on metrics endpoint</label>
+  </div>
+</section>
+
+<!-- VBR -->
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
+  <h2 class="text-lg font-semibold border-b pb-2">🔧 VBR tuning (VSA only)</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <label class="flex items-center gap-2"><input type="checkbox" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> Install license + run VBR tuning</label>
+    <label class="block">
+      <span class="text-sm">License file</span>
+      <input list="lic-list" name="LicenseFile" value="{{.Config.LicenseFile}}" class="mt-1 w-full border rounded px-2 py-1">
+      <datalist id="lic-list">{{range .LicenseFiles}}<option value="{{.}}">{{end}}</datalist>
+    </label>
+    <label class="block">
+      <span class="text-sm">Syslog server (IP/FQDN, optional)</span>
+      <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" class="mt-1 w-full border rounded px-2 py-1">
+    </label>
+  </div>
+</section>
+
+<!-- VCSP -->
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
+  <h2 class="text-lg font-semibold border-b pb-2">☁️ VCSP (VSA only)</h2>
+  <label class="flex items-center gap-2"><input type="checkbox" name="VCSPConnection" {{if .Config.VCSPConnection}}checked{{end}}> Connect to VCSP</label>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <label class="block"><span class="text-sm">VCSP URL</span><input type="url" name="VCSPUrl" value="{{.Config.VCSPUrl}}" class="mt-1 w-full border rounded px-2 py-1"></label>
+    <label class="block"><span class="text-sm">VCSP login</span><input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}" class="mt-1 w-full border rounded px-2 py-1"></label>
+    <label class="block"><span class="text-sm">VCSP password</span><input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}" class="mt-1 w-full border rounded px-2 py-1 font-mono"></label>
+  </div>
+</section>
+
+<!-- Restore -->
+<section class="bg-white rounded shadow p-4 space-y-3">
+  <h2 class="text-lg font-semibold border-b pb-2">♻️ Configuration restore</h2>
+  <label class="flex items-center gap-2"><input type="checkbox" name="RestoreConfig" {{if .Config.RestoreConfig}}checked{{end}}> Enable unattended config restore</label>
+  <label class="block max-w-md">
+    <span class="text-sm">SO config password</span>
+    <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}" class="mt-1 w-full border rounded px-2 py-1 font-mono">
+  </label>
+  <p class="text-xs text-slate-500">Place <code>unattended.xml</code>, <code>veeam_addsoconfpw.sh</code> and <code>conftoresto.bco</code> under <code>/data/conf</code>.</p>
+</section>
+
+<!-- VIA -->
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType !== 'VSA'">
+  <h2 class="text-lg font-semibold border-b pb-2">🧱 VIA options</h2>
+  <label class="flex items-center gap-2">
+    <input type="checkbox" name="VIASingleDisk" {{if .Config.VIASingleDisk}}checked{{end}}>
+    <span>Single Disk mode <span class="text-red-600 text-xs font-bold">(wipes entire device — inst.vsingledisk)</span></span>
+  </label>
+</section>
+
+<!-- Debug -->
+<section class="bg-white rounded shadow p-4 space-y-3">
+  <h2 class="text-lg font-semibold border-b pb-2">🐞 Debug</h2>
+  <label class="flex items-center gap-2">
+    <input type="checkbox" name="Debug" {{if .Config.Debug}}checked{{end}}>
+    <span class="text-red-700 font-medium">⚠️ Enable root + SSH (do not use in production)</span>
+  </label>
+</section>
+
+<!-- Submit -->
+<div class="bg-white rounded shadow p-4 flex justify-end gap-2 sticky bottom-0">
+  <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded font-semibold">
+    🚀 Generate ISO
+  </button>
+</div>
+</form>
+
+<!-- Recent jobs -->
+{{if .Jobs}}
+<section class="bg-white rounded shadow p-4">
+  <h2 class="text-lg font-semibold border-b pb-2 mb-3">Recent jobs</h2>
+  <table class="w-full text-sm">
+    <thead><tr class="text-left text-slate-500"><th>ID</th><th>Appliance</th><th>Hostname</th><th>State</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+    {{range .Jobs}}
+    <tr class="border-t">
+      <td class="font-mono text-xs"><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline">{{slice .ID 0 8}}</a></td>
+      <td>{{.Appliance}}</td><td>{{.Hostname}}</td>
+      <td><span class="px-2 py-0.5 rounded text-xs
+        {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-800{{end}}
+        {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
+        {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-800{{end}}
+        {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
+      ">{{.State}}</span></td>
+      <td class="text-xs">{{.CreatedAt.Format "15:04:05"}}</td>
+      <td><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">open →</a></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+</div>
+{{end}}

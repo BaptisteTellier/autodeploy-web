@@ -1,0 +1,32 @@
+{{define "layout.html"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>autodeploy-web · {{.Version}}</title>
+<link rel="stylesheet" href="/static/tailwind.css">
+<script src="/static/tailwind.js"></script>
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/alpine.min.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+<header class="bg-emerald-700 text-white">
+  <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+    <a href="/" class="text-lg font-bold">🚀 autodeploy-web</a>
+    <nav class="space-x-4 text-sm">
+      <a href="/" class="hover:underline">New job</a>
+      <a href="/jobs" class="hover:underline">Jobs</a>
+      <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" class="hover:underline">GitHub</a>
+    </nav>
+    <span class="text-xs opacity-75">v{{.Version}}</span>
+  </div>
+</header>
+<main class="container mx-auto px-4 py-6">
+{{template "content" .}}
+</main>
+<footer class="text-center text-xs text-slate-500 py-6">
+autodeploy-web — wrapper around <a href="https://github.com/BaptisteTellier/autodeploy" class="underline">BaptisteTellier/autodeploy</a> PowerShell tool.
+</footer>
+</body>
+</html>{{end}}

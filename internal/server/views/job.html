@@ -1,0 +1,98 @@
+{{define "views/job.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<div class="space-y-4">
+
+<div class="bg-white rounded shadow p-4 flex flex-wrap gap-4 items-center">
+  <div>
+    <div class="text-xs uppercase text-slate-500">Job</div>
+    <div class="font-mono text-sm">{{.Job.ID}}</div>
+  </div>
+  <div>
+    <div class="text-xs uppercase text-slate-500">Appliance</div>
+    <div>{{.Job.Appliance}}</div>
+  </div>
+  <div>
+    <div class="text-xs uppercase text-slate-500">Hostname</div>
+    <div>{{.Job.Hostname}}</div>
+  </div>
+  <div>
+    <div class="text-xs uppercase text-slate-500">Source</div>
+    <div class="text-sm">{{.Job.SourceISO}}</div>
+  </div>
+  <div>
+    <div class="text-xs uppercase text-slate-500">Output</div>
+    <div class="text-sm">{{.Job.OutputISO}}</div>
+  </div>
+  <div class="ml-auto">
+    <div class="text-xs uppercase text-slate-500">State</div>
+    <div id="job-state" class="px-3 py-1 rounded text-sm inline-block
+      {{if eq (printf "%s" .Job.State) "done"}}bg-emerald-100 text-emerald-800{{end}}
+      {{if eq (printf "%s" .Job.State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
+      {{if eq (printf "%s" .Job.State) "failed"}}bg-red-100 text-red-800{{end}}
+      {{if eq (printf "%s" .Job.State) "pending"}}bg-slate-100 text-slate-800{{end}}
+    ">{{.Job.State}}</div>
+  </div>
+</div>
+
+<div class="bg-white rounded shadow p-4 flex flex-wrap gap-2">
+  <a id="download-btn"
+     href="/jobs/{{.Job.ID}}/download"
+     class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-semibold
+            {{if ne (printf "%s" .Job.State) "done"}}opacity-40 pointer-events-none{{end}}">
+     ⬇️ Download ISO
+  </a>
+  <a href="/" class="bg-slate-200 px-4 py-2 rounded text-sm">← New job</a>
+  <a href="/jobs" class="bg-slate-200 px-4 py-2 rounded text-sm">All jobs</a>
+  {{if .Job.ErrorMessage}}
+  <span class="text-red-700 text-sm self-center">⚠️ {{.Job.ErrorMessage}}</span>
+  {{end}}
+</div>
+
+<div class="bg-slate-900 rounded shadow p-3 overflow-hidden">
+  <div class="flex items-center justify-between mb-2">
+    <span class="text-slate-400 text-xs uppercase">Live log (autodeploy.ps1)</span>
+    <label class="text-slate-400 text-xs flex items-center gap-1">
+      <input type="checkbox" id="autoscroll" checked> autoscroll
+    </label>
+  </div>
+  <pre id="log" class="text-green-300 text-xs font-mono max-h-[60vh] overflow-auto whitespace-pre-wrap">{{range .Lines}}{{.}}
+{{end}}</pre>
+</div>
+
+<script>
+(function () {
+  const log = document.getElementById('log');
+  const autoscroll = document.getElementById('autoscroll');
+  const stateEl = document.getElementById('job-state');
+  const dl = document.getElementById('download-btn');
+
+  function append(text) {
+    log.textContent += text + "\n";
+    if (autoscroll.checked) log.scrollTop = log.scrollHeight;
+  }
+
+  const finalStates = new Set(['done', 'failed', 'canceled']);
+  const initialState = stateEl.textContent.trim();
+  if (finalStates.has(initialState)) return;
+
+  const es = new EventSource("/jobs/{{.Job.ID}}/stream");
+  es.addEventListener('log', e => append(e.data));
+  es.addEventListener('state', e => {
+    stateEl.textContent = e.data;
+    stateEl.className = 'px-3 py-1 rounded text-sm inline-block ' +
+      ({done:'bg-emerald-100 text-emerald-800',
+        failed:'bg-red-100 text-red-800',
+        running:'bg-blue-100 text-blue-800',
+        pending:'bg-slate-100 text-slate-800'}[e.data] || 'bg-slate-100');
+    if (e.data === 'done') {
+      dl.classList.remove('opacity-40', 'pointer-events-none');
+    }
+    if (finalStates.has(e.data)) es.close();
+  });
+  es.onerror = () => { /* heartbeat will retry automatically */ };
+})();
+</script>
+
+</div>
+{{end}}

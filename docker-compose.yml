@@ -1,0 +1,26 @@
+services:
+  autodeploy-web:
+    image: ghcr.io/baptistetellier/autodeploy-web:latest
+    # build: .          # uncomment to build locally
+    container_name: autodeploy-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      LISTEN_ADDR: ":8080"
+      DATA_DIR: "/data"
+      WORKER_CONCURRENCY: "1"
+      # PUID/PGID for volume ownership (optional)
+      # PUID: "1000"
+      # PGID: "1000"
+    volumes:
+      # Source Veeam ISOs (15-20 GB each)
+      - ./data/iso:/data/iso
+      # Generated customised ISOs
+      - ./data/output:/data/output
+      # Veeam .lic files
+      - ./data/license:/data/license
+      # unattended.xml, .bco for restore config
+      - ./data/conf:/data/conf
+      # Saved JSON presets
+      - ./data/configs:/data/configs

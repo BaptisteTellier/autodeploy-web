@@ -1,0 +1,28 @@
+# Binaries
+/bin/
+/dist/
+autodeploy-web
+autodeploy-web.exe
+*.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+vendor/
+
+# Local data (volumes)
+/data/
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

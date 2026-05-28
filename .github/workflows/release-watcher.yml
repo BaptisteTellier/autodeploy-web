@@ -1,0 +1,57 @@
+name: release-watcher
+# Daily check for new releases of BaptisteTellier/autodeploy.
+# If a newer tag is published, this workflow opens a PR that bumps
+# AUTODEPLOY_VERSION in the Dockerfile, which triggers build-image
+# once merged.
+on:
+  schedule:
+    - cron: '17 6 * * *'   # 06:17 UTC every day
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read current pinned version
+        id: cur
+        run: |
+          cur=$(grep -E '^ARG AUTODEPLOY_VERSION=' Dockerfile | head -1 | cut -d= -f2)
+          echo "current=$cur" >> "$GITHUB_OUTPUT"
+
+      - name: Get latest autodeploy release
+        id: latest
+        run: |
+          tag=$(curl -fsSL https://api.github.com/repos/BaptisteTellier/autodeploy/releases/latest | jq -r .tag_name)
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "No release found (repo may use tags only)."
+            # Fallback: latest tag
+            tag=$(curl -fsSL https://api.github.com/repos/BaptisteTellier/autodeploy/tags | jq -r '.[0].name')
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Compare and bump
+        if: steps.latest.outputs.tag != steps.cur.outputs.current && steps.latest.outputs.tag != ''
+        run: |
+          sed -i "s|^ARG AUTODEPLOY_VERSION=.*|ARG AUTODEPLOY_VERSION=${{ steps.latest.outputs.tag }}|" Dockerfile
+
+      - name: Open PR
+        if: steps.latest.outputs.tag != steps.cur.outputs.current && steps.latest.outputs.tag != ''
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: bump autodeploy to ${{ steps.latest.outputs.tag }}"
+          title: "Bump autodeploy ${{ steps.cur.outputs.current }} → ${{ steps.latest.outputs.tag }}"
+          body: |
+            Automated bump of `AUTODEPLOY_VERSION` to track the upstream
+            [BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy)
+            release **${{ steps.latest.outputs.tag }}**.
+
+            Merging this PR will rebuild the GHCR image with the new PS1.
+          branch: autobump/autodeploy-${{ steps.latest.outputs.tag }}
+          delete-branch: true
+          labels: dependencies, autobump
