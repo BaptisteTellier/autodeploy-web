@@ -50,6 +50,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY scripts/wsl-wrapper.sh /usr/local/bin/wsl
 RUN chmod +x /usr/local/bin/wsl
 
+# Wrapper "cmd" — the PS1 uses "cmd /c <command>" to capture output on Windows.
+# Inside the container we re-dispatch to bash.
+COPY scripts/cmd-wrapper.sh /usr/local/bin/cmd
+RUN chmod +x /usr/local/bin/cmd
+
 # Application binary
 COPY --from=gobuild /out/autodeploy-web /usr/local/bin/autodeploy-web
 

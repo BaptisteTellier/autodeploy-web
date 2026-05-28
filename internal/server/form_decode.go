@@ -95,33 +95,38 @@ func configFromForm(r *http.Request) (config.Config, error) {
 	c.NtpServer = getArray("NtpServer")
 	c.NtpRunSync = config.FlexBool(getBool("NtpRunSync"))
 
-	// VSA 13.1
-	c.ExternalManagersInstallationEnabled = getBool("ExternalManagersInstallationEnabled")
-	c.ExternalManagersInstallationTimeout = getInt("ExternalManagersInstallationTimeout", c.ExternalManagersInstallationTimeout)
-	c.HighAvailabilityEnabled = getBool("HighAvailabilityEnabled")
-	c.HighAvailabilityTimeout = getInt("HighAvailabilityTimeout", c.HighAvailabilityTimeout)
+	// VSA 13.1+ — only read when appliance is VSA (x-show hides the section
+	// client-side but hidden inputs are still submitted; guard server-side).
+	if c.ApplianceType == "VSA" {
+		c.ExternalManagersInstallationEnabled = getBool("ExternalManagersInstallationEnabled")
+		c.ExternalManagersInstallationTimeout = getInt("ExternalManagersInstallationTimeout", c.ExternalManagersInstallationTimeout)
+		c.HighAvailabilityEnabled = getBool("HighAvailabilityEnabled")
+		c.HighAvailabilityTimeout = getInt("HighAvailabilityTimeout", c.HighAvailabilityTimeout)
 
-	// Monitoring
-	c.NodeExporter = getBool("NodeExporter")
-	c.NodeExporterTLSEnabled = getBool("NodeExporterTLSEnabled")
+		// Monitoring
+		c.NodeExporter = getBool("NodeExporter")
+		c.NodeExporterTLSEnabled = getBool("NodeExporterTLSEnabled")
 
-	// VBR
-	c.LicenseVBRTune = getBool("LicenseVBRTune")
-	c.LicenseFile = get("LicenseFile")
-	c.SyslogServer = get("SyslogServer")
+		// VBR
+		c.LicenseVBRTune = getBool("LicenseVBRTune")
+		c.LicenseFile = get("LicenseFile")
+		c.SyslogServer = get("SyslogServer")
 
-	// VCSP
-	c.VCSPConnection = getBool("VCSPConnection")
-	c.VCSPUrl = get("VCSPUrl")
-	c.VCSPLogin = get("VCSPLogin")
-	c.VCSPPassword = get("VCSPPassword")
+		// VCSP
+		c.VCSPConnection = getBool("VCSPConnection")
+		c.VCSPUrl = get("VCSPUrl")
+		c.VCSPLogin = get("VCSPLogin")
+		c.VCSPPassword = get("VCSPPassword")
 
-	// Restore
-	c.RestoreConfig = getBool("RestoreConfig")
-	c.ConfigPasswordSo = get("ConfigPasswordSo")
+		// Restore
+		c.RestoreConfig = getBool("RestoreConfig")
+		c.ConfigPasswordSo = get("ConfigPasswordSo")
+	}
 
-	// VIA
-	c.VIASingleDisk = getBool("VIASingleDisk")
+	// VIA-only — only read for VIA appliance types
+	if c.ApplianceType != "VSA" {
+		c.VIASingleDisk = getBool("VIASingleDisk")
+	}
 
 	// Debug
 	c.Debug = getBool("Debug")
