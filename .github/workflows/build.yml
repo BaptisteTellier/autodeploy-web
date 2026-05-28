@@ -1,7 +1,7 @@
 name: build-image
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -54,7 +54,7 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
       - name: Build & push
         uses: docker/build-push-action@v6
