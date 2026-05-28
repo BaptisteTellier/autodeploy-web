@@ -1,26 +1,106 @@
+###############################################################################
+# autodeploy-web — Veeam ISO customisation web UI
+# https://github.com/BaptisteTellier/autodeploy-web
+#
+# QUICK START (only requirement: Docker with Compose plugin)
+#
+#   1. Copy your source Veeam ISO into  ./data/iso/
+#   2. (optional) Copy a .lic file into ./data/license/
+#   3. (optional) Copy unattended.xml + veeam_addsoconfpw.sh + conftoresto.bco
+#      into ./data/conf/ if you use the Restore Config feature
+#   4. docker compose up -d
+#   5. Open http://localhost:8080
+#
+###############################################################################
+
 services:
   autodeploy-web:
+    # Pre-built image from GHCR (recommended — no build tools needed on the host).
+    # If the image is not yet available (first deploy before CI runs), comment
+    # the line below and uncomment the "build:" block instead.
     image: ghcr.io/baptistetellier/autodeploy-web:latest
-    # build: .          # uncomment to build locally
+
+    # ── Alternative: build locally from source ──────────────────────────────
+    # Requires git + Docker BuildKit on the host. Uncomment if GHCR is not
+    # yet available (e.g. before the first GitHub Actions run).
+    #
+    # image: autodeploy-web:local
+    # build:
+    #   context: https://github.com/BaptisteTellier/autodeploy-web.git
+    #   args:
+    #     AUTODEPLOY_VERSION: main
+    # ────────────────────────────────────────────────────────────────────────
+
     container_name: autodeploy-web
     restart: unless-stopped
+
     ports:
-      - "8080:8080"
+      # Change left side to expose on a different host port, e.g. "9090:8080"
+      - "${PORT:-8080}:8080"
+
     environment:
       LISTEN_ADDR: ":8080"
       DATA_DIR: "/data"
-      WORKER_CONCURRENCY: "1"
-      # PUID/PGID for volume ownership (optional)
-      # PUID: "1000"
-      # PGID: "1000"
+      # Maximum concurrent ISO builds — raise only if you have the disk IOPS
+      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+
     volumes:
-      # Source Veeam ISOs (15-20 GB each)
+      # ── Source Veeam ISOs (15–20 GB each) ─────────────────────────────────
+      # Drop VeeamSoftwareAppliance_*.iso or VeeamInfrastructureAppliance_*.iso here.
       - ./data/iso:/data/iso
-      # Generated customised ISOs
+
+      # ── Generated customised ISOs ──────────────────────────────────────────
+      # After a successful build the ISO appears here and is downloadable from
+      # the UI.
       - ./data/output:/data/output
-      # Veeam .lic files
+
+      # ── Veeam licence files (.lic) ─────────────────────────────────────────
+      # Required only when LicenseVBRTune = true in your config.
       - ./data/license:/data/license
-      # unattended.xml, .bco for restore config
+
+      # ── Unattended Configuration Restore files ─────────────────────────────
+      # Required only when RestoreConfig = true. Place these three files here:
+      #   • unattended.xml   (edit BACKUP_PASSWORD inside)
+      #   • veeam_addsoconfpw.sh
+      #   • conftoresto.bco  (your .bco renamed exactly like this)
       - ./data/conf:/data/conf
-      # Saved JSON presets
+
+      # ── Named JSON configuration presets ──────────────────────────────────
+      # Presets saved from the UI are stored here and survive container restarts.
+      # You can also drop existing autodeploy.ps1-compatible JSON files here
+      # directly — they will appear in the "Load preset" dropdown.
       - ./data/configs:/data/configs
+
+###############################################################################
+# FOLDER STRUCTURE (created automatically by the init container below)
+#
+#   ./data/
+#     iso/        ← PUT YOUR VEEAM SOURCE ISOs HERE
+#     output/     ← customised ISOs land here
+#     license/    ← optional: .lic files
+#     conf/       ← optional: restore config files
+#     configs/    ← UI presets (auto-managed)
+#
+###############################################################################
+
+  # One-shot init container that creates the host directories on first run.
+  # Harmless on subsequent runs. Runs before autodeploy-web starts.
+  init:
+    image: busybox:latest
+    container_name: autodeploy-web-init
+    restart: "no"
+    entrypoint: >
+      sh -c "
+        mkdir -p /mnt/iso /mnt/output /mnt/license /mnt/conf /mnt/configs &&
+        echo 'Directories ready.' &&
+        echo '' &&
+        echo '  → Drop your Veeam source ISO into ./data/iso/' &&
+        echo '  → Then open http://localhost:${PORT:-8080}' &&
+        echo ''
+      "
+    volumes:
+      - ./data/iso:/mnt/iso
+      - ./data/output:/mnt/output
+      - ./data/license:/mnt/license
+      - ./data/conf:/mnt/conf
+      - ./data/configs:/mnt/configs

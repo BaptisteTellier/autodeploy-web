@@ -51,8 +51,10 @@
     </label>
     <label class="block">
       <span class="text-sm font-medium">Source ISO</span>
-      <input list="iso-list" name="SourceISO" value="{{.Config.SourceISO}}" required class="mt-1 w-full border rounded px-2 py-1">
-      <datalist id="iso-list">{{range .SourceISOs}}<option value="{{.}}">{{end}}</datalist>
+      <select name="SourceISO" required class="mt-1 w-full border rounded px-2 py-1">
+        <option value="">— select ISO —</option>
+        {{range .SourceISOs}}<option value="{{.}}" {{if eq . $.Config.SourceISO}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
       <small class="text-slate-500">Files in <code>/data/iso</code></small>
     </label>
     <label class="block">
@@ -88,13 +90,15 @@
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
     <label class="block">
       <span class="text-sm font-medium">Keyboard layout</span>
-      <input list="kbd-list" name="KeyboardLayout" value="{{.Config.KeyboardLayout}}" class="mt-1 w-full border rounded px-2 py-1">
-      <datalist id="kbd-list">{{range $.KeyboardLayouts}}<option value="{{.}}">{{end}}</datalist>
+      <select name="KeyboardLayout" class="mt-1 w-full border rounded px-2 py-1">
+        {{range $.KeyboardLayouts}}<option value="{{.Value}}" {{if eq .Value $.Config.KeyboardLayout}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </label>
     <label class="block">
       <span class="text-sm font-medium">Timezone (IANA)</span>
-      <input list="tz-list" name="Timezone" value="{{.Config.Timezone}}" class="mt-1 w-full border rounded px-2 py-1">
-      <datalist id="tz-list">{{range $.Timezones}}<option value="{{.}}">{{end}}</datalist>
+      <select name="Timezone" class="mt-1 w-full border rounded px-2 py-1">
+        {{range $.Timezones}}<option value="{{.Value}}" {{if eq .Value $.Config.Timezone}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
     </label>
     <label class="block">
       <span class="text-sm font-medium">Hostname (≤15 char)</span>
@@ -128,10 +132,6 @@
       <textarea name="DNSServers" rows="2" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.DNSServers}}{{if $i}}, {{end}}{{$v}}{{end}}</textarea>
     </label>
   </div>
-  <label class="flex items-center gap-2 mt-1">
-    <input type="checkbox" name="EnableIPv6" {{if .Config.EnableIPv6}}checked{{end}}>
-    <span class="text-sm">Enable IPv6</span>
-  </label>
 </section>
 
 <!-- Veeam accounts -->
@@ -144,7 +144,7 @@
         <span class="text-xs">Password (≥15 chars, mixed)</span>
         <div class="flex gap-1">
           <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
-          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="cfg.VeeamAdminPassword=genPassword(); $refs.adminPw.value=cfg.VeeamAdminPassword" x-ref="ignored">🎲</button>
+          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genPassword()">🎲</button>
         </div>
       </label>
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}> MFA enabled</label>
@@ -234,8 +234,10 @@
     <label class="flex items-center gap-2"><input type="checkbox" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> Install license + run VBR tuning</label>
     <label class="block">
       <span class="text-sm">License file</span>
-      <input list="lic-list" name="LicenseFile" value="{{.Config.LicenseFile}}" class="mt-1 w-full border rounded px-2 py-1">
-      <datalist id="lic-list">{{range .LicenseFiles}}<option value="{{.}}">{{end}}</datalist>
+      <select name="LicenseFile" class="mt-1 w-full border rounded px-2 py-1">
+        <option value="">— none —</option>
+        {{range .LicenseFiles}}<option value="{{.}}" {{if eq . $.Config.LicenseFile}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
     </label>
     <label class="block">
       <span class="text-sm">Syslog server (IP/FQDN, optional)</span>
@@ -256,7 +258,7 @@
 </section>
 
 <!-- Restore -->
-<section class="bg-white rounded shadow p-4 space-y-3">
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
   <h2 class="text-lg font-semibold border-b pb-2">♻️ Configuration restore</h2>
   <label class="flex items-center gap-2"><input type="checkbox" name="RestoreConfig" {{if .Config.RestoreConfig}}checked{{end}}> Enable unattended config restore</label>
   <label class="block max-w-md">
@@ -271,7 +273,7 @@
   <h2 class="text-lg font-semibold border-b pb-2">🧱 VIA options</h2>
   <label class="flex items-center gap-2">
     <input type="checkbox" name="VIASingleDisk" {{if .Config.VIASingleDisk}}checked{{end}}>
-    <span>Single Disk mode <span class="text-red-600 text-xs font-bold">(wipes entire device — inst.vsingledisk)</span></span>
+    <span>Single Disk mode</span>
   </label>
 </section>
 

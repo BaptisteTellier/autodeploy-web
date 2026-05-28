@@ -35,7 +35,6 @@ type Config struct {
 	Subnet     string          `json:"Subnet"`
 	Gateway    string          `json:"Gateway"`
 	DNSServers FlexStringArray `json:"DNSServers"`
-	EnableIPv6 bool            `json:"EnableIPv6"`
 
 	// --- Veeam accounts
 	VeeamAdminPassword     string   `json:"VeeamAdminPassword"`
