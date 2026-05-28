@@ -241,11 +241,11 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "views/admin.html", map[string]any{
-		"Version":           s.deps.Version,
-		"BakedPS1Version":   bakedVer,
+		"Version":            s.deps.Version,
+		"BakedPS1Version":    bakedVer,
 		"OverridePS1Version": overrideVer,
-		"OverrideModTime":   overrideMod,
-		"OverrideActive":    overrideActive,
+		"OverrideModTime":    overrideMod,
+		"OverrideActive":     overrideActive,
 	})
 }
 

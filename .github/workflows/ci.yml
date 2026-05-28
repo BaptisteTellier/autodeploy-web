@@ -26,5 +26,6 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "::error::Files not gofmt-ed:"
             echo "$unformatted"
+            gofmt -d .
             exit 1
           fi
