@@ -22,6 +22,7 @@ func Defaults() Config {
 		Subnet:     "255.255.255.0",
 		Gateway:    "192.168.1.1",
 		DNSServers: FlexStringArray{"192.168.1.64", "8.8.4.4"},
+		EnableIPv6: false,
 
 		VeeamAdminPassword:     "123q123Q123!123",
 		VeeamAdminMfaSecretKey: "JBSWY3DPEHPK3PXP",
@@ -61,7 +62,7 @@ func Defaults() Config {
 }
 
 // ApplianceTypes lists the values accepted by the PS1.
-var ApplianceTypes = []string{"VSA", "VIA", "VIAVMware", "VIAHR"}
+var ApplianceTypes = []string{"VSA", "VIA", "VIAiscsi", "VIAHR"}
 
 // KeyboardLayouts is a curated list surfaced in the form. Not exhaustive —
 // the PS1 ultimately accepts any string Anaconda accepts.

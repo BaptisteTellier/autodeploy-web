@@ -117,7 +117,7 @@ const STRING_BOOL_KEYS = new Set([
   'VeeamAdminIsMfaEnabled', 'VeeamSoIsMfaEnabled', 'VeeamSoIsEnabled', 'NtpRunSync',
 ]);
 const REAL_BOOL_KEYS = new Set([
-  'InPlace','CreateBackup','CleanupCFGFiles','CFGOnly','UseDHCP',
+  'InPlace','CreateBackup','CleanupCFGFiles','CFGOnly','UseDHCP','EnableIPv6',
   'ExternalManagersInstallationEnabled','HighAvailabilityEnabled',
   'NodeExporter','NodeExporterTLSEnabled','LicenseVBRTune','VCSPConnection',
   'RestoreConfig','VIASingleDisk','Debug',

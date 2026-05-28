@@ -41,7 +41,7 @@ func Validate(c Config) ValidationErrors {
 
 	// Appliance
 	if !contains(ApplianceTypes, c.ApplianceType) {
-		add("ApplianceType", "must be one of VSA, VIA, VIAVMware, VIAHR")
+		add("ApplianceType", "must be one of VSA, VIA, VIAiscsi, VIAHR")
 	}
 	if c.SourceISO == "" {
 		add("SourceISO", "required")

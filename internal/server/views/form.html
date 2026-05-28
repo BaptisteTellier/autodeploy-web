@@ -128,6 +128,10 @@
       <textarea name="DNSServers" rows="2" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.DNSServers}}{{if $i}}, {{end}}{{$v}}{{end}}</textarea>
     </label>
   </div>
+  <label class="flex items-center gap-2 mt-1">
+    <input type="checkbox" name="EnableIPv6" {{if .Config.EnableIPv6}}checked{{end}}>
+    <span class="text-sm">Enable IPv6</span>
+  </label>
 </section>
 
 <!-- Veeam accounts -->
@@ -263,7 +267,7 @@
 </section>
 
 <!-- VIA -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType !== 'VSA'">
+<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType === 'VIA' || cfg.ApplianceType === 'VIAiscsi' || cfg.ApplianceType === 'VIAHR'">
   <h2 class="text-lg font-semibold border-b pb-2">🧱 VIA options</h2>
   <label class="flex items-center gap-2">
     <input type="checkbox" name="VIASingleDisk" {{if .Config.VIASingleDisk}}checked{{end}}>

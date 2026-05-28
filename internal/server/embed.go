@@ -2,6 +2,8 @@ package server
 
 import (
 	"embed"
+	"encoding/json"
+	"fmt"
 	"html/template"
 	"io/fs"
 )
@@ -35,6 +37,24 @@ var funcMap = template.FuncMap{
 			out += s
 		}
 		return out
+	},
+	// humanSize converts bytes to a human-readable string (KB/MB/GB).
+	"humanSize": func(n int64) string {
+		const unit = 1024
+		if n < unit {
+			return fmt.Sprintf("%d B", n)
+		}
+		div, exp := int64(unit), 0
+		for v := n / unit; v >= unit; v /= unit {
+			div *= unit
+			exp++
+		}
+		return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+	},
+	// jsonStr JSON-encodes a string for safe inline use in Alpine x-data attributes.
+	"jsonStr": func(s string) template.JS {
+		b, _ := json.Marshal(s)
+		return template.JS(b) //nolint:gosec
 	},
 }
 

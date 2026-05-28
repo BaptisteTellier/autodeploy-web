@@ -55,6 +55,13 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /library/{kind}", s.handleListLibrary)
 
+	mux.HandleFunc("GET /media/iso", s.handleMediaISO)
+	mux.HandleFunc("GET /media/output", s.handleMediaOutput)
+	mux.HandleFunc("POST /media/iso/upload", s.handleUploadISO)
+	mux.HandleFunc("DELETE /media/{kind}/{name}", s.handleDeleteMediaFile)
+	mux.HandleFunc("POST /media/{kind}/{name}/rename", s.handleRenameMediaFile)
+	mux.HandleFunc("GET /media/output/{name}/download", s.handleDownloadOutputFile)
+
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(s.static))))
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

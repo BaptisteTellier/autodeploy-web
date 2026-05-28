@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
 )
@@ -226,7 +227,176 @@ func (s *Server) handleDeleteConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- Library (ISO/license/conf inventory) -------------------------------
+// --- Media managers (ISO source + output) --------------------------------
+
+// MediaFile holds metadata about a file in a managed directory.
+type MediaFile struct {
+	Name    string
+	Size    int64
+	ModTime time.Time
+}
+
+func listDirInfo(dir string, exts []string) []MediaFile {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []MediaFile
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if len(exts) > 0 {
+			match := false
+			for _, ext := range exts {
+				if strings.EqualFold(filepath.Ext(name), ext) {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, MediaFile{Name: name, Size: info.Size(), ModTime: info.ModTime()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func (s *Server) handleMediaISO(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "views/media_iso.html", map[string]any{
+		"Version": s.deps.Version,
+		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "iso"), []string{".iso"}),
+	})
+}
+
+func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "views/media_output.html", map[string]any{
+		"Version": s.deps.Version,
+		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "output"), []string{".iso"}),
+	})
+}
+
+func (s *Server) handleUploadISO(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 25<<30) // 25 GB limit
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "no file field: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+
+	name := filepath.Base(hdr.Filename)
+	if name == "" || name == "." {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+	if !strings.EqualFold(filepath.Ext(name), ".iso") {
+		http.Error(w, "only .iso files are accepted", http.StatusBadRequest)
+		return
+	}
+	dst := filepath.Join(s.deps.DataDir, "iso", name)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, f); err != nil {
+		http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/media/iso", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeleteMediaFile(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	name := filepath.Base(r.PathValue("name"))
+
+	var dir string
+	switch kind {
+	case "iso":
+		dir = filepath.Join(s.deps.DataDir, "iso")
+	case "output":
+		dir = filepath.Join(s.deps.DataDir, "output")
+	default:
+		http.Error(w, "unknown kind", http.StatusBadRequest)
+		return
+	}
+	if err := os.Remove(filepath.Join(dir, name)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.Header.Get("HX-Request") != "" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, "/media/"+kind, http.StatusSeeOther)
+}
+
+func (s *Server) handleRenameMediaFile(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	oldName := filepath.Base(r.PathValue("name"))
+
+	var dir string
+	switch kind {
+	case "iso":
+		dir = filepath.Join(s.deps.DataDir, "iso")
+	case "output":
+		dir = filepath.Join(s.deps.DataDir, "output")
+	default:
+		http.Error(w, "unknown kind", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	newName := filepath.Base(strings.TrimSpace(r.FormValue("new_name")))
+	if newName == "" || newName == "." {
+		http.Error(w, "invalid new name", http.StatusBadRequest)
+		return
+	}
+	if err := os.Rename(filepath.Join(dir, oldName), filepath.Join(dir, newName)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/media/"+kind, http.StatusSeeOther)
+}
+
+func (s *Server) handleDownloadOutputFile(w http.ResponseWriter, r *http.Request) {
+	name := filepath.Base(r.PathValue("name"))
+	path := filepath.Join(s.deps.DataDir, "output", name)
+	f, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "stat: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
+// --- Library (ISO/license/conf inventory) --------------------------------
 
 func (s *Server) handleListLibrary(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
