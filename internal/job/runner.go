@@ -23,6 +23,11 @@ type Runner struct {
 	ConfDir       string // /data/conf
 	JobID         string // per-job output subfolder: OutputDir/JobID/
 
+	// OverrideScript, if non-empty and the file exists, is used instead of
+	// AutodeployDir/PSScript. Populated from /data/autodeploy/autodeploy.ps1
+	// when the user triggers a runtime update from the admin page.
+	OverrideScript string
+
 	// ConfigPath is the absolute path to the JSON the PS1 reads.
 	ConfigPath string
 
@@ -40,6 +45,12 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 	}
 
 	scriptPath := filepath.Join(r.AutodeployDir, r.PSScript)
+	// Prefer runtime override when it exists.
+	if r.OverrideScript != "" {
+		if _, err := os.Stat(r.OverrideScript); err == nil {
+			scriptPath = r.OverrideScript
+		}
+	}
 	if _, err := os.Stat(scriptPath); err != nil {
 		return -1, fmt.Errorf("autodeploy.ps1 not found at %s: %w", scriptPath, err)
 	}

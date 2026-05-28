@@ -220,6 +220,107 @@ func (s *Server) handleDeleteConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// --- Admin ------------------------------------------------------------------
+
+const autodeployRawURL = "https://raw.githubusercontent.com/BaptisteTellier/autodeploy/dev/autodeploy.ps1"
+
+// handleAdmin renders the admin/settings page.
+func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
+	bakedPS1 := filepath.Join(s.deps.AutodeployDir, "autodeploy.ps1")
+	overridePS1 := filepath.Join(s.deps.DataDir, "autodeploy", "autodeploy.ps1")
+
+	bakedVer := extractPS1Version(bakedPS1)
+
+	overrideVer := ""
+	overrideMod := ""
+	overrideActive := false
+	if info, err := os.Stat(overridePS1); err == nil {
+		overrideActive = true
+		overrideMod = info.ModTime().Format("2006-01-02 15:04:05")
+		overrideVer = extractPS1Version(overridePS1)
+	}
+
+	s.render(w, "views/admin.html", map[string]any{
+		"Version":           s.deps.Version,
+		"BakedPS1Version":   bakedVer,
+		"OverridePS1Version": overrideVer,
+		"OverrideModTime":   overrideMod,
+		"OverrideActive":    overrideActive,
+	})
+}
+
+// handleAdminUpdatePS1 downloads the latest autodeploy.ps1 from GitHub and
+// saves it to /data/autodeploy/autodeploy.ps1 (used by the runner as override).
+func (s *Server) handleAdminUpdatePS1(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(autodeployRawURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "téléchargement échoué : " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "GitHub a répondu : " + resp.Status})
+		return
+	}
+
+	dir := filepath.Join(s.deps.DataDir, "autodeploy")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "mkdir : " + err.Error()})
+		return
+	}
+	dst := filepath.Join(dir, "autodeploy.ps1")
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "création fichier : " + err.Error()})
+		return
+	}
+	defer f.Close()
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "écriture : " + err.Error()})
+		return
+	}
+	_ = f.Close() // flush before reading version
+
+	ver := extractPS1Version(dst)
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	label := "autodeploy.ps1"
+	if ver != "" {
+		label = "autodeploy.ps1 v" + ver
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":         true,
+		"bytes":      n,
+		"version":    ver,
+		"updated_at": now,
+		"message":    fmt.Sprintf("%s téléchargé (%.1f KB)", label, float64(n)/1024),
+	})
+}
+
+// handleAdminResetPS1 deletes the runtime override so the baked-in script is used again.
+func (s *Server) handleAdminResetPS1(w http.ResponseWriter, r *http.Request) {
+	dst := filepath.Join(s.deps.DataDir, "autodeploy", "autodeploy.ps1")
+	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "suppression échouée : "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- Media managers (ISO source + output) --------------------------------
 
 // MediaFile holds metadata about a file in a managed directory.
@@ -546,6 +647,28 @@ func (s *Server) handleListLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, listDir(dir, exts))
+}
+
+// extractPS1Version reads the first 8 KB of a PowerShell script and returns
+// the version string found on a ".VERSION x.y" line (PSScriptInfo block).
+func extractPS1Version(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	if len(data) > 8192 {
+		data = data[:8192]
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), ".VERSION") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				return parts[1]
+			}
+		}
+	}
+	return ""
 }
 
 // --- Helpers ------------------------------------------------------------

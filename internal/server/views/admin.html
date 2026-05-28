@@ -1,0 +1,179 @@
+{{define "views/admin.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<style>[x-cloak]{display:none}</style>
+<div class="space-y-6" x-data="{
+  source:          '{{if .OverrideActive}}override{{else}}bakedin{{end}}',
+  overrideExists:  {{if .OverrideActive}}true{{else}}false{{end}},
+  overrideVersion: '{{.OverridePS1Version}}',
+  overrideModTime: '{{.OverrideModTime}}',
+  updating:  false,
+  applying:  false,
+  msg: '',
+  err: '',
+
+  async doApply() {
+    this.msg = ''; this.err = '';
+    if (this.source === 'bakedin') {
+      if (!this.overrideExists) { this.msg = 'Script baked-in déjà actif — aucun changement.'; return; }
+      this.applying = true;
+      try {
+        const r = await fetch('/admin/autodeploy/reset', {method:'DELETE'});
+        if (r.ok) {
+          this.overrideExists = false;
+          this.overrideVersion = '';
+          this.overrideModTime = '';
+          this.msg = 'Script baked-in activé. Override supprimé.';
+        } else { this.err = 'Erreur : ' + await r.text(); }
+      } catch(e) { this.err = 'Erreur réseau : ' + e.message; }
+      this.applying = false;
+    } else {
+      if (!this.overrideExists) {
+        this.err = 'Aucun override disponible — téléchargez d\'abord la dernière version ci-dessous.';
+        return;
+      }
+      this.msg = 'Override runtime déjà actif — aucun changement.';
+    }
+  },
+
+  async doUpdate() {
+    this.updating = true; this.msg = ''; this.err = '';
+    try {
+      const r = await fetch('/admin/autodeploy/update', {method:'POST'});
+      const j = await r.json().catch(()=>({}));
+      if (r.ok) {
+        this.overrideExists  = true;
+        this.overrideVersion = j.version    || '';
+        this.overrideModTime = j.updated_at || '';
+        this.source = 'override';
+        this.msg = j.message || 'autodeploy.ps1 mis à jour.';
+      } else { this.err = j.error || ('Erreur HTTP ' + r.status); }
+    } catch(e) { this.err = 'Erreur réseau : ' + e.message; }
+    this.updating = false;
+  }
+}">
+
+  <h1 class="text-2xl font-bold">⚙️ Paramètres</h1>
+
+  <!-- autodeploy.ps1 card -->
+  <div class="bg-white rounded shadow p-5 space-y-5">
+    <div class="flex items-center justify-between border-b pb-2">
+      <h2 class="font-semibold text-base">📜 autodeploy.ps1 — source active</h2>
+      <!-- Current active badge -->
+      <span x-show="overrideExists" x-cloak
+            class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+        Override actif
+      </span>
+      <span x-show="!overrideExists"
+            class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+        Baked-in actif
+      </span>
+    </div>
+
+    <!-- Radio selector cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+      <!-- Baked-in card -->
+      <div @click="source='bakedin'" class="rounded-lg border p-4 cursor-pointer select-none transition-all"
+           :class="source==='bakedin'
+             ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50'
+             : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100'">
+        <div class="flex items-start gap-3">
+          <!-- Radio dot -->
+          <div class="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
+               :class="source==='bakedin' ? 'border-blue-500 bg-blue-500' : 'border-slate-400 bg-white'">
+            <div x-show="source==='bakedin'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-sm text-slate-800">🖼️ Baked-in (image)</div>
+            <div class="text-xs text-slate-400 mt-0.5 font-mono truncate">/opt/autodeploy/autodeploy.ps1</div>
+            <div class="mt-2 flex items-center gap-2 flex-wrap">
+              {{if .BakedPS1Version}}
+              <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono font-semibold">
+                v{{.BakedPS1Version}}
+              </span>
+              {{else}}
+              <span class="text-xs text-slate-400 italic">version inconnue</span>
+              {{end}}
+              <span x-show="!overrideExists"
+                    class="text-xs text-blue-600 font-medium">✅ actif</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Override card -->
+      <div @click="source='override'" class="rounded-lg border p-4 cursor-pointer select-none transition-all"
+           :class="source==='override'
+             ? 'ring-2 ring-emerald-500 border-emerald-300 bg-emerald-50'
+             : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100'">
+        <div class="flex items-start gap-3">
+          <!-- Radio dot -->
+          <div class="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
+               :class="source==='override' ? 'border-emerald-500 bg-emerald-500' : 'border-slate-400 bg-white'">
+            <div x-show="source==='override'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-sm text-slate-800">📥 Override runtime</div>
+            <div class="text-xs text-slate-400 mt-0.5 font-mono truncate">/data/autodeploy/autodeploy.ps1</div>
+            <div class="mt-2 flex items-center gap-2 flex-wrap">
+              <!-- Version (reactive) -->
+              <template x-if="overrideExists && overrideVersion">
+                <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-semibold"
+                      x-text="'v' + overrideVersion"></span>
+              </template>
+              <template x-if="overrideExists && !overrideVersion">
+                <span class="text-xs text-slate-400 italic">version inconnue</span>
+              </template>
+              <template x-if="!overrideExists">
+                <span class="text-xs text-slate-400 italic">Non disponible</span>
+              </template>
+              <!-- Modtime (reactive) -->
+              <template x-if="overrideExists && overrideModTime">
+                <span class="text-xs text-slate-400" x-text="overrideModTime"></span>
+              </template>
+              <!-- Active badge -->
+              <span x-show="overrideExists" x-cloak
+                    class="text-xs text-emerald-600 font-medium">✅ actif</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+    <!-- Action buttons -->
+    <div class="flex flex-wrap gap-3 items-center pt-1">
+      <button @click="doApply()" :disabled="applying"
+              class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded font-medium text-sm flex items-center gap-2">
+        <span x-show="!applying">✅ Appliquer</span>
+        <span x-show="applying" x-cloak>⏳ En cours…</span>
+      </button>
+
+      <button @click="doUpdate()" :disabled="updating"
+              class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-2 rounded font-medium text-sm flex items-center gap-2">
+        <span x-show="!updating">🔄 Télécharger depuis GitHub
+          <code class="bg-slate-600 px-1 rounded text-xs font-mono ml-1">dev</code>
+        </span>
+        <span x-show="updating" x-cloak>⏳ Téléchargement…</span>
+      </button>
+    </div>
+
+    <!-- Feedback -->
+    <div x-show="msg" x-cloak
+         class="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2"
+         x-text="msg"></div>
+    <div x-show="err" x-cloak
+         class="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"
+         x-text="err"></div>
+
+    <p class="text-xs text-slate-400 leading-relaxed border-t pt-3">
+      L'override est stocké dans <code>/data/autodeploy/</code> (volume persistant, survit aux redémarrages).
+      Le runner l'utilise en priorité dès qu'il existe.
+      Après un <em>docker pull</em>, l'override reste intact —
+      clique « Appliquer » avec <strong>Baked-in</strong> sélectionné pour le supprimer et revenir au script de la nouvelle image.
+    </p>
+  </div>
+
+</div>
+{{end}}

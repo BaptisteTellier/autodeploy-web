@@ -137,15 +137,16 @@ func (m *Manager) runWorker(j *Job) {
 	j.StartedAt = time.Now()
 
 	r := Runner{
-		AutodeployDir: m.opts.AutodeployDir,
-		PSScript:      m.opts.PSScript,
-		IsoDir:        filepath.Join(m.opts.DataDir, "iso"),
-		OutputDir:     filepath.Join(m.opts.DataDir, "output"),
-		LicenseDir:    filepath.Join(m.opts.DataDir, "license"),
-		ConfDir:       filepath.Join(m.opts.DataDir, "conf"),
-		ConfigPath:    j.ConfigPath,
-		JobID:         j.ID,
-		OnLine:        j.AppendLine,
+		AutodeployDir:  m.opts.AutodeployDir,
+		PSScript:       m.opts.PSScript,
+		OverrideScript: filepath.Join(m.opts.DataDir, "autodeploy", "autodeploy.ps1"),
+		IsoDir:         filepath.Join(m.opts.DataDir, "iso"),
+		OutputDir:      filepath.Join(m.opts.DataDir, "output"),
+		LicenseDir:     filepath.Join(m.opts.DataDir, "license"),
+		ConfDir:        filepath.Join(m.opts.DataDir, "conf"),
+		ConfigPath:     j.ConfigPath,
+		JobID:          j.ID,
+		OnLine:         j.AppendLine,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

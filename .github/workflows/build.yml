@@ -67,5 +67,6 @@ jobs:
           build-args: |
             VERSION=${{ github.ref_name }}
             AUTODEPLOY_VERSION=${{ steps.ad.outputs.version }}
+          no-cache-filter: fetch
           cache-from: type=gha
           cache-to: type=gha,mode=max

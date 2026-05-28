@@ -101,7 +101,11 @@ func TestFlexStringArrayScalar(t *testing.T) {
 
 func TestDefaultsValid(t *testing.T) {
 	// Defaults should pass validation (admin/SO passwords meet complexity, etc.)
-	errs := Validate(Defaults())
+	// SourceISO has no meaningful default — it is always provided by the user at
+	// runtime via the form dropdown, so we supply a placeholder here.
+	c := Defaults()
+	c.SourceISO = "source.iso"
+	errs := Validate(c)
 	if len(errs) != 0 {
 		t.Fatalf("defaults should validate, got: %v", errs)
 	}

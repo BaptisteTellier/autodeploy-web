@@ -39,6 +39,10 @@ func New(d Deps) *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /admin", s.handleAdmin)
+	mux.HandleFunc("POST /admin/autodeploy/update", s.handleAdminUpdatePS1)
+	mux.HandleFunc("DELETE /admin/autodeploy/reset", s.handleAdminResetPS1)
+
 	mux.HandleFunc("GET /", s.handleIndex)
 
 	mux.HandleFunc("POST /jobs", s.handleCreateJob)
