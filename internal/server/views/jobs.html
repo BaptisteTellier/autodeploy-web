@@ -28,7 +28,7 @@
       <td class="text-right">
         <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">open</a>
         {{if eq (printf "%s" .State) "done"}}
-          <a href="/jobs/{{.ID}}/download" class="text-emerald-600 hover:underline text-xs ml-2">↓ ISO</a>
+          <a href="/media/output/{{.ID}}" class="text-emerald-600 hover:underline text-xs ml-2">📂 output</a>
         {{end}}
       </td>
     </tr>

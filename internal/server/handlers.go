@@ -115,22 +115,9 @@ func (s *Server) handleJobDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	path := filepath.Join(s.deps.DataDir, "output", j.OutputISO)
-	f, err := os.Open(path)
-	if err != nil {
-		http.Error(w, "ISO not available yet", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		http.Error(w, "stat: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, j.OutputISO))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
-	http.ServeContent(w, r, j.OutputISO, info.ModTime(), f)
+	// Output ISO is now in /data/output/{jobID}/{filename}
+	path := filepath.Join(s.deps.DataDir, "output", j.ID, j.OutputISO)
+	serveFileDownload(w, r, path, j.OutputISO)
 }
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -275,18 +262,124 @@ func listDirInfo(dir string, exts []string) []MediaFile {
 	return out
 }
 
-func (s *Server) handleMediaISO(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "views/media_iso.html", map[string]any{
+// --- Workspace (all files in /data/iso) ---------------------------------
+
+func (s *Server) handleMediaWorkspace(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "views/media_workspace.html", map[string]any{
 		"Version": s.deps.Version,
-		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "iso"), []string{".iso"}),
+		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "iso"), nil), // all extensions
 	})
 }
 
+func (s *Server) handleWorkspaceContent(w http.ResponseWriter, r *http.Request) {
+	name := filepath.Base(r.PathValue("name"))
+	serveTextContent(w, filepath.Join(s.deps.DataDir, "iso", name))
+}
+
+func (s *Server) handleWorkspaceDownload(w http.ResponseWriter, r *http.Request) {
+	name := filepath.Base(r.PathValue("name"))
+	serveFileDownload(w, r, filepath.Join(s.deps.DataDir, "iso", name), name)
+}
+
+// --- Output (per-job subfolders in /data/output) -----------------------
+
+// OutputJobInfo holds metadata shown on the output index page.
+type OutputJobInfo struct {
+	JobID     string
+	ModTime   time.Time
+	FileCount int
+	TotalSize int64
+}
+
 func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
+	dir := filepath.Join(s.deps.DataDir, "output")
+	entries, _ := os.ReadDir(dir)
+	var jobs []OutputJobInfo
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, _ := e.Info()
+		modTime := time.Time{}
+		if info != nil {
+			modTime = info.ModTime()
+		}
+		// Count files and total size.
+		files := listDirInfo(filepath.Join(dir, e.Name()), nil)
+		var total int64
+		for _, f := range files {
+			total += f.Size
+		}
+		jobs = append(jobs, OutputJobInfo{
+			JobID:     e.Name(),
+			ModTime:   modTime,
+			FileCount: len(files),
+			TotalSize: total,
+		})
+	}
+	// Sort newest first.
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ModTime.After(jobs[j].ModTime) })
 	s.render(w, "views/media_output.html", map[string]any{
 		"Version": s.deps.Version,
-		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "output"), []string{".iso"}),
+		"Jobs":    jobs,
 	})
+}
+
+func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
+	jobID := filepath.Base(r.PathValue("jobid"))
+	dir := filepath.Join(s.deps.DataDir, "output", jobID)
+	if _, err := os.Stat(dir); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.render(w, "views/media_output_job.html", map[string]any{
+		"Version": s.deps.Version,
+		"JobID":   jobID,
+		"Files":   listDirInfo(dir, nil),
+	})
+}
+
+func (s *Server) handleOutputJobContent(w http.ResponseWriter, r *http.Request) {
+	jobID := filepath.Base(r.PathValue("jobid"))
+	name := filepath.Base(r.PathValue("name"))
+	serveTextContent(w, filepath.Join(s.deps.DataDir, "output", jobID, name))
+}
+
+func (s *Server) handleOutputJobDownload(w http.ResponseWriter, r *http.Request) {
+	jobID := filepath.Base(r.PathValue("jobid"))
+	name := filepath.Base(r.PathValue("name"))
+	serveFileDownload(w, r, filepath.Join(s.deps.DataDir, "output", jobID, name), name)
+}
+
+// --- Shared helpers -----------------------------------------------------
+
+// serveTextContent reads up to 1 MB of a text file and sends it as plain text.
+func serveTextContent(w http.ResponseWriter, path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.Copy(w, io.LimitReader(f, 1<<20)) // 1 MB cap
+}
+
+// serveFileDownload sends a file as an attachment.
+func serveFileDownload(w http.ResponseWriter, r *http.Request, path, name string) {
+	f, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "stat: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	http.ServeContent(w, r, name, info.ModTime(), f)
 }
 
 func (s *Server) handleMediaLicense(w http.ResponseWriter, r *http.Request) {
@@ -337,7 +430,7 @@ func (s *Server) handleUploadLicense(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/media/license", http.StatusSeeOther)
 }
 
-func (s *Server) handleUploadISO(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 25<<30) // 25 GB limit
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
@@ -370,7 +463,7 @@ func (s *Server) handleUploadISO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/media/iso", http.StatusSeeOther)
+	http.Redirect(w, r, "/media/workspace", http.StatusSeeOther)
 }
 
 func (s *Server) handleDeleteMediaFile(w http.ResponseWriter, r *http.Request) {
@@ -379,10 +472,8 @@ func (s *Server) handleDeleteMediaFile(w http.ResponseWriter, r *http.Request) {
 
 	var dir string
 	switch kind {
-	case "iso":
+	case "workspace":
 		dir = filepath.Join(s.deps.DataDir, "iso")
-	case "output":
-		dir = filepath.Join(s.deps.DataDir, "output")
 	case "license":
 		dir = filepath.Join(s.deps.DataDir, "license")
 	default:
@@ -410,10 +501,8 @@ func (s *Server) handleRenameMediaFile(w http.ResponseWriter, r *http.Request) {
 
 	var dir string
 	switch kind {
-	case "iso":
+	case "workspace":
 		dir = filepath.Join(s.deps.DataDir, "iso")
-	case "output":
-		dir = filepath.Join(s.deps.DataDir, "output")
 	case "license":
 		dir = filepath.Join(s.deps.DataDir, "license")
 	default:
@@ -436,23 +525,6 @@ func (s *Server) handleRenameMediaFile(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/media/"+kind, http.StatusSeeOther)
 }
 
-func (s *Server) handleDownloadOutputFile(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(r.PathValue("name"))
-	path := filepath.Join(s.deps.DataDir, "output", name)
-	f, err := os.Open(path)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		http.Error(w, "stat: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
-	http.ServeContent(w, r, name, info.ModTime(), f)
-}
 
 // --- Library (ISO/license/conf inventory) --------------------------------
 

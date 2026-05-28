@@ -3,66 +3,45 @@
 {{define "content"}}
 <div class="space-y-6">
 
-  <div class="flex flex-wrap items-center justify-between gap-4">
-    <h1 class="text-2xl font-bold">💿 Gestion output</h1>
-    <span class="text-sm text-slate-500">ISO personnalisés générés par les jobs</span>
-  </div>
+  <h1 class="text-2xl font-bold">📦 Output</h1>
   <p class="text-sm text-slate-500">
-    Dossier : <code>/data/output</code> — chaque job réussi y dépose un ISO prêt à déployer.
+    Un dossier par job — ISO générée, configs kickstart, logs.
+    Racine : <code>/data/output</code>.
   </p>
 
   <div class="bg-white rounded shadow overflow-hidden">
-    {{if not .Files}}
+    {{if not .Jobs}}
     <p class="text-slate-500 p-8 text-center text-sm">
-      Aucun ISO dans <code>/data/output</code>.<br>
-      <a href="/" class="text-blue-600 hover:underline">Lancez un job</a> depuis la page principale pour en générer un.
+      Aucun output pour l'instant. Lance un job depuis
+      <a href="/" class="text-blue-600 hover:underline">la page principale</a>.
     </p>
     {{else}}
     <table class="w-full text-sm">
       <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
         <tr>
-          <th class="px-4 py-3">Nom du fichier</th>
-          <th class="px-4 py-3">Taille</th>
-          <th class="px-4 py-3">Généré le</th>
+          <th class="px-4 py-3">Job ID</th>
+          <th class="px-4 py-3">Date</th>
+          <th class="px-4 py-3">Fichiers</th>
+          <th class="px-4 py-3">Taille totale</th>
           <th class="px-4 py-3 text-right">Actions</th>
         </tr>
       </thead>
       <tbody>
-      {{range .Files}}
-      <tr class="border-t hover:bg-slate-50"
-          x-data='{"editing":false,"newName":{{jsonStr .Name}}}'>
-        <td class="px-4 py-3 font-mono text-sm max-w-xs">
-          <span x-show="!editing" class="break-all">{{.Name}}</span>
-          <span x-show="editing" class="flex gap-1 items-center flex-wrap">
-            <input type="text" x-model="newName"
-                   class="border rounded px-2 py-0.5 text-sm font-mono w-64"
-                   @keydown.enter="submitRename('output', {{jsonStr .Name}}, newName)"
-                   @keydown.escape="editing=false">
-            <button class="bg-emerald-600 text-white rounded px-2 py-0.5 text-xs whitespace-nowrap"
-                    @click="submitRename('output', {{jsonStr .Name}}, newName)">✓ OK</button>
-            <button class="bg-slate-200 rounded px-2 py-0.5 text-xs"
-                    @click="editing=false">✗</button>
-          </span>
-        </td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .Size}}</td>
-        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{{.ModTime.Format "2006-01-02 15:04"}}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap space-x-3">
-          <a href="/media/output/{{.Name}}/download"
-             class="text-emerald-700 hover:underline text-xs font-semibold">
-            ⬇️ Télécharger
+      {{range .Jobs}}
+      <tr class="border-t hover:bg-slate-50">
+        <td class="px-4 py-3 font-mono text-xs">
+          <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline font-semibold">
+            {{slice .JobID 0 8}}…
           </a>
-          <button x-show="!editing"
-                  class="text-blue-600 hover:underline text-xs"
-                  @click="editing=true; $nextTick(()=>$el.closest('tr').querySelector('input')?.select())">
-            ✏️ Renommer
-          </button>
-          <button class="text-red-600 hover:underline text-xs"
-                  hx-delete="/media/output/{{.Name}}"
-                  hx-target="closest tr"
-                  hx-swap="outerHTML swap:300ms"
-                  hx-confirm="Supprimer définitivement «{{.Name}}» ?">
-            🗑️ Supprimer
-          </button>
+        </td>
+        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+          {{.ModTime.Format "2006-01-02 15:04"}}
+        </td>
+        <td class="px-4 py-3 text-slate-600">{{.FileCount}} fichier(s)</td>
+        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .TotalSize}}</td>
+        <td class="px-4 py-3 text-right space-x-3 whitespace-nowrap">
+          <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline text-xs">📂 Ouvrir</a>
+          <a href="/jobs/{{.JobID}}" class="text-slate-500 hover:underline text-xs">🔍 Job</a>
         </td>
       </tr>
       {{end}}

@@ -36,11 +36,11 @@
 </div>
 
 <div class="bg-white rounded shadow p-4 flex flex-wrap gap-2">
-  <a id="download-btn"
-     href="/jobs/{{.Job.ID}}/download"
+  <a id="output-btn"
+     href="/media/output/{{.Job.ID}}"
      class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-semibold
             {{if ne (printf "%s" .Job.State) "done"}}opacity-40 pointer-events-none{{end}}">
-     ⬇️ Download ISO
+     📂 Voir les outputs
   </a>
   <a href="/" class="bg-slate-200 px-4 py-2 rounded text-sm">← New job</a>
   <a href="/jobs" class="bg-slate-200 px-4 py-2 rounded text-sm">All jobs</a>
@@ -65,7 +65,7 @@
   const log = document.getElementById('log');
   const autoscroll = document.getElementById('autoscroll');
   const stateEl = document.getElementById('job-state');
-  const dl = document.getElementById('download-btn');
+  const outputBtn = document.getElementById('output-btn');
 
   function append(text) {
     log.textContent += text + "\n";
@@ -86,7 +86,7 @@
         running:'bg-blue-100 text-blue-800',
         pending:'bg-slate-100 text-slate-800'}[e.data] || 'bg-slate-100');
     if (e.data === 'done') {
-      dl.classList.remove('opacity-40', 'pointer-events-none');
+      outputBtn.classList.remove('opacity-40', 'pointer-events-none');
     }
     if (finalStates.has(e.data)) es.close();
   });

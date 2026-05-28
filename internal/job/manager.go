@@ -144,13 +144,14 @@ func (m *Manager) runWorker(j *Job) {
 		LicenseDir:    filepath.Join(m.opts.DataDir, "license"),
 		ConfDir:       filepath.Join(m.opts.DataDir, "conf"),
 		ConfigPath:    j.ConfigPath,
+		JobID:         j.ID,
 		OnLine:        j.AppendLine,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	exit, err := r.Run(ctx, j.OutputISO)
+	exit, err := r.Run(ctx)
 	j.FinishedAt = time.Now()
 	j.ExitCode = exit
 	if err != nil {

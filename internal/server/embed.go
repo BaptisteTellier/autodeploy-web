@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"path/filepath"
+	"strings"
 )
 
 //go:embed views/*.html
@@ -55,6 +57,16 @@ var funcMap = template.FuncMap{
 	"jsonStr": func(s string) template.JS {
 		b, _ := json.Marshal(s)
 		return template.JS(b) //nolint:gosec
+	},
+	// isTextFile returns true for extensions that can be displayed in the viewer popup.
+	"isTextFile": func(name string) bool {
+		ext := strings.ToLower(filepath.Ext(name))
+		switch ext {
+		case ".cfg", ".log", ".xml", ".sh", ".json", ".txt",
+			".ks", ".yaml", ".yml", ".ps1", ".conf", ".md", ".ini", ".env":
+			return true
+		}
+		return false
 	},
 }
 

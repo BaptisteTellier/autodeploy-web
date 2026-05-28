@@ -1,0 +1,124 @@
+{{define "views/media_workspace.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<style>[x-cloak]{display:none}</style>
+<div class="space-y-6"
+     x-data="{
+       viewer:{open:false,title:'',text:'',loading:false},
+       async openFile(url,name){
+         this.viewer.open=true; this.viewer.title=name;
+         this.viewer.text=''; this.viewer.loading=true;
+         const r=await fetch(url);
+         this.viewer.text=r.ok?await r.text():'Erreur de chargement';
+         this.viewer.loading=false;
+       }
+     }">
+
+  <!-- Header + upload -->
+  <div class="flex flex-wrap items-center justify-between gap-4">
+    <h1 class="text-2xl font-bold">🗂️ Workspace</h1>
+    <form method="POST" action="/media/workspace/upload" enctype="multipart/form-data">
+      <label class="flex items-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-medium text-sm select-none">
+        ⬆️ Upload ISO source
+        <input type="file" name="file" accept=".iso" class="hidden"
+               onchange="document.getElementById('ws-status').textContent='⏳ Upload en cours…'; this.form.submit();">
+      </label>
+    </form>
+  </div>
+  <p class="text-sm text-slate-500" id="ws-status">
+    Dossier <code>/data/iso</code> — sources ISOs, configs et logs générés par les jobs.
+  </p>
+
+  <!-- File list -->
+  <div class="bg-white rounded shadow overflow-hidden">
+    {{if not .Files}}
+    <p class="text-slate-500 p-8 text-center text-sm">
+      Aucun fichier dans <code>/data/iso</code>.
+    </p>
+    {{else}}
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
+        <tr>
+          <th class="px-4 py-3">Fichier</th>
+          <th class="px-4 py-3">Taille</th>
+          <th class="px-4 py-3">Modifié</th>
+          <th class="px-4 py-3 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{range .Files}}
+      <tr class="border-t hover:bg-slate-50"
+          x-data='{"editing":false,"newName":{{jsonStr .Name}}}'>
+        <td class="px-4 py-3 font-mono text-sm max-w-xs">
+          <span x-show="!editing" class="break-all">{{.Name}}</span>
+          <span x-show="editing" class="flex gap-1 items-center flex-wrap">
+            <input type="text" x-model="newName"
+                   class="border rounded px-2 py-0.5 text-sm font-mono w-64"
+                   @keydown.enter="submitRename('workspace',{{jsonStr .Name}},newName)"
+                   @keydown.escape="editing=false">
+            <button class="bg-emerald-600 text-white rounded px-2 py-0.5 text-xs"
+                    @click="submitRename('workspace',{{jsonStr .Name}},newName)">✓ OK</button>
+            <button class="bg-slate-200 rounded px-2 py-0.5 text-xs"
+                    @click="editing=false">✗</button>
+          </span>
+        </td>
+        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .Size}}</td>
+        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{{.ModTime.Format "2006-01-02 15:04"}}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+          {{if isTextFile .Name}}
+          <button class="text-purple-600 hover:underline text-xs"
+                  @click="openFile('/media/workspace/{{.Name}}/content','{{.Name}}')">
+            👁 Voir
+          </button>
+          {{end}}
+          <a href="/media/workspace/{{.Name}}/download"
+             class="text-emerald-600 hover:underline text-xs">⬇️ DL</a>
+          <button x-show="!editing" class="text-blue-600 hover:underline text-xs"
+                  @click="editing=true;$nextTick(()=>$el.closest('tr').querySelector('input')?.select())">
+            ✏️</button>
+          <button class="text-red-600 hover:underline text-xs"
+                  hx-delete="/media/workspace/{{.Name}}"
+                  hx-target="closest tr"
+                  hx-swap="outerHTML swap:300ms"
+                  hx-confirm="Supprimer «{{.Name}}» ?">
+            🗑️</button>
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+
+  <!-- Viewer modal -->
+  <div x-show="viewer.open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       @keydown.escape.window="viewer.open=false">
+    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-5xl h-5/6 flex flex-col">
+      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
+        <span class="font-mono text-sm font-semibold text-slate-700" x-text="viewer.title"></span>
+        <button @click="viewer.open=false"
+                class="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+      </div>
+      <div class="flex-1 overflow-auto p-4 bg-slate-950">
+        <div x-show="viewer.loading" class="text-slate-400 text-sm">Chargement…</div>
+        <pre x-show="!viewer.loading"
+             class="text-xs font-mono whitespace-pre-wrap text-green-300"
+             x-text="viewer.text"></pre>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function submitRename(kind, oldName, newName) {
+  newName = (newName || '').trim();
+  if (!newName || newName === oldName) return;
+  const fd = new FormData();
+  fd.set('new_name', newName);
+  const res = await fetch(`/media/${kind}/${encodeURIComponent(oldName)}/rename`, { method: 'POST', body: fd });
+  if (res.ok) { location.reload(); } else { alert('Erreur : ' + await res.text()); }
+}
+</script>
+{{end}}

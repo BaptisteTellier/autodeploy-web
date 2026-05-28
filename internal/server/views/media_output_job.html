@@ -1,0 +1,87 @@
+{{define "views/media_output_job.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<style>[x-cloak]{display:none}</style>
+<div class="space-y-6"
+     x-data="{
+       viewer:{open:false,title:'',text:'',loading:false},
+       async openFile(url,name){
+         this.viewer.open=true; this.viewer.title=name;
+         this.viewer.text=''; this.viewer.loading=true;
+         const r=await fetch(url);
+         this.viewer.text=r.ok?await r.text():'Erreur de chargement';
+         this.viewer.loading=false;
+       }
+     }">
+
+  <!-- Breadcrumb + header -->
+  <div class="flex flex-wrap items-center gap-3">
+    <a href="/media/output" class="text-slate-500 hover:underline text-sm">📦 Output</a>
+    <span class="text-slate-300">/</span>
+    <h1 class="text-xl font-bold font-mono">{{slice .JobID 0 8}}…</h1>
+    <a href="/jobs/{{.JobID}}" class="text-sm text-blue-600 hover:underline ml-auto">🔍 Voir le job</a>
+  </div>
+  <p class="text-sm text-slate-500">
+    Dossier <code>/data/output/{{.JobID}}</code>
+  </p>
+
+  <!-- File list -->
+  <div class="bg-white rounded shadow overflow-hidden">
+    {{if not .Files}}
+    <p class="text-slate-500 p-8 text-center text-sm">
+      Aucun fichier dans ce dossier (job encore en cours ?).
+    </p>
+    {{else}}
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
+        <tr>
+          <th class="px-4 py-3">Fichier</th>
+          <th class="px-4 py-3">Taille</th>
+          <th class="px-4 py-3">Modifié</th>
+          <th class="px-4 py-3 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{range .Files}}
+      <tr class="border-t hover:bg-slate-50">
+        <td class="px-4 py-3 font-mono text-sm break-all max-w-xs">{{.Name}}</td>
+        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .Size}}</td>
+        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{{.ModTime.Format "2006-01-02 15:04"}}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+          {{if isTextFile .Name}}
+          <button class="text-purple-600 hover:underline text-xs"
+                  @click="openFile('/media/output/{{$.JobID}}/{{.Name}}/content','{{.Name}}')">
+            👁 Voir
+          </button>
+          {{end}}
+          <a href="/media/output/{{$.JobID}}/{{.Name}}/download"
+             class="text-emerald-600 hover:underline text-xs">⬇️ DL</a>
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+
+  <!-- Viewer modal -->
+  <div x-show="viewer.open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       @keydown.escape.window="viewer.open=false">
+    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-5xl h-5/6 flex flex-col">
+      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
+        <span class="font-mono text-sm font-semibold text-slate-700" x-text="viewer.title"></span>
+        <button @click="viewer.open=false"
+                class="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+      </div>
+      <div class="flex-1 overflow-auto p-4 bg-slate-950">
+        <div x-show="viewer.loading" class="text-slate-400 text-sm">Chargement…</div>
+        <pre x-show="!viewer.loading"
+             class="text-xs font-mono whitespace-pre-wrap text-green-300"
+             x-text="viewer.text"></pre>
+      </div>
+    </div>
+  </div>
+
+</div>
+{{end}}

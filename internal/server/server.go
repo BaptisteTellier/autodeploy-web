@@ -55,14 +55,25 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /library/{kind}", s.handleListLibrary)
 
-	mux.HandleFunc("GET /media/iso", s.handleMediaISO)
+	// Workspace = /data/iso (all files: source ISOs, generated cfg/logs)
+	mux.HandleFunc("GET /media/workspace", s.handleMediaWorkspace)
+	mux.HandleFunc("POST /media/workspace/upload", s.handleUploadWorkspace)
+	mux.HandleFunc("GET /media/workspace/{name}/download", s.handleWorkspaceDownload)
+	mux.HandleFunc("GET /media/workspace/{name}/content", s.handleWorkspaceContent)
+
+	// Output = /data/output/{jobID}/ (per-job folders)
 	mux.HandleFunc("GET /media/output", s.handleMediaOutput)
+	mux.HandleFunc("GET /media/output/{jobid}", s.handleMediaOutputJob)
+	mux.HandleFunc("GET /media/output/{jobid}/{name}/download", s.handleOutputJobDownload)
+	mux.HandleFunc("GET /media/output/{jobid}/{name}/content", s.handleOutputJobContent)
+
+	// Licenses
 	mux.HandleFunc("GET /media/license", s.handleMediaLicense)
-	mux.HandleFunc("POST /media/iso/upload", s.handleUploadISO)
 	mux.HandleFunc("POST /media/license/upload", s.handleUploadLicense)
+
+	// Generic delete/rename for workspace + license
 	mux.HandleFunc("DELETE /media/{kind}/{name}", s.handleDeleteMediaFile)
 	mux.HandleFunc("POST /media/{kind}/{name}/rename", s.handleRenameMediaFile)
-	mux.HandleFunc("GET /media/output/{name}/download", s.handleDownloadOutputFile)
 
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(s.static))))
 
