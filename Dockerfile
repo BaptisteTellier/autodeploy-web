@@ -62,7 +62,7 @@ COPY --from=gobuild /out/autodeploy-web /usr/local/bin/autodeploy-web
 COPY --from=fetch /autodeploy /opt/autodeploy
 
 # Data directories (mounted as volumes in production)
-RUN mkdir -p /data/iso /data/output /data/license /data/conf /data/configs \
+RUN mkdir -p /data/iso /data/output /data/license /data/conf /data/configs /data/work \
     && chmod -R 0777 /data
 
 ENV LISTEN_ADDR=":8080" \

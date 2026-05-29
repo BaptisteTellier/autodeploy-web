@@ -26,8 +26,12 @@
          if(!this.count) return;
          if(!confirm('Supprimer '+this.count+' fichier(s) ?')) return;
          const jobID={{jsonStr .JobID}};
-         for(const n of Object.keys(this.sel))
-           await fetch('/media/output/'+jobID+'/'+encodeURIComponent(n), {method:'DELETE'});
+         let failures=0;
+         for(const n of Object.keys(this.sel)){
+           const r=await fetch('/media/output/'+jobID+'/'+encodeURIComponent(n), {method:'DELETE'});
+           if(!r.ok) failures++;
+         }
+         if(failures) alert(failures+' suppression(s) ont échoué.');
          location.reload();
        }
      }">
@@ -108,8 +112,10 @@
   <!-- Viewer modal -->
   <div x-show="viewer.open" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       @click="viewer.open=false"
        @keydown.escape.window="viewer.open=false">
-    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-5xl h-5/6 flex flex-col">
+    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-5xl h-5/6 flex flex-col"
+         @click.stop>
       <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
         <span class="font-mono text-sm font-semibold text-slate-700" x-text="viewer.title"></span>
         <button @click="viewer.open=false"

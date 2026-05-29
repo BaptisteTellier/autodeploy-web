@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -31,6 +32,12 @@ func main() {
 	if err := config.EnsureDataLayout(dataDir); err != nil {
 		log.Fatalf("data layout: %v", err)
 	}
+
+	// Clear any stale per-job staging dirs left over from a crash, then
+	// recreate the empty work directory so it's ready for new jobs.
+	workDir := filepath.Join(dataDir, "work")
+	_ = os.RemoveAll(workDir)
+	_ = os.MkdirAll(workDir, 0o755)
 
 	store := config.NewStore(dataDir + "/configs")
 

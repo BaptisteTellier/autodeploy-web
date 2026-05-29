@@ -46,7 +46,7 @@ func (s *Server) handleJobStream(w http.ResponseWriter, r *http.Request) {
 		case line, ok := <-ch:
 			if !ok {
 				// Job done: send final status event and close.
-				writeSSE(w, "state", string(j.State))
+				writeSSE(w, "state", j.StateString())
 				flusher.Flush()
 				return
 			}
@@ -56,7 +56,7 @@ func (s *Server) handleJobStream(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()
 		case <-j.Done():
-			writeSSE(w, "state", string(j.State))
+			writeSSE(w, "state", j.StateString())
 			flusher.Flush()
 			return
 		}

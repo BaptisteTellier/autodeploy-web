@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
 	"github.com/google/uuid"
@@ -126,15 +125,13 @@ func (m *Manager) runWorker(j *Job) {
 	select {
 	case m.sem <- struct{}{}:
 	case <-m.stopCh:
-		j.State = StateCanceled
-		j.FinishedAt = time.Now()
+		j.markCanceled()
 		close(j.done)
 		return
 	}
 	defer func() { <-m.sem }()
 
-	j.State = StateRunning
-	j.StartedAt = time.Now()
+	j.markRunning()
 
 	r := Runner{
 		AutodeployDir:  m.opts.AutodeployDir,
@@ -146,6 +143,8 @@ func (m *Manager) runWorker(j *Job) {
 		ConfDir:        filepath.Join(m.opts.DataDir, "conf"),
 		ConfigPath:     j.ConfigPath,
 		JobID:          j.ID,
+		SourceISO:      j.SourceISO,
+		WorkDir:        filepath.Join(m.opts.DataDir, "work"),
 		OnLine:         j.AppendLine,
 	}
 
@@ -153,17 +152,18 @@ func (m *Manager) runWorker(j *Job) {
 	defer cancel()
 
 	exit, err := r.Run(ctx)
-	j.FinishedAt = time.Now()
-	j.ExitCode = exit
+	var finalState State
+	var errMsg string
 	if err != nil {
-		j.State = StateFailed
-		j.ErrorMessage = err.Error()
+		finalState = StateFailed
+		errMsg = err.Error()
 	} else if exit != 0 {
-		j.State = StateFailed
-		j.ErrorMessage = fmt.Sprintf("pwsh exited with code %d", exit)
+		finalState = StateFailed
+		errMsg = fmt.Sprintf("pwsh exited with code %d", exit)
 	} else {
-		j.State = StateDone
+		finalState = StateDone
 	}
+	j.markResult(finalState, exit, errMsg)
 
 	// Snapshot the job config JSON into the output folder so it can be
 	// reimported from the "Import config into new job" button and used to
@@ -184,15 +184,19 @@ func (m *Manager) Get(id string) (*Job, bool) {
 	return j, ok
 }
 
-// List returns all jobs sorted by creation time (newest first).
-func (m *Manager) List() []*Job {
+// List returns snapshots of all jobs sorted by creation time (newest first).
+func (m *Manager) List() []JobView {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make([]*Job, 0, len(m.jobs))
+	jobs := make([]*Job, 0, len(m.jobs))
 	for _, j := range m.jobs {
-		out = append(out, j)
+		jobs = append(jobs, j)
 	}
-	sort.Slice(out, func(i, k int) bool { return out[i].CreatedAt.After(out[k].CreatedAt) })
+	m.mu.RUnlock()
+	sort.Slice(jobs, func(i, k int) bool { return jobs[i].CreatedAt.After(jobs[k].CreatedAt) })
+	out := make([]JobView, len(jobs))
+	for i, j := range jobs {
+		out[i] = j.View()
+	}
 	return out
 }
 

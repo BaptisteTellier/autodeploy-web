@@ -17,8 +17,12 @@
        async deleteSel() {
          if(!this.count) return;
          if(!confirm('Supprimer '+this.count+' dossier(s) de job et tous leurs fichiers ?')) return;
-         for(const id of Object.keys(this.sel))
-           await fetch('/media/output/'+encodeURIComponent(id), {method:'DELETE'});
+         let failures=0;
+         for(const id of Object.keys(this.sel)){
+           const r=await fetch('/media/output/'+encodeURIComponent(id), {method:'DELETE'});
+           if(!r.ok) failures++;
+         }
+         if(failures) alert(failures+' suppression(s) ont échoué.');
          location.reload();
        }
      }">

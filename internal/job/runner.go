@@ -17,11 +17,13 @@ import (
 type Runner struct {
 	AutodeployDir string // where the PS1 lives, e.g. /opt/autodeploy
 	PSScript      string // autodeploy.ps1
-	IsoDir        string // /data/iso (cwd for the PS1)
+	IsoDir        string // /data/iso — where source ISOs live
 	OutputDir     string // /data/output  (job subfolder created here)
 	LicenseDir    string // /data/license
 	ConfDir       string // /data/conf
 	JobID         string // per-job output subfolder: OutputDir/JobID/
+	SourceISO     string // bare filename of the source ISO (e.g. "veeam.iso")
+	WorkDir       string // base dir for per-job staging dirs, e.g. /data/work
 
 	// OverrideScript, if non-empty and the file exists, is used instead of
 	// AutodeployDir/PSScript. Populated from /data/autodeploy/autodeploy.ps1
@@ -37,8 +39,8 @@ type Runner struct {
 
 // Run launches pwsh and blocks until completion. Returns the process exit
 // code (or -1 on spawn failure) and any I/O error.
-// All files created or modified in IsoDir during the run are moved to
-// OutputDir/JobID/ afterwards, giving clean per-job isolation.
+// Each job gets its own fresh staging dir under WorkDir/<jobID>; the whole
+// dir is removed via defer after the run, giving clean per-job isolation.
 func (r *Runner) Run(ctx context.Context) (int, error) {
 	if r.OnLine == nil {
 		r.OnLine = func(string) {}
@@ -58,39 +60,45 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 		return -1, fmt.Errorf("config file missing: %w", err)
 	}
 
-	stageDir := r.IsoDir
+	// Per-job staging directory under /data/work/<jobID> — same filesystem as
+	// /data/output so that moving large ISOs is an instant rename, not a copy.
+	stageDir := filepath.Join(r.WorkDir, r.JobID)
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		return -1, fmt.Errorf("create staging dir: %w", err)
+	}
+	defer os.RemoveAll(stageDir)
+
+	// Symlink the source ISO into the staging dir so the PS1 finds it by bare name.
+	if r.SourceISO != "" {
+		src := filepath.Join(r.IsoDir, r.SourceISO)
+		dst := filepath.Join(stageDir, r.SourceISO)
+		if err := os.Symlink(src, dst); err != nil {
+			r.OnLine(fmt.Sprintf("[warn] symlink source ISO: %v", err))
+		}
+	}
 
 	// Symlink companion folders the PS1 may consult.
 	for _, m := range []struct{ Name, Source string }{
 		{"license", r.LicenseDir},
 		{"conf", r.ConfDir},
 	} {
-		dst := filepath.Join(stageDir, m.Name)
-		if _, err := os.Lstat(dst); err == nil {
-			continue
-		}
 		if m.Source == "" {
 			continue
 		}
-		_ = os.Symlink(m.Source, dst)
+		_ = os.Symlink(m.Source, filepath.Join(stageDir, m.Name))
 	}
-
-	// Snapshot BEFORE staging anything — used later to detect new/changed files.
-	beforeSnap := snapshotDir(stageDir)
 
 	// Stage the PS1 into cwd so the PS1 can reference files with bare names.
 	stagedScript := filepath.Join(stageDir, r.PSScript)
 	if err := copyFile(scriptPath, stagedScript); err != nil {
 		return -1, fmt.Errorf("stage script: %w", err)
 	}
-	defer os.Remove(stagedScript)
 
 	// Stage the config under a hidden name to avoid collisions.
 	stagedConfig := filepath.Join(stageDir, ".job-"+filepath.Base(r.ConfigPath))
 	if err := copyFile(r.ConfigPath, stagedConfig); err != nil {
 		return -1, fmt.Errorf("stage config: %w", err)
 	}
-	defer os.Remove(stagedConfig)
 
 	// These ephemeral files must not be collected as job outputs.
 	skipSet := map[string]bool{
@@ -138,46 +146,39 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 		}
 	}
 
-	// Move all newly created / modified files to OutputDir/JobID/ .
-	// This includes the customised ISO, kickstart configs, logs — everything.
+	// Move all regular files in the staging dir (excluding staged inputs) to
+	// OutputDir/JobID/. defer os.RemoveAll(stageDir) cleans the rest.
 	if r.JobID != "" {
-		r.collectOutputs(stageDir, beforeSnap, skipSet)
-	}
-
-	// Remove the companion symlinks — they are staging artifacts and must not
-	// linger in the workspace once the job is done.
-	for _, name := range []string{"license", "conf"} {
-		sym := filepath.Join(stageDir, name)
-		if linfo, err := os.Lstat(sym); err == nil && linfo.Mode()&os.ModeSymlink != 0 {
-			_ = os.Remove(sym)
-		}
+		r.collectOutputs(stageDir, skipSet)
 	}
 
 	return exit, err
 }
 
-// collectOutputs moves every file that appeared or changed in stageDir since
-// beforeSnap into OutputDir/JobID/. Symlinks and directories are ignored.
-func (r *Runner) collectOutputs(stageDir string, before map[string]time.Time, skip map[string]bool) {
+// collectOutputs moves every regular file in stageDir (not in skip, not a
+// symlink, not a directory) into OutputDir/JobID/. Because the staging dir is
+// per-job and freshly created, every regular file that wasn't staged by us IS
+// a job output. defer os.RemoveAll(stageDir) in the caller handles cleanup.
+func (r *Runner) collectOutputs(stageDir string, skip map[string]bool) {
 	jobOut := filepath.Join(r.OutputDir, r.JobID)
 	if err := os.MkdirAll(jobOut, 0o755); err != nil {
 		r.OnLine(fmt.Sprintf("[output-error] mkdir %s: %v", jobOut, err))
 		return
 	}
 
-	after := snapshotDir(stageDir)
-	for name, modTime := range after {
+	entries, err := os.ReadDir(stageDir)
+	if err != nil {
+		r.OnLine(fmt.Sprintf("[output-error] readdir %s: %v", stageDir, err))
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
 		if skip[name] {
 			continue
 		}
 		// Skip symlinks and directories.
-		linfo, _ := os.Lstat(filepath.Join(stageDir, name))
-		if linfo == nil || linfo.Mode()&os.ModeSymlink != 0 || linfo.IsDir() {
-			continue
-		}
-		// Only collect new or modified files.
-		prevTime, existed := before[name]
-		if existed && !modTime.After(prevTime) {
+		linfo, lerr := os.Lstat(filepath.Join(stageDir, name))
+		if lerr != nil || linfo.Mode()&os.ModeSymlink != 0 || linfo.IsDir() {
 			continue
 		}
 
@@ -195,24 +196,6 @@ func (r *Runner) collectOutputs(stageDir string, before map[string]time.Time, sk
 			r.OnLine(fmt.Sprintf("[output] %s", name))
 		}
 	}
-}
-
-// snapshotDir returns a map of filename → modtime for non-directory entries.
-func snapshotDir(dir string) map[string]time.Time {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return make(map[string]time.Time)
-	}
-	snap := make(map[string]time.Time, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if info, err := e.Info(); err == nil {
-			snap[e.Name()] = info.ModTime()
-		}
-	}
-	return snap
 }
 
 // consume reads a pipe line by line, scrubs secrets, forwards to OnLine.

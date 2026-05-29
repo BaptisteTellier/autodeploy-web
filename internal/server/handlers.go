@@ -115,7 +115,7 @@ func (s *Server) handleJobDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, "views/job.html", map[string]any{
 		"Version": s.deps.Version,
-		"Job":     j,
+		"Job":     j.View(),
 		"Lines":   j.Snapshot(),
 	})
 }
@@ -400,6 +400,10 @@ func (s *Server) handleWorkspaceDownload(w http.ResponseWriter, r *http.Request)
 
 // --- Output (per-job subfolders in /data/output) -----------------------
 
+// jobConfigName is the config snapshot file stored in each job output folder.
+// It is excluded from file counts, size totals, and file listings shown to users.
+const jobConfigName = "job-config.json"
+
 // OutputJobInfo holds metadata shown on the output index page.
 type OutputJobInfo struct {
 	JobID        string
@@ -407,6 +411,29 @@ type OutputJobInfo struct {
 	ModTime      time.Time
 	FileCount    int
 	TotalSize    int64
+}
+
+// friendlyJobName builds a human-readable label for a job output folder.
+// It reads job-config.json inside jobDir; if Hostname is non-empty it returns
+// "ApplianceType-Hostname[-OutputISO]", otherwise the first 8 chars of jobID
+// followed by "…".
+func friendlyJobName(jobDir, jobID string) string {
+	cfgPath := filepath.Join(jobDir, jobConfigName)
+	if raw, err := os.ReadFile(cfgPath); err == nil {
+		var meta struct {
+			ApplianceType string `json:"ApplianceType"`
+			Hostname      string `json:"Hostname"`
+			OutputISO     string `json:"OutputISO"`
+		}
+		if json.Unmarshal(raw, &meta) == nil && meta.Hostname != "" {
+			name := meta.ApplianceType + "-" + meta.Hostname
+			if meta.OutputISO != "" {
+				name += "-" + meta.OutputISO
+			}
+			return name
+		}
+	}
+	return jobID[:min(8, len(jobID))] + "…"
 }
 
 func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
@@ -422,33 +449,24 @@ func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
 		if info != nil {
 			modTime = info.ModTime()
 		}
-		// Count files and total size (excluding the config snapshot).
-		files := listDirInfo(filepath.Join(dir, e.Name()), nil)
+		// Count files and total size, excluding the config snapshot.
+		allFiles := listDirInfo(filepath.Join(dir, e.Name()), nil)
+		var filtered []MediaFile
+		for _, f := range allFiles {
+			if f.Name != jobConfigName {
+				filtered = append(filtered, f)
+			}
+		}
 		var total int64
-		for _, f := range files {
+		for _, f := range filtered {
 			total += f.Size
 		}
-		// Build human-readable name from stored config JSON.
-		friendlyName := e.Name()[:min(8, len(e.Name()))] + "…"
-		cfgPath := filepath.Join(dir, e.Name(), "job-config.json")
-		if raw, err := os.ReadFile(cfgPath); err == nil {
-			var meta struct {
-				ApplianceType string `json:"ApplianceType"`
-				Hostname      string `json:"Hostname"`
-				OutputISO     string `json:"OutputISO"`
-			}
-			if json.Unmarshal(raw, &meta) == nil && meta.Hostname != "" {
-				friendlyName = meta.ApplianceType + "-" + meta.Hostname
-				if meta.OutputISO != "" {
-					friendlyName += "-" + meta.OutputISO
-				}
-			}
-		}
+		jobDir := filepath.Join(dir, e.Name())
 		jobs = append(jobs, OutputJobInfo{
 			JobID:        e.Name(),
-			FriendlyName: friendlyName,
+			FriendlyName: friendlyJobName(jobDir, e.Name()),
 			ModTime:      modTime,
-			FileCount:    len(files),
+			FileCount:    len(filtered),
 			TotalSize:    total,
 		})
 	}
@@ -494,27 +512,19 @@ func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// Compute a human-readable name from the stored config snapshot.
-	friendlyName := jobID[:min(8, len(jobID))] + "…"
-	cfgPath := filepath.Join(dir, "job-config.json")
-	if raw, err := os.ReadFile(cfgPath); err == nil {
-		var meta struct {
-			ApplianceType string `json:"ApplianceType"`
-			Hostname      string `json:"Hostname"`
-			OutputISO     string `json:"OutputISO"`
-		}
-		if json.Unmarshal(raw, &meta) == nil && meta.Hostname != "" {
-			friendlyName = meta.ApplianceType + "-" + meta.Hostname
-			if meta.OutputISO != "" {
-				friendlyName += "-" + meta.OutputISO
-			}
+	// Build file list excluding the config snapshot.
+	allFiles := listDirInfo(dir, nil)
+	var files []MediaFile
+	for _, f := range allFiles {
+		if f.Name != jobConfigName {
+			files = append(files, f)
 		}
 	}
 	s.render(w, "views/media_output_job.html", map[string]any{
 		"Version":      s.deps.Version,
 		"JobID":        jobID,
-		"FriendlyName": friendlyName,
-		"Files":        listDirInfo(dir, nil),
+		"FriendlyName": friendlyJobName(dir, jobID),
+		"Files":        files,
 	})
 }
 

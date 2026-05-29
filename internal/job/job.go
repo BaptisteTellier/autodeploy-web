@@ -119,3 +119,73 @@ func (j *Job) closeSubs() {
 }
 
 func (j *Job) Done() <-chan struct{} { return j.done }
+
+// markRunning sets State=StateRunning and StartedAt=now under the mutex.
+func (j *Job) markRunning() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.State = StateRunning
+	j.StartedAt = time.Now()
+}
+
+// markResult sets FinishedAt, ExitCode, State, and ErrorMessage under the mutex.
+func (j *Job) markResult(state State, exit int, errMsg string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.FinishedAt = time.Now()
+	j.ExitCode = exit
+	j.State = state
+	j.ErrorMessage = errMsg
+}
+
+// markCanceled sets State=StateCanceled and FinishedAt=now under the mutex.
+func (j *Job) markCanceled() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.State = StateCanceled
+	j.FinishedAt = time.Now()
+}
+
+// StateString returns the current state as a string, safely under the mutex.
+func (j *Job) StateString() string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return string(j.State)
+}
+
+// JobView is a race-free snapshot of a Job's public fields, safe to pass to
+// HTTP handlers and templates without holding the job mutex.
+type JobView struct {
+	ID           string    `json:"id"`
+	State        State     `json:"state"`
+	Hostname     string    `json:"hostname"`
+	Appliance    string    `json:"appliance"`
+	SourceISO    string    `json:"source_iso"`
+	OutputISO    string    `json:"output_iso"`
+	ConfigPath   string    `json:"config_path"`
+	CreatedAt    time.Time `json:"created_at"`
+	StartedAt    time.Time `json:"started_at,omitempty"`
+	FinishedAt   time.Time `json:"finished_at,omitempty"`
+	ExitCode     int       `json:"exit_code"`
+	ErrorMessage string    `json:"error,omitempty"`
+}
+
+// View returns a race-free snapshot of the job's public fields.
+func (j *Job) View() JobView {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return JobView{
+		ID:           j.ID,
+		State:        j.State,
+		Hostname:     j.Hostname,
+		Appliance:    j.Appliance,
+		SourceISO:    j.SourceISO,
+		OutputISO:    j.OutputISO,
+		ConfigPath:   j.ConfigPath,
+		CreatedAt:    j.CreatedAt,
+		StartedAt:    j.StartedAt,
+		FinishedAt:   j.FinishedAt,
+		ExitCode:     j.ExitCode,
+		ErrorMessage: j.ErrorMessage,
+	}
+}

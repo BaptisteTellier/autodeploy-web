@@ -17,8 +17,12 @@
        async deleteSel() {
          if(!this.count) return;
          if(!confirm('Supprimer '+this.count+' fichier(s) ?')) return;
-         for(const n of Object.keys(this.sel))
-           await fetch('/media/license/'+encodeURIComponent(n), {method:'DELETE'});
+         let failures=0;
+         for(const n of Object.keys(this.sel)){
+           const r=await fetch('/media/license/'+encodeURIComponent(n), {method:'DELETE'});
+           if(!r.ok) failures++;
+         }
+         if(failures) alert(failures+' suppression(s) ont échoué.');
          location.reload();
        }
      }">
