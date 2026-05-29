@@ -85,7 +85,7 @@
         <td class="px-4 py-3 font-mono text-sm break-all max-w-xs">
           {{if isTextFile .Name}}
           <button class="text-left hover:text-blue-700 hover:underline"
-                  @click="openFile('/media/output/{{$.JobID}}/{{.Name}}/content','{{.Name}}')">
+                  @click="openFile('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}})+'/content',{{jsonStr .Name}})">
             {{.Name}}
           </button>
           {{else}}
@@ -98,7 +98,7 @@
           <a href="/media/output/{{$.JobID}}/{{.Name}}/download"
              class="text-emerald-600 hover:underline text-xs">⬇️ DL</a>
           <button class="text-red-500 hover:underline text-xs"
-                  @click="if(confirm('Supprimer «{{.Name}}» ?')) fetch('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}}),{method:'DELETE'}).then(()=>location.reload())">
+                  @click="if(confirm('Supprimer «'+{{jsonStr .Name}}+'» ?')) fetch('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}}),{method:'DELETE'}).then(()=>location.reload())">
             🗑️
           </button>
         </td>

@@ -153,6 +153,15 @@ func (j *Job) StateString() string {
 	return string(j.State)
 }
 
+// statusSnapshot returns State and FinishedAt under the mutex. Used by the
+// manager's prune/delete bookkeeping so those reads don't race the worker's
+// markRunning/markResult writes.
+func (j *Job) statusSnapshot() (State, time.Time) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.State, j.FinishedAt
+}
+
 // JobView is a race-free snapshot of a Job's public fields, safe to pass to
 // HTTP handlers and templates without holding the job mutex.
 type JobView struct {

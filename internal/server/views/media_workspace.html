@@ -91,7 +91,7 @@
           <span x-show="!editing">
             {{if isTextFile .Name}}
             <button class="text-left hover:text-blue-700 hover:underline break-all"
-                    @click="openFile('/media/workspace/{{.Name}}/content','{{.Name}}')">
+                    @click="openFile('/media/workspace/'+encodeURIComponent({{jsonStr .Name}})+'/content',{{jsonStr .Name}})">
               {{.Name}}
             </button>
             {{else}}

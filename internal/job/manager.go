@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
 	"github.com/google/uuid"
@@ -101,20 +102,27 @@ func (m *Manager) Submit(c config.Config) (*Job, error) {
 
 // pruneLocked drops oldest finished jobs above KeepCompleted.
 func (m *Manager) pruneLocked() {
-	finished := make([]*Job, 0)
+	type finishedJob struct {
+		job        *Job
+		finishedAt time.Time
+	}
+	finished := make([]finishedJob, 0)
 	for _, j := range m.jobs {
-		if j.State == StateDone || j.State == StateFailed || j.State == StateCanceled {
-			finished = append(finished, j)
+		// Read State/FinishedAt under j.mu — these fields are written by the
+		// worker goroutine, which does not hold m.mu.
+		st, fa := j.statusSnapshot()
+		if st == StateDone || st == StateFailed || st == StateCanceled {
+			finished = append(finished, finishedJob{job: j, finishedAt: fa})
 		}
 	}
 	if len(finished) <= m.opts.KeepCompleted {
 		return
 	}
-	sort.Slice(finished, func(i, k int) bool { return finished[i].FinishedAt.Before(finished[k].FinishedAt) })
+	sort.Slice(finished, func(i, k int) bool { return finished[i].finishedAt.Before(finished[k].finishedAt) })
 	drop := len(finished) - m.opts.KeepCompleted
 	for i := 0; i < drop; i++ {
-		delete(m.jobs, finished[i].ID)
-		_ = os.Remove(finished[i].ConfigPath)
+		delete(m.jobs, finished[i].job.ID)
+		_ = os.Remove(finished[i].job.ConfigPath)
 	}
 }
 
@@ -209,7 +217,8 @@ func (m *Manager) Delete(id string) error {
 	if !ok {
 		return errors.New("not found")
 	}
-	if j.State == StateRunning || j.State == StatePending {
+	// Read State under j.mu — written by the worker goroutine without m.mu.
+	if st, _ := j.statusSnapshot(); st == StateRunning || st == StatePending {
 		return errors.New("cannot delete a running or pending job")
 	}
 	delete(m.jobs, id)

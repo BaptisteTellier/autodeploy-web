@@ -69,9 +69,11 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 	defer os.RemoveAll(stageDir)
 
 	// Symlink the source ISO into the staging dir so the PS1 finds it by bare name.
+	// Base the name so a crafted SourceISO can't point the symlink outside IsoDir.
 	if r.SourceISO != "" {
-		src := filepath.Join(r.IsoDir, r.SourceISO)
-		dst := filepath.Join(stageDir, r.SourceISO)
+		iso := filepath.Base(r.SourceISO)
+		src := filepath.Join(r.IsoDir, iso)
+		dst := filepath.Join(stageDir, iso)
 		if err := os.Symlink(src, dst); err != nil {
 			r.OnLine(fmt.Sprintf("[warn] symlink source ISO: %v", err))
 		}

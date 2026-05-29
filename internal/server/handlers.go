@@ -30,6 +30,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	// ?import=jobID pre-fills the form from the job's stored config JSON.
 	if importID := r.URL.Query().Get("import"); importID != "" {
+		importID = filepath.Base(importID) // prevent path traversal via the query param
 		cfgPath := filepath.Join(s.deps.DataDir, "output", importID, "job-config.json")
 		if raw, err := os.ReadFile(cfgPath); err == nil {
 			var imported config.Config
@@ -127,9 +128,11 @@ func (s *Server) handleJobDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// Output ISO is now in /data/output/{jobID}/{filename}
-	path := filepath.Join(s.deps.DataDir, "output", j.ID, j.OutputISO)
-	serveFileDownload(w, r, path, j.OutputISO)
+	// Output ISO is now in /data/output/{jobID}/{filename}.
+	// Base the filename — OutputISO originates from user form input.
+	out := filepath.Base(j.OutputISO)
+	path := filepath.Join(s.deps.DataDir, "output", j.ID, out)
+	serveFileDownload(w, r, path, out)
 }
 
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
