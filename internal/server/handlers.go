@@ -870,6 +870,13 @@ func presetListOrEmpty(s *config.Store) []config.PresetInfo {
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
+	// Inject build identity into every page so the header can show which
+	// image is running, without each handler having to set these.
+	if m, ok := data.(map[string]any); ok {
+		m["Version"] = s.deps.Version
+		m["Commit"] = s.deps.Commit
+		m["BuildDate"] = s.deps.BuildDate
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	t, ok := s.templates[name]
 	if !ok {

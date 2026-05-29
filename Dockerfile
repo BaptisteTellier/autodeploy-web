@@ -5,6 +5,8 @@
 ############################
 FROM golang:1.22-alpine AS gobuild
 ARG VERSION=dev
+ARG COMMIT=
+ARG BUILD_DATE=
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates curl
 COPY go.mod go.sum* ./
@@ -13,7 +15,7 @@ COPY . .
 RUN sh scripts/fetch-vendor.sh
 RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=${VERSION}" \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" \
     -o /out/autodeploy-web ./cmd/autodeploy-web
 
 ############################

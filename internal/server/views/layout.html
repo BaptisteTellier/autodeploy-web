@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>autodeploy-web · {{.Version}}</title>
+<title>autodeploy-web · {{.Version}}{{if .Commit}}+{{.Commit}}{{end}}</title>
 <link rel="stylesheet" href="/static/tailwind.css">
 <script src="/static/tailwind.js"></script>
 <script src="/static/htmx.min.js" defer></script>
@@ -23,7 +23,10 @@
       <a href="/admin" class="hover:underline">⚙️</a>
       <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" class="hover:underline">GitHub</a>
     </nav>
-    <span class="text-xs opacity-75">v{{.Version}}</span>
+    <span class="text-xs opacity-75 font-mono"
+          title="version {{.Version}}{{if .Commit}} · commit {{.Commit}}{{end}}{{if .BuildDate}} · built {{.BuildDate}}{{end}}">
+      v{{.Version}}{{if .Commit}} · <span class="opacity-90">{{.Commit}}</span>{{end}}
+    </span>
   </div>
 </header>
 <main class="container mx-auto px-4 py-6">

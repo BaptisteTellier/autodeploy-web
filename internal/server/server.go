@@ -12,6 +12,8 @@ import (
 // Deps bundles everything a handler may need.
 type Deps struct {
 	Version       string
+	Commit        string // short git SHA baked at build time ("" for dev builds)
+	BuildDate     string // build timestamp baked at build time ("" for dev builds)
 	DataDir       string
 	AutodeployDir string
 	Store         *config.Store

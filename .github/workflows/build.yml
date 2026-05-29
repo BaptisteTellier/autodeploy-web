@@ -33,6 +33,10 @@ jobs:
           [ -z "$ver" ] && ver="main"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
+      - name: Build metadata
+        id: bmeta
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%MZ)" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Buildx
@@ -66,6 +70,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.bmeta.outputs.date }}
             AUTODEPLOY_VERSION=${{ steps.ad.outputs.version }}
           no-cache-filters: fetch
           cache-from: type=gha

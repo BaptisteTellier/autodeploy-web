@@ -17,11 +17,24 @@ import (
 	"github.com/BaptisteTellier/autodeploy-web/internal/server"
 )
 
-var version = "dev"
+// Injected at build time via -ldflags "-X main.version=... -X main.commit=... -X main.date=...".
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
+
+// shortCommit returns the first 7 chars of the build commit SHA (or "").
+func shortCommit() string {
+	if len(commit) >= 7 {
+		return commit[:7]
+	}
+	return commit
+}
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Printf("autodeploy-web %s starting", version)
+	log.Printf("autodeploy-web %s (commit %s, built %s) starting", version, shortCommit(), date)
 
 	addr := envDefault("LISTEN_ADDR", ":8080")
 	dataDir := envDefault("DATA_DIR", "/data")
@@ -51,6 +64,8 @@ func main() {
 
 	srv := server.New(server.Deps{
 		Version:       version,
+		Commit:        shortCommit(),
+		BuildDate:     date,
 		DataDir:       dataDir,
 		AutodeployDir: autodeployDir,
 		Store:         store,
