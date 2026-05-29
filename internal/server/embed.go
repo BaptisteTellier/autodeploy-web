@@ -71,7 +71,7 @@ var baseFuncMap = template.FuncMap{
 // specific language:
 //   - t   "key"  → translated plain text (HTML-escaped by the template).
 //   - tjs "key"  → translated text JSON-encoded as a JS string literal, safe
-//                  inside Alpine x-data / @click attributes and <script> blocks.
+//     inside Alpine x-data / @click attributes and <script> blocks.
 func funcMapForLang(lang string) template.FuncMap {
 	fm := make(template.FuncMap, len(baseFuncMap)+2)
 	for k, v := range baseFuncMap {
