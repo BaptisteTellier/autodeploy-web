@@ -144,6 +144,15 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 		r.collectOutputs(stageDir, beforeSnap, skipSet)
 	}
 
+	// Remove the companion symlinks — they are staging artifacts and must not
+	// linger in the workspace once the job is done.
+	for _, name := range []string{"license", "conf"} {
+		sym := filepath.Join(stageDir, name)
+		if linfo, err := os.Lstat(sym); err == nil && linfo.Mode()&os.ModeSymlink != 0 {
+			_ = os.Remove(sym)
+		}
+	}
+
 	return exit, err
 }
 

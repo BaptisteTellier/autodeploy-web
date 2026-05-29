@@ -369,6 +369,10 @@ func listDirInfo(dir string, exts []string) []MediaFile {
 		if err != nil {
 			continue
 		}
+		// Skip symlinks — they are runner staging artifacts, not real workspace files.
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
 		out = append(out, MediaFile{Name: name, Size: info.Size(), ModTime: info.ModTime()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
