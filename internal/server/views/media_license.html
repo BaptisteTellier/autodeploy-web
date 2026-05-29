@@ -16,45 +16,45 @@
        toggleAll() { this.sel = this.allChecked ? {} : Object.fromEntries(this.allNames.map(n=>[n,true])); },
        async deleteSel() {
          if(!this.count) return;
-         if(!confirm('Supprimer '+this.count+' fichier(s) ?')) return;
+         if(!confirm({{tjs "ws.confirm_delete_n"}}.replace('{n}', this.count))) return;
          let failures=0;
          for(const n of Object.keys(this.sel)){
            const r=await fetch('/media/license/'+encodeURIComponent(n), {method:'DELETE'});
            if(!r.ok) failures++;
          }
-         if(failures) alert(failures+' suppression(s) ont échoué.');
+         if(failures) alert({{tjs "js.deletions_failed"}}.replace('{n}', failures));
          location.reload();
        }
      }">
 
   <!-- Header + upload -->
   <div class="flex flex-wrap items-center justify-between gap-4">
-    <h1 class="text-2xl font-bold">🔑 Gestion licences</h1>
+    <h1 class="text-2xl font-bold">{{t "lic.title"}}</h1>
     <div class="flex gap-2 items-center">
       <button x-show="count>0" x-cloak
               @click="deleteSel()"
               class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded font-medium text-sm">
-        🗑️ Supprimer <span x-text="count"></span> sélectionné(s)
+        🗑️ {{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
       </button>
       <form method="POST" action="/media/license/upload" enctype="multipart/form-data" id="upload-form">
         <label class="flex items-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-medium text-sm select-none">
-          ⬆️ Upload licence
+          {{t "lic.upload"}}
           <input type="file" name="file" accept=".lic" class="hidden"
-                 onchange="document.getElementById('upload-status').textContent='⏳ Upload en cours…'; this.form.submit();">
+                 onchange="document.getElementById('upload-status').textContent={{tjs "ws.uploading"}}; this.form.submit();">
         </label>
       </form>
     </div>
   </div>
   <p class="text-sm text-slate-500" id="upload-status">
-    Dossier : <code>/data/license</code> — déposez vos fichiers <code>.lic</code> Veeam ici.
+    {{t "lic.folder_hint_pre"}} <code>/data/license</code> {{t "lic.folder_hint_post"}}
   </p>
 
   <!-- File list -->
   <div class="bg-white rounded shadow overflow-hidden">
     {{if not .Files}}
     <p class="text-slate-500 p-8 text-center text-sm">
-      Aucun fichier <code>.lic</code> dans <code>/data/license</code>.<br>
-      Uploadez-en un via le bouton ci-dessus, ou copiez-le directement sur l'hôte dans <code>./data/license/</code>.
+      {{t "lic.none_pre"}} <code>/data/license</code>{{t "lic.none_post"}}<br>
+      {{t "lic.none_hint"}} <code>./data/license/</code>.
     </p>
     {{else}}
     <table class="w-full text-sm">
@@ -64,10 +64,10 @@
             <input type="checkbox" class="rounded"
                    :checked="allChecked" @change="toggleAll()">
           </th>
-          <th class="px-4 py-3">Nom du fichier</th>
-          <th class="px-4 py-3">Taille</th>
-          <th class="px-4 py-3">Modifié le</th>
-          <th class="px-4 py-3 text-right">Actions</th>
+          <th class="px-4 py-3">{{t "th.file_name"}}</th>
+          <th class="px-4 py-3">{{t "th.size"}}</th>
+          <th class="px-4 py-3">{{t "th.modified_on"}}</th>
+          <th class="px-4 py-3 text-right">{{t "common.actions"}}</th>
         </tr>
       </thead>
       <tbody>
@@ -105,7 +105,7 @@
                   hx-delete="/media/license/{{.Name}}"
                   hx-target="closest tr"
                   hx-swap="outerHTML swap:300ms"
-                  hx-confirm="Supprimer définitivement «{{.Name}}» ?">
+                  hx-confirm="{{t "lic.confirm_delete"}}{{.Name}}» ?">
             🗑️
           </button>
         </td>
@@ -131,7 +131,7 @@ async function submitRename(kind, oldName, newName) {
   if (res.ok) {
     location.reload();
   } else {
-    alert('Erreur renommage : ' + await res.text());
+    alert({{tjs "js.rename_error_prefix"}} + await res.text());
   }
 }
 </script>

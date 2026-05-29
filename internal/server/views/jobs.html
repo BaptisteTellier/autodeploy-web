@@ -2,11 +2,11 @@
 
 {{define "content"}}
 <div class="bg-white rounded shadow p-4">
-  <h2 class="text-lg font-semibold border-b pb-2 mb-3">All jobs</h2>
+  <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "jobs.all"}}</h2>
   {{if .Jobs}}
   <table class="w-full text-sm">
     <thead><tr class="text-left text-slate-500">
-      <th>ID</th><th>Appliance</th><th>Hostname</th><th>State</th><th>Started</th><th>Finished</th><th>Exit</th><th></th>
+      <th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.started"}}</th><th>{{t "th.finished"}}</th><th>{{t "th.exit"}}</th><th></th>
     </tr></thead>
     <tbody>
     {{range .Jobs}}
@@ -26,9 +26,9 @@
       <td class="text-xs">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "15:04:05"}}{{end}}</td>
       <td class="text-xs font-mono">{{.ExitCode}}</td>
       <td class="text-right">
-        <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">open job</a>
+        <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
         {{if eq (printf "%s" .State) "done"}}
-          <a href="/media/output/{{.ID}}" class="text-emerald-600 hover:underline text-xs ml-2">📂 output</a>
+          <a href="/media/output/{{.ID}}" class="text-emerald-600 hover:underline text-xs ml-2">{{t "jobs.output"}}</a>
         {{end}}
       </td>
     </tr>
@@ -36,7 +36,7 @@
     </tbody>
   </table>
   {{else}}
-  <p class="text-slate-500 text-sm">No jobs yet. <a href="/" class="text-blue-600 hover:underline">Create one</a>.</p>
+  <p class="text-slate-500 text-sm">{{t "jobs.none"}} <a href="/" class="text-blue-600 hover:underline">{{t "jobs.create_one"}}</a>.</p>
   {{end}}
 </div>
 {{end}}

@@ -5,7 +5,7 @@
 
 {{if .Errors}}
 <div class="bg-red-100 border border-red-300 text-red-800 rounded p-3">
-  <strong>Validation errors:</strong>
+  <strong>{{t "form.errors_title"}}</strong>
   <ul class="list-disc list-inside text-sm mt-1">
     {{range .Errors}}<li><code class="font-mono">{{.Field}}</code> — {{.Message}}</li>{{end}}
   </ul>
@@ -15,25 +15,25 @@
 <!-- Top toolbar : presets, import/export, save -->
 <div class="bg-white rounded shadow p-4 flex flex-wrap gap-3 items-end">
   <div>
-    <label class="block text-xs font-semibold uppercase text-slate-500">Load preset</label>
+    <label class="block text-xs font-semibold uppercase text-slate-500">{{t "form.load_preset"}}</label>
     <select class="border rounded px-2 py-1"
             onchange="if (this.value) { document.getElementById('preset_name').value=this.value; location.href='/?preset='+encodeURIComponent(this.value); }">
-      <option value="">— select —</option>
+      <option value="">{{t "form.select_dash"}}</option>
       {{range .Presets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
     </select>
   </div>
   <div>
-    <label class="block text-xs font-semibold uppercase text-slate-500">Save current as preset</label>
+    <label class="block text-xs font-semibold uppercase text-slate-500">{{t "form.save_as_preset"}}</label>
     <div class="flex gap-1">
-      <input id="preset_name" name="preset_name" type="text" placeholder="preset name"
+      <input id="preset_name" name="preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}"
              value="{{.PresetName}}" class="border rounded px-2 py-1">
-      <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" @click="savePreset()">💾 Save</button>
+      <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" @click="savePreset()">{{t "form.save"}}</button>
     </div>
   </div>
   <div class="ml-auto flex gap-2">
-    <button type="button" class="bg-slate-200 rounded px-3 py-1 text-sm" @click="exportJSON()">⬇️ Export JSON</button>
+    <button type="button" class="bg-slate-200 rounded px-3 py-1 text-sm" @click="exportJSON()">{{t "form.export_json"}}</button>
     <label class="bg-slate-200 rounded px-3 py-1 text-sm cursor-pointer">
-      ⬆️ Import JSON
+      {{t "form.import_json"}}
       <input type="file" accept="application/json" class="hidden" @change="importJSON($event)">
     </label>
   </div>
@@ -43,73 +43,73 @@
 
 <!-- Appliance section -->
 <section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">📦 Appliance</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.appliance"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
     <label class="block">
-      <span class="text-sm font-medium">Appliance type</span>
+      <span class="text-sm font-medium">{{t "form.appliance_type"}}</span>
       <select name="ApplianceType" x-model="cfg.ApplianceType" class="mt-1 w-full border rounded px-2 py-1">
         {{range $.ApplianceTypes}}<option value="{{.}}" {{if eq . $.Config.ApplianceType}}selected{{end}}>{{.}}</option>{{end}}
       </select>
     </label>
     <label class="block">
-      <span class="text-sm font-medium">Source ISO</span>
+      <span class="text-sm font-medium">{{t "form.source_iso"}}</span>
       <select name="SourceISO" class="mt-1 w-full border rounded px-2 py-1">
-        <option value="">— select ISO —</option>
+        <option value="">{{t "form.select_iso"}}</option>
         {{range .SourceISOs}}<option value="{{.}}" {{if eq . $.Config.SourceISO}}selected{{end}}>{{.}}</option>{{end}}
       </select>
-      <small class="text-slate-500">Files in <code>/data/iso</code></small>
+      <small class="text-slate-500">{{t "form.files_in"}} <code>/data/iso</code></small>
     </label>
     <label class="block">
-      <span class="text-sm font-medium">Output ISO (optional)</span>
-      <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="auto: _customized suffix" class="mt-1 w-full border rounded px-2 py-1">
+      <span class="text-sm font-medium">{{t "form.output_iso"}}</span>
+      <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="{{t "form.output_iso_ph"}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
     <label class="block">
-      <span class="text-sm font-medium">GRUB timeout (s)</span>
+      <span class="text-sm font-medium">{{t "form.grub_timeout"}}</span>
       <input type="number" name="GrubTimeout" min="0" max="300" value="{{.Config.GrubTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
     <label class="flex items-center gap-2 mt-6">
       <input type="checkbox" name="InPlace" {{if .Config.InPlace}}checked{{end}}>
-      <span>InPlace modification</span>
+      <span>{{t "form.inplace"}}</span>
     </label>
     <label class="flex items-center gap-2 mt-6">
       <input type="checkbox" name="CreateBackup" {{if .Config.CreateBackup}}checked{{end}}>
-      <span>Create backup (when InPlace)</span>
+      <span>{{t "form.create_backup"}}</span>
     </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="CleanupCFGFiles" {{if .Config.CleanupCFGFiles}}checked{{end}}>
-      <span>Cleanup temp .cfg files</span>
+      <span>{{t "form.cleanup_cfg"}}</span>
     </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="CFGOnly" {{if .Config.CFGOnly}}checked{{end}}>
-      <span>CFG-only (no ISO write — for Packer/CloudInit)</span>
+      <span>{{t "form.cfg_only"}}</span>
     </label>
   </div>
 </section>
 
 <!-- Regional -->
 <section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">🌍 Regional</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.regional"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
     <div class="block" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const k=new Set([{{range $.KeyboardLayouts}}'{{.Value}}',{{end}}]);return{kbd:k.has(v)?v:'custom',kbdTxt:k.has(v)?'':v}})()">
-      <span class="text-sm font-medium">Keyboard layout</span>
+      <span class="text-sm font-medium">{{t "form.keyboard_layout"}}</span>
       <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null" class="mt-1 w-full border rounded px-2 py-1">
         {{range $.KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
       </select>
       <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout"
-             x-model="kbdTxt" placeholder="ex: fr-latin9"
+             x-model="kbdTxt" placeholder="{{t "form.custom_kbd_ph"}}"
              class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">
     </div>
     <div class="block" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const k=new Set([{{range $.Timezones}}'{{.Value}}',{{end}}]);return{tz:k.has(v)?v:'custom',tzTxt:k.has(v)?'':v}})()">
-      <span class="text-sm font-medium">Timezone (IANA)</span>
+      <span class="text-sm font-medium">{{t "form.timezone"}}</span>
       <select x-model="tz" :name="tz!=='custom'?'Timezone':null" class="mt-1 w-full border rounded px-2 py-1">
         {{range $.Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
       </select>
       <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone"
-             x-model="tzTxt" placeholder="ex: America/Cayman"
+             x-model="tzTxt" placeholder="{{t "form.custom_tz_ph"}}"
              class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">
     </div>
     <label class="block">
-      <span class="text-sm font-medium">Hostname (≤15 char)</span>
+      <span class="text-sm font-medium">{{t "form.hostname"}}</span>
       <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required class="mt-1 w-full border rounded px-2 py-1">
     </label>
   </div>
@@ -117,26 +117,26 @@
 
 <!-- Network -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-data="{ dhcp: {{if .Config.UseDHCP}}true{{else}}false{{end}} }">
-  <h2 class="text-lg font-semibold border-b pb-2 flex items-center gap-3">🌐 Network
+  <h2 class="text-lg font-semibold border-b pb-2 flex items-center gap-3">{{t "form.network"}}
     <label class="text-sm font-normal flex items-center gap-2 ml-auto">
-      <input type="checkbox" name="UseDHCP" x-model="dhcp"> Use DHCP
+      <input type="checkbox" name="UseDHCP" x-model="dhcp"> {{t "form.use_dhcp"}}
     </label>
   </h2>
   <div x-show="!dhcp" class="grid grid-cols-1 md:grid-cols-2 gap-3">
     <label class="block">
-      <span class="text-sm font-medium">Static IP</span>
+      <span class="text-sm font-medium">{{t "form.static_ip"}}</span>
       <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
     <label class="block">
-      <span class="text-sm font-medium">Subnet mask</span>
+      <span class="text-sm font-medium">{{t "form.subnet"}}</span>
       <input type="text" name="Subnet" value="{{.Config.Subnet}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
     <label class="block">
-      <span class="text-sm font-medium">Gateway</span>
+      <span class="text-sm font-medium">{{t "form.gateway"}}</span>
       <input type="text" name="Gateway" value="{{.Config.Gateway}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
     <label class="block">
-      <span class="text-sm font-medium">DNS servers (comma- or newline-separated)</span>
+      <span class="text-sm font-medium">{{t "form.dns_servers"}}</span>
       <textarea name="DNSServers" rows="2" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.DNSServers}}{{if $i}}, {{end}}{{$v}}{{end}}</textarea>
     </label>
   </div>
@@ -144,20 +144,20 @@
 
 <!-- Veeam accounts -->
 <section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">🔐 Veeam accounts</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.veeam_accounts"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <fieldset class="border rounded p-3 space-y-2">
-      <legend class="text-sm font-semibold px-1">Admin (veeamadmin)</legend>
+      <legend class="text-sm font-semibold px-1">{{t "form.admin_legend"}}</legend>
       <label class="block">
-        <span class="text-xs">Password (≥15 chars, mixed)</span>
+        <span class="text-xs">{{t "form.password_mixed15"}}</span>
         <div class="flex gap-1">
           <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
           <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genPassword()">🎲</button>
         </div>
       </label>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}> MFA enabled</label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}> {{t "form.mfa_enabled"}}</label>
       <label class="block">
-        <span class="text-xs">MFA secret (Base32, 16-32 chars)</span>
+        <span class="text-xs">{{t "form.mfa_secret_b32"}}</span>
         <div class="flex gap-1">
           <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="flex-1 border rounded px-2 py-1 font-mono">
           <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genBase32(16)">🎲</button>
@@ -165,25 +165,25 @@
       </label>
     </fieldset>
     <fieldset class="border rounded p-3 space-y-2">
-      <legend class="text-sm font-semibold px-1">Security Officer (veeamso)</legend>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}> SO account enabled</label>
+      <legend class="text-sm font-semibold px-1">{{t "form.so_legend"}}</legend>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}> {{t "form.so_enabled"}}</label>
       <label class="block">
-        <span class="text-xs">Password (≥15 chars, mixed, ≠ admin)</span>
+        <span class="text-xs">{{t "form.password_so"}}</span>
         <div class="flex gap-1">
           <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
           <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genPassword()">🎲</button>
         </div>
       </label>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}> MFA enabled</label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}> {{t "form.mfa_enabled"}}</label>
       <label class="block">
-        <span class="text-xs">MFA secret (Base32)</span>
+        <span class="text-xs">{{t "form.mfa_secret_b32_short"}}</span>
         <div class="flex gap-1">
           <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" class="flex-1 border rounded px-2 py-1 font-mono">
           <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genBase32(16)">🎲</button>
         </div>
       </label>
       <label class="block">
-        <span class="text-xs">Recovery token (GUID)</span>
+        <span class="text-xs">{{t "form.recovery_token"}}</span>
         <div class="flex gap-1">
           <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}" class="flex-1 border rounded px-2 py-1 font-mono">
           <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genGUID()">🎲</button>
@@ -195,32 +195,32 @@
 
 <!-- NTP -->
 <section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">⏰ NTP</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.ntp"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     <label class="block">
-      <span class="text-sm font-medium">NTP servers (one per line)</span>
+      <span class="text-sm font-medium">{{t "form.ntp_servers"}}</span>
       <textarea name="NtpServer" rows="3" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.NtpServer}}{{if $i}}
 {{end}}{{$v}}{{end}}</textarea>
     </label>
     <label class="flex items-center gap-2 mt-6">
       <input type="checkbox" name="NtpRunSync" {{if .Config.NtpRunSync}}checked{{end}}>
-      <span>Run NTP sync at boot (failure ⇒ customisation fails)</span>
+      <span>{{t "form.ntp_sync"}}</span>
     </label>
   </div>
 </section>
 
 <!-- VSA 13.1+ -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">⚙️ VSA 13.1+ options</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.vsa_options"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <label class="flex items-center gap-2"><input type="checkbox" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> Allow external managers</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> {{t "form.allow_external"}}</label>
     <label class="block">
-      <span class="text-sm">External managers timeout (s, 60-86400)</span>
+      <span class="text-sm">{{t "form.external_timeout"}}</span>
       <input type="number" name="ExternalManagersInstallationTimeout" min="60" max="86400" value="{{.Config.ExternalManagersInstallationTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
-    <label class="flex items-center gap-2"><input type="checkbox" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> High Availability mode</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> {{t "form.ha_mode"}}</label>
     <label class="block">
-      <span class="text-sm">HA timeout (s)</span>
+      <span class="text-sm">{{t "form.ha_timeout"}}</span>
       <input type="number" name="HighAvailabilityTimeout" min="60" max="86400" value="{{.Config.HighAvailabilityTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
   </div>
@@ -228,27 +228,27 @@
 
 <!-- Monitoring -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">📈 Monitoring (VSA only)</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.monitoring"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> Enable node_exporter (built-in VSA 13.1+)</label>
-    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> TLS on metrics endpoint</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> {{t "form.node_exporter"}}</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> {{t "form.node_exporter_tls"}}</label>
   </div>
 </section>
 
 <!-- VBR -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">🔧 VBR tuning (VSA only)</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.vbr_tuning"}}</h2>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <label class="flex items-center gap-2"><input type="checkbox" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> Install license + run VBR tuning</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> {{t "form.license_vbr_tune"}}</label>
     <label class="block">
-      <span class="text-sm">License file</span>
+      <span class="text-sm">{{t "form.license_file"}}</span>
       <select name="LicenseFile" class="mt-1 w-full border rounded px-2 py-1">
-        <option value="">— none —</option>
+        <option value="">{{t "form.none_dash"}}</option>
         {{range .LicenseFiles}}<option value="{{.}}" {{if eq . $.Config.LicenseFile}}selected{{end}}>{{.}}</option>{{end}}
       </select>
     </label>
     <label class="block">
-      <span class="text-sm">Syslog server (IP/FQDN, optional)</span>
+      <span class="text-sm">{{t "form.syslog_server"}}</span>
       <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" class="mt-1 w-full border rounded px-2 py-1">
     </label>
   </div>
@@ -256,48 +256,48 @@
 
 <!-- VCSP -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">☁️ VCSP (VSA only)</h2>
-  <label class="flex items-center gap-2"><input type="checkbox" name="VCSPConnection" {{if .Config.VCSPConnection}}checked{{end}}> Connect to VCSP</label>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.vcsp"}}</h2>
+  <label class="flex items-center gap-2"><input type="checkbox" name="VCSPConnection" {{if .Config.VCSPConnection}}checked{{end}}> {{t "form.vcsp_connect"}}</label>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <label class="block"><span class="text-sm">VCSP URL</span><input type="url" name="VCSPUrl" value="{{.Config.VCSPUrl}}" class="mt-1 w-full border rounded px-2 py-1"></label>
-    <label class="block"><span class="text-sm">VCSP login</span><input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}" class="mt-1 w-full border rounded px-2 py-1"></label>
-    <label class="block"><span class="text-sm">VCSP password</span><input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}" class="mt-1 w-full border rounded px-2 py-1 font-mono"></label>
+    <label class="block"><span class="text-sm">{{t "form.vcsp_url"}}</span><input type="url" name="VCSPUrl" value="{{.Config.VCSPUrl}}" class="mt-1 w-full border rounded px-2 py-1"></label>
+    <label class="block"><span class="text-sm">{{t "form.vcsp_login"}}</span><input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}" class="mt-1 w-full border rounded px-2 py-1"></label>
+    <label class="block"><span class="text-sm">{{t "form.vcsp_password"}}</span><input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}" class="mt-1 w-full border rounded px-2 py-1 font-mono"></label>
   </div>
 </section>
 
 <!-- Restore -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">♻️ Configuration restore</h2>
-  <label class="flex items-center gap-2"><input type="checkbox" name="RestoreConfig" {{if .Config.RestoreConfig}}checked{{end}}> Enable unattended config restore</label>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.restore"}}</h2>
+  <label class="flex items-center gap-2"><input type="checkbox" name="RestoreConfig" {{if .Config.RestoreConfig}}checked{{end}}> {{t "form.restore_enable"}}</label>
   <label class="block max-w-md">
-    <span class="text-sm">SO config password</span>
+    <span class="text-sm">{{t "form.so_config_password"}}</span>
     <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}" class="mt-1 w-full border rounded px-2 py-1 font-mono">
   </label>
-  <p class="text-xs text-slate-500">Place <code>unattended.xml</code>, <code>veeam_addsoconfpw.sh</code> and <code>conftoresto.bco</code> under <code>/data/conf</code>.</p>
+  <p class="text-xs text-slate-500">{{t "form.restore_hint_pre"}} <code>unattended.xml</code>, <code>veeam_addsoconfpw.sh</code> {{t "form.restore_hint_and"}} <code>conftoresto.bco</code> {{t "form.restore_hint_post"}} <code>/data/conf</code>.</p>
 </section>
 
 <!-- VIA -->
 <section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType === 'VIA' || cfg.ApplianceType === 'VIAiscsi' || cfg.ApplianceType === 'VIAHR'">
-  <h2 class="text-lg font-semibold border-b pb-2">🧱 VIA options</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.via_options"}}</h2>
   <label class="flex items-center gap-2">
     <input type="checkbox" name="VIASingleDisk" {{if .Config.VIASingleDisk}}checked{{end}}>
-    <span>Single Disk mode</span>
+    <span>{{t "form.single_disk"}}</span>
   </label>
 </section>
 
 <!-- Debug -->
 <section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">🐞 Debug</h2>
+  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.debug"}}</h2>
   <label class="flex items-center gap-2">
     <input type="checkbox" name="Debug" {{if .Config.Debug}}checked{{end}}>
-    <span class="text-red-700 font-medium">⚠️ Enable root + SSH (do not use in production)</span>
+    <span class="text-red-700 font-medium">{{t "form.debug_enable"}}</span>
   </label>
 </section>
 
 <!-- Submit -->
 <div class="bg-white rounded shadow p-4 flex justify-end gap-2 sticky bottom-0">
   <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded font-semibold">
-    🚀 Generate ISO
+    {{t "form.generate_iso"}}
   </button>
 </div>
 </form>
@@ -305,9 +305,9 @@
 <!-- Recent jobs -->
 {{if .Jobs}}
 <section class="bg-white rounded shadow p-4">
-  <h2 class="text-lg font-semibold border-b pb-2 mb-3">Recent jobs</h2>
+  <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "form.recent_jobs"}}</h2>
   <table class="w-full text-sm">
-    <thead><tr class="text-left text-slate-500"><th>ID</th><th>Appliance</th><th>Hostname</th><th>State</th><th>Created</th><th></th></tr></thead>
+    <thead><tr class="text-left text-slate-500"><th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th></th></tr></thead>
     <tbody>
     {{range .Jobs}}
     <tr class="border-t">
@@ -320,7 +320,7 @@
         {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
       ">{{.State}}</span></td>
       <td class="text-xs">{{.CreatedAt.Format "15:04:05"}}</td>
-      <td><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">open →</a></td>
+      <td><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "form.open_arrow"}}</a></td>
     </tr>
     {{end}}
     </tbody>

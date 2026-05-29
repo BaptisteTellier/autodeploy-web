@@ -1,5 +1,5 @@
 {{define "layout.html"}}<!doctype html>
-<html lang="en">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -12,28 +12,54 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 <header class="bg-emerald-700 text-white">
-  <div class="container mx-auto px-4 py-3 flex items-center justify-between">
-    <a href="/" class="text-lg font-bold">🚀 autodeploy-web</a>
-    <nav class="space-x-4 text-sm">
-      <a href="/" class="hover:underline">Nouveau job</a>
-      <a href="/media/workspace" class="hover:underline">Workspace</a>
-      <a href="/media/output" class="hover:underline">Output</a>
-      <a href="/media/license" class="hover:underline">Licences</a>
-      <a href="/jobs" class="hover:underline">Jobs</a>
-      <a href="/admin" class="hover:underline">⚙️</a>
-      <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" class="hover:underline">GitHub</a>
-    </nav>
-    <span class="text-xs opacity-75 font-mono"
-          title="version {{.Version}}{{if .Commit}} · commit {{.Commit}}{{end}}{{if .BuildDate}} · built {{.BuildDate}}{{end}}">
-      v{{.Version}}{{if .Commit}} · <span class="opacity-90">{{.Commit}}</span>{{end}}
-    </span>
+  <div class="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
+    <a href="/" class="text-lg font-bold whitespace-nowrap">🚀 autodeploy-web</a>
+    <div class="flex items-center gap-4 flex-wrap justify-end">
+      <nav class="space-x-4 text-sm">
+        <a href="/" class="hover:underline">{{t "nav.new_job"}}</a>
+        <a href="/media/workspace" class="hover:underline">{{t "nav.workspace"}}</a>
+        <a href="/media/output" class="hover:underline">{{t "nav.output"}}</a>
+        <a href="/media/license" class="hover:underline">{{t "nav.licenses"}}</a>
+        <a href="/jobs" class="hover:underline">{{t "nav.jobs"}}</a>
+        <a href="/admin" class="hover:underline" title="{{t "nav.settings"}}">⚙️</a>
+        <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" class="hover:underline">GitHub</a>
+      </nav>
+
+      <!-- Language switcher (FR / EN flags) -->
+      <div class="flex items-center gap-1.5">
+        <a href="/lang/en" title="English" aria-label="Switch to English"
+           class="block w-7 h-5 rounded-sm overflow-hidden border border-white/30 ring-offset-2 ring-offset-emerald-700 transition {{if eq .Lang "en"}}ring-2 ring-white{{else}}opacity-60 hover:opacity-100{{end}}">
+          <svg viewBox="0 0 60 30" class="w-full h-full block" preserveAspectRatio="none" aria-hidden="true">
+            <clipPath id="uk-cross"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath>
+            <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
+            <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/>
+            <path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#uk-cross)" stroke="#C8102E" stroke-width="4"/>
+            <path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/>
+            <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/>
+          </svg>
+        </a>
+        <a href="/lang/fr" title="Français" aria-label="Passer en français"
+           class="block w-7 h-5 rounded-sm overflow-hidden border border-white/30 ring-offset-2 ring-offset-emerald-700 transition {{if eq .Lang "fr"}}ring-2 ring-white{{else}}opacity-60 hover:opacity-100{{end}}">
+          <svg viewBox="0 0 3 2" class="w-full h-full block" preserveAspectRatio="none" aria-hidden="true">
+            <rect width="3" height="2" fill="#fff"/>
+            <rect width="1" height="2" x="0" fill="#0055A4"/>
+            <rect width="1" height="2" x="2" fill="#EF4135"/>
+          </svg>
+        </a>
+      </div>
+
+      <span class="text-xs opacity-75 font-mono whitespace-nowrap"
+            title="version {{.Version}}{{if .Commit}} · commit {{.Commit}}{{end}}{{if .BuildDate}} · built {{.BuildDate}}{{end}}">
+        v{{.Version}}{{if .Commit}} · <span class="opacity-90">{{.Commit}}</span>{{end}}
+      </span>
+    </div>
   </div>
 </header>
 <main class="container mx-auto px-4 py-6">
 {{template "content" .}}
 </main>
 <footer class="text-center text-xs text-slate-500 py-6">
-autodeploy-web — wrapper around <a href="https://github.com/BaptisteTellier/autodeploy" class="underline">BaptisteTellier/autodeploy</a> PowerShell tool.
+{{t "footer.pre"}}<a href="https://github.com/BaptisteTellier/autodeploy" class="underline">BaptisteTellier/autodeploy</a>{{t "footer.post"}}
 </footer>
 </body>
 </html>{{end}}

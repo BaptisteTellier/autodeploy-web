@@ -16,35 +16,34 @@
        toggleAll() { this.sel = this.allChecked ? {} : Object.fromEntries(this.allIDs.map(id=>[id,true])); },
        async deleteSel() {
          if(!this.count) return;
-         if(!confirm('Supprimer '+this.count+' dossier(s) de job et tous leurs fichiers ?')) return;
+         if(!confirm({{tjs "out.confirm_delete_dirs"}}.replace('{n}', this.count))) return;
          let failures=0;
          for(const id of Object.keys(this.sel)){
            const r=await fetch('/media/output/'+encodeURIComponent(id), {method:'DELETE'});
            if(!r.ok) failures++;
          }
-         if(failures) alert(failures+' suppression(s) ont échoué.');
+         if(failures) alert({{tjs "js.deletions_failed"}}.replace('{n}', failures));
          location.reload();
        }
      }">
 
   <div class="flex flex-wrap items-center gap-3">
-    <h1 class="text-2xl font-bold">📦 Output</h1>
+    <h1 class="text-2xl font-bold">{{t "out.title"}}</h1>
     <button x-show="count>0" x-cloak
             @click="deleteSel()"
             class="ml-auto bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium">
-      🗑️ Supprimer <span x-text="count"></span> sélectionné(s)
+      🗑️ {{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
     </button>
   </div>
   <p class="text-sm text-slate-500">
-    Un dossier par job — ISO générée, configs kickstart, logs.
-    Racine : <code>/data/output</code>.
+    {{t "out.subtitle_pre"}} <code>/data/output</code>.
   </p>
 
   <div class="bg-white rounded shadow overflow-hidden">
     {{if not .Jobs}}
     <p class="text-slate-500 p-8 text-center text-sm">
-      Aucun output pour l'instant. Lance un job depuis
-      <a href="/" class="text-blue-600 hover:underline">la page principale</a>.
+      {{t "out.none_pre"}}
+      <a href="/" class="text-blue-600 hover:underline">{{t "out.none_link"}}</a>{{t "out.none_post"}}
     </p>
     {{else}}
     <table class="w-full text-sm">
@@ -54,11 +53,11 @@
             <input type="checkbox" class="rounded"
                    :checked="allChecked" @change="toggleAll()">
           </th>
-          <th class="px-4 py-3">Job</th>
-          <th class="px-4 py-3">Date</th>
-          <th class="px-4 py-3">Fichiers</th>
-          <th class="px-4 py-3">Taille totale</th>
-          <th class="px-4 py-3 text-right">Actions</th>
+          <th class="px-4 py-3">{{t "th.job"}}</th>
+          <th class="px-4 py-3">{{t "th.date"}}</th>
+          <th class="px-4 py-3">{{t "th.files"}}</th>
+          <th class="px-4 py-3">{{t "th.total_size"}}</th>
+          <th class="px-4 py-3 text-right">{{t "common.actions"}}</th>
         </tr>
       </thead>
       <tbody>
@@ -77,13 +76,13 @@
         <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
           {{.ModTime.Format "2006-01-02 15:04"}}
         </td>
-        <td class="px-4 py-3 text-slate-600">{{.FileCount}} fichier(s)</td>
+        <td class="px-4 py-3 text-slate-600">{{.FileCount}} {{t "common.files_word"}}</td>
         <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .TotalSize}}</td>
         <td class="px-4 py-3 text-right space-x-3 whitespace-nowrap">
-          <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline text-xs">📂 Ouvrir</a>
-          <a href="/jobs/{{.JobID}}" class="text-slate-500 hover:underline text-xs">🔍 Job</a>
+          <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline text-xs">{{t "out.open"}}</a>
+          <a href="/jobs/{{.JobID}}" class="text-slate-500 hover:underline text-xs">{{t "out.job"}}</a>
           <button class="text-red-500 hover:underline text-xs"
-                  @click="if(confirm('Supprimer ce dossier ?')) fetch('/media/output/'+{{jsonStr .JobID}},{method:'DELETE'}).then(()=>location.reload())">
+                  @click="if(confirm({{tjs "out.confirm_delete_one"}})) fetch('/media/output/'+{{jsonStr .JobID}},{method:'DELETE'}).then(()=>location.reload())">
             🗑️
           </button>
         </td>

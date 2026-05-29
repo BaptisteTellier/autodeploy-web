@@ -5,27 +5,27 @@
 
 <div class="bg-white rounded shadow p-4 flex flex-wrap gap-4 items-center">
   <div>
-    <div class="text-xs uppercase text-slate-500">Job</div>
+    <div class="text-xs uppercase text-slate-500">{{t "job.job"}}</div>
     <div class="font-mono text-sm">{{.Job.ID}}</div>
   </div>
   <div>
-    <div class="text-xs uppercase text-slate-500">Appliance</div>
+    <div class="text-xs uppercase text-slate-500">{{t "th.appliance"}}</div>
     <div>{{.Job.Appliance}}</div>
   </div>
   <div>
-    <div class="text-xs uppercase text-slate-500">Hostname</div>
+    <div class="text-xs uppercase text-slate-500">{{t "th.hostname"}}</div>
     <div>{{.Job.Hostname}}</div>
   </div>
   <div>
-    <div class="text-xs uppercase text-slate-500">Source</div>
+    <div class="text-xs uppercase text-slate-500">{{t "job.source"}}</div>
     <div class="text-sm">{{.Job.SourceISO}}</div>
   </div>
   <div>
-    <div class="text-xs uppercase text-slate-500">Output</div>
+    <div class="text-xs uppercase text-slate-500">{{t "job.output"}}</div>
     <div class="text-sm">{{.Job.OutputISO}}</div>
   </div>
   <div class="ml-auto">
-    <div class="text-xs uppercase text-slate-500">State</div>
+    <div class="text-xs uppercase text-slate-500">{{t "th.state"}}</div>
     <div id="job-state" class="px-3 py-1 rounded text-sm inline-block
       {{if eq (printf "%s" .Job.State) "done"}}bg-emerald-100 text-emerald-800{{end}}
       {{if eq (printf "%s" .Job.State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
@@ -40,10 +40,10 @@
      href="/media/output/{{.Job.ID}}"
      class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-semibold
             {{if ne (printf "%s" .Job.State) "done"}}opacity-40 pointer-events-none{{end}}">
-     📂 Voir les outputs
+     {{t "job.view_outputs"}}
   </a>
-  <a href="/?import={{.Job.ID}}" class="bg-slate-200 px-4 py-2 rounded text-sm">📥 Import config into new job</a>
-  <a href="/jobs" class="bg-slate-200 px-4 py-2 rounded text-sm">All jobs</a>
+  <a href="/?import={{.Job.ID}}" class="bg-slate-200 px-4 py-2 rounded text-sm">{{t "job.import_config"}}</a>
+  <a href="/jobs" class="bg-slate-200 px-4 py-2 rounded text-sm">{{t "job.all_jobs"}}</a>
   {{if .Job.ErrorMessage}}
   <span class="text-red-700 text-sm self-center">⚠️ {{.Job.ErrorMessage}}</span>
   {{end}}
@@ -51,9 +51,9 @@
 
 <div class="bg-slate-900 rounded shadow p-3 overflow-hidden">
   <div class="flex items-center justify-between mb-2">
-    <span class="text-slate-400 text-xs uppercase">Live log (autodeploy.ps1)</span>
+    <span class="text-slate-400 text-xs uppercase">{{t "job.live_log"}}</span>
     <label class="text-slate-400 text-xs flex items-center gap-1">
-      <input type="checkbox" id="autoscroll" checked> autoscroll
+      <input type="checkbox" id="autoscroll" checked> {{t "job.autoscroll"}}
     </label>
   </div>
   <pre id="log" class="text-green-300 text-xs font-mono max-h-[60vh] overflow-auto whitespace-pre-wrap">{{range .Lines}}{{.}}

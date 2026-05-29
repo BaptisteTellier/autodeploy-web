@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -54,7 +55,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"LicenseFiles":    listDir(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
 		"Jobs":            s.deps.JobManager.List(),
 	}
-	s.render(w, "views/form.html", data)
+	s.render(w, r, "views/form.html", data)
 }
 
 // --- Jobs ---------------------------------------------------------------
@@ -84,7 +85,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 			"Errors":          errs,
 		}
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		s.render(w, "views/form.html", data)
+		s.render(w, r, "views/form.html", data)
 		return
 	}
 
@@ -101,7 +102,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.deps.JobManager.List())
 		return
 	}
-	s.render(w, "views/jobs.html", map[string]any{
+	s.render(w, r, "views/jobs.html", map[string]any{
 		"Version": s.deps.Version,
 		"Jobs":    s.deps.JobManager.List(),
 	})
@@ -114,7 +115,7 @@ func (s *Server) handleJobDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.render(w, "views/job.html", map[string]any{
+	s.render(w, r, "views/job.html", map[string]any{
 		"Version": s.deps.Version,
 		"Job":     j.View(),
 		"Lines":   j.Snapshot(),
@@ -255,7 +256,7 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		overrideVer = extractPS1Version(overridePS1)
 	}
 
-	s.render(w, "views/admin.html", map[string]any{
+	s.render(w, r, "views/admin.html", map[string]any{
 		"Version":            s.deps.Version,
 		"BakedPS1Version":    bakedVer,
 		"OverridePS1Version": overrideVer,
@@ -448,7 +449,7 @@ func listDirInfo(dir string, exts []string) []MediaFile {
 // --- Workspace (all files in /data/iso) ---------------------------------
 
 func (s *Server) handleMediaWorkspace(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "views/media_workspace.html", map[string]any{
+	s.render(w, r, "views/media_workspace.html", map[string]any{
 		"Version": s.deps.Version,
 		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "iso"), nil), // all extensions
 	})
@@ -538,7 +539,7 @@ func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
 	}
 	// Sort newest first.
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ModTime.After(jobs[j].ModTime) })
-	s.render(w, "views/media_output.html", map[string]any{
+	s.render(w, r, "views/media_output.html", map[string]any{
 		"Version": s.deps.Version,
 		"Jobs":    jobs,
 	})
@@ -586,7 +587,7 @@ func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
 			files = append(files, f)
 		}
 	}
-	s.render(w, "views/media_output_job.html", map[string]any{
+	s.render(w, r, "views/media_output_job.html", map[string]any{
 		"Version":      s.deps.Version,
 		"JobID":        jobID,
 		"FriendlyName": friendlyJobName(dir, jobID),
@@ -638,7 +639,7 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, path, name string
 }
 
 func (s *Server) handleMediaLicense(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "views/media_license.html", map[string]any{
+	s.render(w, r, "views/media_license.html", map[string]any{
 		"Version": s.deps.Version,
 		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
 	})
@@ -869,16 +870,23 @@ func presetListOrEmpty(s *config.Store) []config.PresetInfo {
 	return items
 }
 
-func (s *Server) render(w http.ResponseWriter, name string, data any) {
-	// Inject build identity into every page so the header can show which
-	// image is running, without each handler having to set these.
+func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	lang := langFromRequest(r)
+	// Inject build identity + active language into every page so the layout
+	// can show which image is running and highlight the flag, without each
+	// handler having to set these.
 	if m, ok := data.(map[string]any); ok {
 		m["Version"] = s.deps.Version
 		m["Commit"] = s.deps.Commit
 		m["BuildDate"] = s.deps.BuildDate
+		m["Lang"] = lang
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	t, ok := s.templates[name]
+	set, ok := s.templates[lang]
+	if !ok {
+		set = s.templates[defaultLang]
+	}
+	t, ok := set[name]
 	if !ok {
 		http.Error(w, "template not found: "+name, http.StatusInternalServerError)
 		return
@@ -886,4 +894,30 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	if err := t.ExecuteTemplate(w, "layout.html", data); err != nil {
 		_, _ = io.WriteString(w, "<pre>template error: "+err.Error()+"</pre>")
 	}
+}
+
+// handleSetLang persists the chosen language in a cookie and redirects the
+// visitor back to the page they came from (same-origin only).
+func (s *Server) handleSetLang(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if !isSupportedLang(code) {
+		code = defaultLang
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     langCookie,
+		Value:    code,
+		Path:     "/",
+		MaxAge:   int((365 * 24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	// Redirect back to the referring page, but only if it's a relative path or
+	// points at our own host — never an attacker-controlled absolute URL.
+	dest := "/"
+	if ref := r.Referer(); ref != "" {
+		if u, err := url.Parse(ref); err == nil && (u.Host == "" || u.Host == r.Host) {
+			dest = u.RequestURI()
+		}
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }

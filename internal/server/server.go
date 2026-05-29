@@ -22,7 +22,7 @@ type Deps struct {
 
 type Server struct {
 	deps      Deps
-	templates map[string]*template.Template
+	templates map[string]map[string]*template.Template // lang → page-name → template
 	static    fs.FS
 }
 
@@ -45,6 +45,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /admin/autodeploy/update", s.handleAdminUpdatePS1)
 	mux.HandleFunc("POST /admin/autodeploy/upload", s.handleAdminUploadPS1)
 	mux.HandleFunc("DELETE /admin/autodeploy/reset", s.handleAdminResetPS1)
+
+	mux.HandleFunc("GET /lang/{code}", s.handleSetLang)
 
 	mux.HandleFunc("GET /", s.handleIndex)
 
