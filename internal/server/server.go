@@ -41,6 +41,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /admin", s.handleAdmin)
 	mux.HandleFunc("POST /admin/autodeploy/update", s.handleAdminUpdatePS1)
+	mux.HandleFunc("POST /admin/autodeploy/upload", s.handleAdminUploadPS1)
 	mux.HandleFunc("DELETE /admin/autodeploy/reset", s.handleAdminResetPS1)
 
 	mux.HandleFunc("GET /", s.handleIndex)

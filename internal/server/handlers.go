@@ -326,6 +326,69 @@ func (s *Server) handleAdminUpdatePS1(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAdminUploadPS1 accepts a user-supplied autodeploy.ps1 (e.g. from a fork)
+// and saves it as the runtime override at /data/autodeploy/autodeploy.ps1.
+// The destination filename is fixed, so the uploaded filename can't traverse.
+func (s *Server) handleAdminUploadPS1(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB — scripts are tiny
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "multipart invalide : " + err.Error()})
+		return
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "aucun fichier : " + err.Error()})
+		return
+	}
+	defer f.Close()
+
+	if !strings.EqualFold(filepath.Ext(filepath.Base(hdr.Filename)), ".ps1") {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "seuls les fichiers .ps1 sont acceptés"})
+		return
+	}
+
+	dir := filepath.Join(s.deps.DataDir, "autodeploy")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "mkdir : " + err.Error()})
+		return
+	}
+	dst := filepath.Join(dir, "autodeploy.ps1")
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "création fichier : " + err.Error()})
+		return
+	}
+	n, err := io.Copy(out, f)
+	if err != nil {
+		_ = out.Close()
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "écriture : " + err.Error()})
+		return
+	}
+	_ = out.Close() // flush before reading version
+
+	ver := extractPS1Version(dst)
+	now := time.Now().Format("2006-01-02 15:04:05")
+	label := "autodeploy.ps1"
+	if ver != "" {
+		label = "autodeploy.ps1 v" + ver
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":         true,
+		"bytes":      n,
+		"version":    ver,
+		"updated_at": now,
+		"message":    fmt.Sprintf("%s importé (%.1f KB)", label, float64(n)/1024),
+	})
+}
+
 // handleAdminResetPS1 deletes the runtime override so the baked-in script is used again.
 func (s *Server) handleAdminResetPS1(w http.ResponseWriter, r *http.Request) {
 	dst := filepath.Join(s.deps.DataDir, "autodeploy", "autodeploy.ps1")

@@ -8,6 +8,7 @@
   overrideVersion: '{{.OverridePS1Version}}',
   overrideModTime: '{{.OverrideModTime}}',
   updating:  false,
+  uploading: false,
   applying:  false,
   msg: '',
   err: '',
@@ -50,6 +51,27 @@
       } else { this.err = j.error || ('Erreur HTTP ' + r.status); }
     } catch(e) { this.err = 'Erreur réseau : ' + e.message; }
     this.updating = false;
+  },
+
+  async doUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    this.uploading = true; this.msg = ''; this.err = '';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch('/admin/autodeploy/upload', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if (r.ok) {
+        this.overrideExists  = true;
+        this.overrideVersion = j.version    || '';
+        this.overrideModTime = j.updated_at || '';
+        this.source = 'override';
+        this.msg = j.message || 'autodeploy.ps1 importé.';
+      } else { this.err = j.error || ('Erreur HTTP ' + r.status); }
+    } catch(err) { this.err = 'Erreur réseau : ' + err.message; }
+    this.uploading = false;
+    e.target.value = ''; // reset so re-selecting the same file fires @change again
   }
 }">
 
@@ -157,6 +179,13 @@
         </span>
         <span x-show="updating" x-cloak>⏳ Téléchargement…</span>
       </button>
+
+      <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-medium text-sm flex items-center gap-2 cursor-pointer select-none"
+             :class="uploading ? 'opacity-50 pointer-events-none' : ''">
+        <span x-show="!uploading">⬆️ Importer un .ps1</span>
+        <span x-show="uploading" x-cloak>⏳ Import…</span>
+        <input type="file" accept=".ps1" class="hidden" @change="doUpload($event)" :disabled="uploading">
+      </label>
     </div>
 
     <!-- Feedback -->
@@ -169,7 +198,8 @@
 
     <p class="text-xs text-slate-400 leading-relaxed border-t pt-3">
       L'override est stocké dans <code>/data/autodeploy/</code> (volume persistant, survit aux redémarrages).
-      Le runner l'utilise en priorité dès qu'il existe.
+      Tu peux le récupérer depuis GitHub (<code>dev</code>) ou <strong>importer ton propre <code>autodeploy.ps1</code></strong>
+      (par exemple un fork). Le runner l'utilise en priorité dès qu'il existe.
       Après un <em>docker pull</em>, l'override reste intact —
       clique « Appliquer » avec <strong>Baked-in</strong> sélectionné pour le supprimer et revenir au script de la nouvelle image.
     </p>
