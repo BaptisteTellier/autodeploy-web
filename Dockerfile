@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 2 — Fetch autodeploy.ps1
 ############################
 FROM alpine:3.20 AS fetch
-ARG AUTODEPLOY_VERSION=dev
+ARG AUTODEPLOY_VERSION=v2.7
 ARG AUTODEPLOY_REPO=https://github.com/BaptisteTellier/autodeploy.git
 RUN apk add --no-cache git
 RUN git clone --depth 1 --branch ${AUTODEPLOY_VERSION} ${AUTODEPLOY_REPO} /autodeploy
@@ -33,7 +33,7 @@ RUN echo "${AUTODEPLOY_VERSION}" > /autodeploy/.pinned-version
 ############################
 FROM mcr.microsoft.com/powershell:7.4-debian-bullseye-slim
 
-ARG AUTODEPLOY_VERSION=dev
+ARG AUTODEPLOY_VERSION=v2.7
 LABEL org.opencontainers.image.title="autodeploy-web"
 LABEL org.opencontainers.image.description="Web UI + container wrapper around BaptisteTellier/autodeploy PowerShell tool"
 LABEL org.opencontainers.image.source="https://github.com/BaptisteTellier/autodeploy-web"
