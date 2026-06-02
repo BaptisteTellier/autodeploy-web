@@ -246,6 +246,22 @@ ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
 
 Replace `<server>` with the hostname or IP of the machine running autodeploy-web (e.g. `192.168.1.10:8080`), and `<jobid>` with the job identifier shown in the UI.
 
+### Worked example — booting from the ISO's GRUB shell (UEFI)
+
+Boot the Veeam appliance ISO, press **`c`** at the GRUB menu to drop into the command shell, then type these **three** lines (press Enter after each):
+
+```
+linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.29:8080/media/output/bd68e20d-4c13-4fc6-a8e3-211fb6f15d6f/proxy-ks.cfg/content ip=dhcp quiet inst.assumeyes
+initrdefi /images/pxeboot/initrd.img
+boot
+```
+
+Key points:
+- **`boot` on the third line is mandatory** — `linuxefi`/`initrdefi` only load the kernel and initrd into memory; nothing starts until you run `boot`. If "nothing happens", you almost certainly forgot it.
+- **`ip=dhcp`** brings the network up early so Anaconda can actually fetch the HTTP kickstart. Without it the fetch fails silently. For a static address use e.g. `ip=192.168.1.50::192.168.1.1:255.255.255.0::eth0:none`.
+- `linuxefi`/`initrdefi` are the UEFI commands; on a legacy BIOS boot use `linux`/`initrd` instead.
+- Use the **🔗 Link** button in the UI to copy the exact URL (job ID + filename) and avoid typos.
+
 ### Notes
 
 - Works regardless of job mode — whether the job ran in **config-only** mode (no ISO generated) or produced a **full custom ISO**, the output files always land in the same per-job folder and are reachable via the same URL pattern.
