@@ -33,7 +33,11 @@
          }
          if(failures) alert({{tjs "js.deletions_failed"}}.replace('{n}', failures));
          location.reload();
-       }
+       },
+       linkModal:{open:false,url:'',name:''},
+       copied:false,
+       showLink(name){ this.linkModal.url=location.origin+'/media/output/'+{{jsonStr .JobID}}+'/'+encodeURIComponent(name)+'/content'; this.linkModal.name=name; this.linkModal.open=true; this.copied=false; },
+       async copyLink(){ try{ await navigator.clipboard.writeText(this.linkModal.url); this.copied=true; setTimeout(()=>this.copied=false,1500);}catch(e){} },
      }">
 
   <!-- Breadcrumb + header -->
@@ -97,6 +101,10 @@
         <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
           <a href="/media/output/{{$.JobID}}/{{.Name}}/download"
              class="text-emerald-600 hover:underline text-xs">{{t "ws.dl"}}</a>
+          {{if isTextFile .Name}}
+          <button class="text-indigo-600 hover:underline text-xs"
+                  @click="showLink({{jsonStr .Name}})">{{t "outjob.show_link"}}</button>
+          {{end}}
           <button class="text-red-500 hover:underline text-xs"
                   @click="if(confirm({{tjs "js.delete_q_pre"}}+{{jsonStr .Name}}+{{tjs "js.delete_q_post"}})) fetch('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}}),{method:'DELETE'}).then(()=>location.reload())">
             🗑️
@@ -126,6 +134,31 @@
         <pre x-show="!viewer.loading"
              class="text-xs font-mono whitespace-pre-wrap text-green-300"
              x-text="viewer.text"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Link modal -->
+  <div x-show="linkModal.open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       @click="linkModal.open=false"
+       @keydown.escape.window="linkModal.open=false">
+    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-2xl flex flex-col" @click.stop>
+      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
+        <span class="font-mono text-sm font-semibold text-slate-700" x-text="linkModal.name"></span>
+        <button @click="linkModal.open=false"
+                class="text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <h3 class="text-sm font-semibold text-slate-700">{{t "outjob.link_title"}}</h3>
+        <p class="text-xs text-slate-500">{{t "outjob.link_hint"}}</p>
+        <div class="flex gap-2">
+          <input type="text" readonly x-model="linkModal.url" @focus="$el.select()"
+                 class="flex-1 border rounded px-2 py-1.5 text-xs font-mono bg-slate-50">
+          <button @click="copyLink()"
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"
+                  x-text="copied ? {{tjs "outjob.copied"}} : {{tjs "outjob.copy"}}"></button>
+        </div>
       </div>
     </div>
   </div>

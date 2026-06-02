@@ -252,6 +252,11 @@ var translations = map[string]map[string]string{
 		"outjob.view_job":   "🔍 View job",
 		"outjob.folder_pre": "Folder",
 		"outjob.none":       "No files in this folder (job still running?).",
+		"outjob.show_link":  "🔗 Link",
+		"outjob.link_title": "Direct link",
+		"outjob.link_hint":  "Use this URL as a live kickstart in GRUB (inst.ks=…).",
+		"outjob.copy":       "Copy",
+		"outjob.copied":     "Copied!",
 
 		// --- media_license.html ---
 		"lic.title":            "🔑 License management",
@@ -462,6 +467,11 @@ var translations = map[string]map[string]string{
 		"outjob.view_job":   "🔍 Voir le job",
 		"outjob.folder_pre": "Dossier",
 		"outjob.none":       "Aucun fichier dans ce dossier (job encore en cours ?).",
+		"outjob.show_link":  "🔗 Lien",
+		"outjob.link_title": "Lien direct",
+		"outjob.link_hint":  "Utilisez cette URL comme kickstart live dans GRUB (inst.ks=…).",
+		"outjob.copy":       "Copier",
+		"outjob.copied":     "Copié !",
 
 		// --- media_license.html ---
 		"lic.title":            "🔑 Gestion licences",
