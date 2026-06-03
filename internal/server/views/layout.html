@@ -11,18 +11,50 @@
 <script src="/static/alpine.min.js" defer></script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
-<header class="bg-emerald-700 text-white">
-  <div class="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
+<header class="bg-emerald-700 text-white sticky top-0 z-50 shadow-md">
+  <div class="container mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
     <a href="/" class="text-lg font-bold whitespace-nowrap">🚀 autodeploy-web</a>
-    <div class="flex items-center gap-4 flex-wrap justify-end">
-      <nav class="space-x-4 text-sm">
-        <a href="/" class="hover:underline">{{t "nav.new_job"}}</a>
-        <a href="/media/workspace" class="hover:underline">{{t "nav.workspace"}}</a>
-        <a href="/media/output" class="hover:underline">{{t "nav.output"}}</a>
-        <a href="/media/license" class="hover:underline">{{t "nav.licenses"}}</a>
-        <a href="/jobs" class="hover:underline">{{t "nav.jobs"}}</a>
-        <a href="/admin" class="hover:underline" title="{{t "nav.settings"}}">⚙️</a>
-        <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" class="hover:underline">GitHub</a>
+    <div class="flex items-center gap-5 flex-wrap justify-end">
+      <nav class="flex items-center gap-1 text-sm flex-wrap">
+        <a href="/wizard"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .PathRoot "/wizard"}}bg-emerald-800 font-semibold{{end}}">
+          🧙 {{t "nav.wizard"}}
+        </a>
+        <a href="/"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .PathRoot "/"}}bg-emerald-800 font-semibold{{end}}">
+          ✨ {{t "nav.new_job"}}
+        </a>
+        <a href="/media/workspace"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .PathRoot "/media"}}bg-emerald-800 font-semibold{{end}}">
+          📁 {{t "nav.workspace"}}
+        </a>
+        <a href="/media/output"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600">
+          📦 {{t "nav.output"}}
+        </a>
+        <a href="/media/license"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600">
+          🔑 {{t "nav.licenses"}}
+        </a>
+        <a href="/jobs"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .PathRoot "/jobs"}}bg-emerald-800 font-semibold{{end}}">
+          📋 {{t "nav.jobs"}}
+        </a>
+        <a href="/admin"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .PathRoot "/admin"}}bg-emerald-800 font-semibold{{end}}"
+           title="{{t "nav.settings"}}">
+          ⚙️ <span class="hidden sm:inline">{{t "nav.settings"}}</span>
+        </a>
+        {{if eq .Path "/wizard"}}
+        <a href="/mode/expert"
+           class="flex items-center gap-1 px-2 py-1 rounded bg-white/10 hover:bg-white/20 transition-colors text-xs font-medium">
+          🧑‍💻 {{t "nav.expert_mode"}}
+        </a>
+        {{end}}
+        <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 opacity-75 hover:opacity-100">
+          GitHub
+        </a>
       </nav>
 
       <!-- Language switcher (FR / EN flags) -->

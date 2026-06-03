@@ -1,0 +1,784 @@
+{{define "views/wizard.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<style>[x-cloak]{display:none}</style>
+<div x-data="wizardApp()" x-cloak class="max-w-3xl mx-auto">
+
+  <!-- Header + progress -->
+  <div class="mb-6 text-center">
+    <h1 class="text-2xl font-bold text-slate-800 mb-1">{{t "wiz.title"}}</h1>
+    <p class="text-slate-500 text-sm mb-4">{{t "wiz.subtitle"}}</p>
+    <!-- Progress bar -->
+    <div class="w-full bg-slate-200 rounded-full h-2 mb-2">
+      <div class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+           :style="'width:'+progressPct+'%'"></div>
+    </div>
+    <!-- Step counter -->
+    <p class="text-xs text-slate-400"
+       x-text="{{tjs "wiz.step_of"}}.replace('{s}',currentIndex+1).replace('{t}',totalSteps)"></p>
+  </div>
+
+  <!-- Breadcrumb / step dots -->
+  <div class="flex items-center justify-center gap-1.5 mb-8 flex-wrap">
+    <template x-for="s in visibleSteps" :key="s.id">
+      <button type="button"
+              @click="goTo(s.id)"
+              :disabled="visibleSteps.findIndex(vs=>vs.id===s.id) > visibleSteps.findIndex(vs=>vs.id===maxReached)"
+              :class="{
+                'bg-emerald-600 text-white': s.id===step,
+                'bg-emerald-100 text-emerald-700': s.id!==step && visibleSteps.findIndex(vs=>vs.id===s.id)<=visibleSteps.findIndex(vs=>vs.id===maxReached),
+                'bg-slate-200 text-slate-400 cursor-not-allowed': visibleSteps.findIndex(vs=>vs.id===s.id)>visibleSteps.findIndex(vs=>vs.id===maxReached)
+              }"
+              class="w-7 h-7 rounded-full text-xs font-semibold transition-colors"
+              x-text="visibleSteps.findIndex(vs=>vs.id===s.id)+1">
+      </button>
+    </template>
+  </div>
+
+  <!-- The wizard form — one form, all steps inside, x-show controls visibility -->
+  <form id="wizard-form" @submit.prevent>
+
+    <!-- ===== STEP 1: ISO + Appliance ===== -->
+    <div x-show="step===1"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.1.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.1.subtitle"}}</p>
+      </div>
+
+      <!-- ApplianceType -->
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.appliance_type"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.ApplianceType"}}</div>
+          </div>
+        </div>
+        <select name="ApplianceType" x-model="cfg.ApplianceType"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          {{range .ApplianceTypes}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+      </div>
+
+      <!-- Source ISO -->
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.source_iso"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.SourceISO"}}</div>
+          </div>
+        </div>
+        <!-- Mode toggle -->
+        <div class="flex gap-2">
+          <button type="button" @click="isoMode='select'"
+                  :class="isoMode==='select' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
+                  class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">{{t "wiz.iso_select"}}</button>
+          <button type="button" @click="isoMode='upload'"
+                  :class="isoMode==='upload' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
+                  class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">{{t "wiz.iso_upload"}}</button>
+        </div>
+
+        <!-- Select existing -->
+        <div x-show="isoMode==='select'">
+          {{if .SourceISOs}}
+          <select name="SourceISO"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <option value="">— {{t "form.select_iso"}} —</option>
+            {{range .SourceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+          {{else}}
+          <p class="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">{{t "wiz.iso_none"}}</p>
+          <input type="hidden" name="SourceISO" value="">
+          {{end}}
+        </div>
+
+        <!-- Upload -->
+        <div x-show="isoMode==='upload'" class="space-y-2">
+          <input type="hidden" name="SourceISO" id="uploaded-iso-name">
+          <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border-2 border-dashed border-slate-300 hover:border-emerald-400 rounded-lg px-4 py-6 text-center transition-colors">
+            <div class="flex-1">
+              <div class="text-sm font-medium text-slate-600">📁 {{t "wiz.iso_upload"}}</div>
+              <div class="text-xs text-slate-400 mt-1">.iso — up to 25 GB</div>
+            </div>
+            <input type="file" accept=".iso" class="hidden"
+                   @change="uploadISO($event.target.files[0])">
+          </label>
+          <div x-show="isoStatus==='uploading'" class="space-y-1">
+            <div class="flex justify-between text-xs text-slate-500">
+              <span>{{t "wiz.iso_uploading"}}</span>
+              <span x-text="isoProgress+'%'"></span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2">
+              <div class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                   :style="'width:'+isoProgress+'%'"></div>
+            </div>
+          </div>
+          <p x-show="isoStatus==='done'" class="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">✓ {{t "wiz.iso_done"}}</p>
+          <p x-show="isoStatus==='error'" class="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2" x-text="{{tjs "wiz.iso_error"}} + isoError"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 2: Regional ===== -->
+    <div x-show="step===2"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.2.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.2.subtitle"}}</p>
+      </div>
+
+      <!-- Keyboard Layout -->
+      <div class="space-y-1.5" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const opts=new Set([{{range .KeyboardLayouts}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{kbd:opts.has(v)?v:'custom',kbdTxt:opts.has(v)?'':v}})()">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.keyboard_layout"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.KeyboardLayout"}}</div>
+          </div>
+        </div>
+        <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          {{range .KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+        </select>
+        <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout" x-model="kbdTxt"
+               placeholder="e.g. fr-latin9"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+      </div>
+
+      <!-- Timezone -->
+      <div class="space-y-1.5" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const opts=new Set([{{range .Timezones}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{tz:opts.has(v)?v:'custom',tzTxt:opts.has(v)?'':v}})()">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.timezone"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Timezone"}}</div>
+          </div>
+        </div>
+        <select x-model="tz" :name="tz!=='custom'?'Timezone':null"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          {{range .Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+        </select>
+        <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone" x-model="tzTxt"
+               placeholder="e.g. America/New_York"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+      </div>
+
+      <!-- Hostname -->
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.hostname"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Hostname"}}</div>
+          </div>
+        </div>
+        <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+               placeholder="veeam-server">
+      </div>
+    </div>
+
+    <!-- ===== STEP 3: Network ===== -->
+    <div x-show="step===3"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.3.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.3.subtitle"}}</p>
+      </div>
+
+      <!-- DHCP toggle -->
+      <div class="flex items-start gap-3">
+        <input type="checkbox" name="UseDHCP" id="wiz-dhcp" x-model="cfg.UseDHCP"
+               class="mt-0.5 rounded border-slate-300">
+        <div>
+          <label for="wiz-dhcp" class="text-sm font-medium text-slate-700">{{t "form.use_dhcp"}}</label>
+          <div class="relative inline-block ml-1" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.UseDHCP"}}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Static IP fields -->
+      <div x-show="!cfg.UseDHCP" class="space-y-4 border-t pt-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-1">
+              <label class="text-sm font-medium text-slate-700">{{t "form.static_ip"}}</label>
+              <div class="relative inline-block" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.StaticIP"}}</div>
+              </div>
+            </div>
+            <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" placeholder="192.168.1.100"
+                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </div>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-1">
+              <label class="text-sm font-medium text-slate-700">{{t "form.subnet"}}</label>
+              <div class="relative inline-block" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Subnet"}}</div>
+              </div>
+            </div>
+            <input type="text" name="Subnet" value="{{.Config.Subnet}}" placeholder="255.255.255.0"
+                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </div>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-1">
+              <label class="text-sm font-medium text-slate-700">{{t "form.gateway"}}</label>
+              <div class="relative inline-block" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Gateway"}}</div>
+              </div>
+            </div>
+            <input type="text" name="Gateway" value="{{.Config.Gateway}}" placeholder="192.168.1.1"
+                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </div>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-1">
+              <label class="text-sm font-medium text-slate-700">{{t "form.dns_servers"}}</label>
+              <div class="relative inline-block" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.DNSServers"}}</div>
+              </div>
+            </div>
+            <textarea name="DNSServers" rows="2" placeholder="192.168.1.1&#10;8.8.8.8"
+                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">{{range .Config.DNSServers}}{{.}}
+{{end}}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 4: Admin Account ===== -->
+    <div x-show="step===4"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.4.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.4.subtitle"}}</p>
+      </div>
+
+      <!-- Admin Password -->
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.password_mixed15"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamAdminPassword"}}</div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}"
+                 class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <button type="button" @click="fillPassword('VeeamAdminPassword')"
+                  class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg" title="Generate">🎲</button>
+        </div>
+      </div>
+
+      <!-- Admin MFA -->
+      <div class="space-y-3">
+        <div class="flex items-start gap-3">
+          <input type="checkbox" name="VeeamAdminIsMfaEnabled" id="wiz-admin-mfa"
+                 x-model="cfg.VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}
+                 class="mt-0.5 rounded border-slate-300">
+          <div>
+            <label for="wiz-admin-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamAdminIsMfaEnabled"}}</div>
+            </div>
+          </div>
+        </div>
+        <div x-show="cfg.VeeamAdminIsMfaEnabled" class="space-y-1.5 pl-7">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamAdminMfaSecretKey"}}</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}"
+                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono uppercase focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <button type="button" @click="fillBase32('VeeamAdminMfaSecretKey')"
+                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg" title="Generate">🎲</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 5: Security Officer ===== -->
+    <div x-show="step===5"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.5.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.5.subtitle"}}</p>
+      </div>
+
+      <div class="flex items-start gap-3">
+        <input type="checkbox" name="VeeamSoIsEnabled" id="wiz-so-enabled"
+               x-model="cfg.VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}
+               class="mt-0.5 rounded border-slate-300">
+        <div>
+          <label for="wiz-so-enabled" class="text-sm font-medium text-slate-700">{{t "form.so_enabled"}}</label>
+          <div class="relative inline-block ml-1" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoIsEnabled"}}</div>
+          </div>
+        </div>
+      </div>
+
+      <div x-show="cfg.VeeamSoIsEnabled" class="space-y-4 border-t pt-4">
+        <!-- SO Password -->
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.password_so"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoPassword"}}</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}"
+                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <button type="button" @click="fillPassword('VeeamSoPassword')"
+                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg" title="Generate">🎲</button>
+          </div>
+        </div>
+
+        <!-- SO MFA -->
+        <div class="flex items-start gap-3">
+          <input type="checkbox" name="VeeamSoIsMfaEnabled" id="wiz-so-mfa"
+                 x-model="cfg.VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}
+                 class="mt-0.5 rounded border-slate-300">
+          <label for="wiz-so-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
+        </div>
+        <div x-show="cfg.VeeamSoIsMfaEnabled" class="space-y-1.5 pl-7">
+          <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
+          <div class="flex gap-2">
+            <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}"
+                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono uppercase focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <button type="button" @click="fillBase32('VeeamSoMfaSecretKey')"
+                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg">🎲</button>
+          </div>
+        </div>
+
+        <!-- Recovery Token -->
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.recovery_token"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoRecoveryToken"}}</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}"
+                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="optional">
+            <button type="button" @click="fillGUID('VeeamSoRecoveryToken')"
+                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg">🎲</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 6: NTP ===== -->
+    <div x-show="step===6"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.6.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.6.subtitle"}}</p>
+      </div>
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-slate-700">{{t "form.ntp_servers"}}</label>
+          <div class="relative inline-block" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.NtpServer"}}</div>
+          </div>
+        </div>
+        <textarea name="NtpServer" rows="3" placeholder="time.nist.gov&#10;pool.ntp.org"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">{{range .Config.NtpServer}}{{.}}
+{{end}}</textarea>
+      </div>
+      <div class="flex items-start gap-3">
+        <input type="checkbox" name="NtpRunSync" id="wiz-ntp-sync" {{if .Config.NtpRunSync}}checked{{end}}
+               class="mt-0.5 rounded border-slate-300">
+        <div>
+          <label for="wiz-ntp-sync" class="text-sm font-medium text-slate-700">{{t "form.ntp_sync"}}</label>
+          <div class="relative inline-block ml-1" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.NtpRunSync"}}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 7: Ext. Managers + HA ===== -->
+    <div x-show="step===7"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.7.title"}}</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.7.subtitle"}}</p>
+        </div>
+        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
+      </div>
+      <div class="space-y-4">
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="ExternalManagersInstallationEnabled" id="wiz-em"
+                 class="rounded border-slate-300">
+          <div>
+            <label for="wiz-em" class="text-sm font-medium text-slate-700">{{t "form.allow_external"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.ExternalManagersInstallationEnabled"}}</div>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-slate-700">{{t "form.external_timeout"}}</label>
+          <input type="number" name="ExternalManagersInstallationTimeout" value="{{.Config.ExternalManagersInstallationTimeout}}" min="60" max="86400"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="HighAvailabilityEnabled" id="wiz-ha"
+                 class="rounded border-slate-300">
+          <div>
+            <label for="wiz-ha" class="text-sm font-medium text-slate-700">{{t "form.ha_mode"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.HighAvailabilityEnabled"}}</div>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-slate-700">{{t "form.ha_timeout"}}</label>
+          <input type="number" name="HighAvailabilityTimeout" value="{{.Config.HighAvailabilityTimeout}}" min="60" max="86400"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 8: Monitoring + VBR ===== -->
+    <div x-show="step===8"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.8.title"}}</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.8.subtitle"}}</p>
+        </div>
+        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
+      </div>
+      <div class="space-y-4">
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="NodeExporter" id="wiz-nexporter" x-model="cfg.NodeExporter"
+                 class="rounded border-slate-300">
+          <div>
+            <label for="wiz-nexporter" class="text-sm font-medium text-slate-700">{{t "form.node_exporter"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.NodeExporter"}}</div>
+            </div>
+          </div>
+        </div>
+        <div x-show="cfg.NodeExporter" class="pl-7">
+          <div class="flex items-center gap-3">
+            <input type="checkbox" name="NodeExporterTLSEnabled" class="rounded border-slate-300">
+            <label class="text-sm font-medium text-slate-700">{{t "form.node_exporter_tls"}}</label>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="LicenseVBRTune" id="wiz-vbr" class="rounded border-slate-300">
+          <div>
+            <label for="wiz-vbr" class="text-sm font-medium text-slate-700">{{t "form.license_vbr_tune"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.LicenseVBRTune"}}</div>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.license_file"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.LicenseFile"}}</div>
+            </div>
+          </div>
+          <select name="LicenseFile" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <option value="">— {{t "form.none_dash"}} —</option>
+            {{range .LicenseFiles}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.syslog_server"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.SyslogServer"}}</div>
+            </div>
+          </div>
+          <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" placeholder="192.168.1.100"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 9: VCSP ===== -->
+    <div x-show="step===9"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.9.title"}}</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.9.subtitle"}}</p>
+        </div>
+        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="VCSPConnection" id="wiz-vcsp" class="rounded border-slate-300">
+        <div>
+          <label for="wiz-vcsp" class="text-sm font-medium text-slate-700">{{t "form.vcsp_connect"}}</label>
+          <div class="relative inline-block ml-1" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VCSPConnection"}}</div>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 gap-4">
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-slate-700">{{t "form.vcsp_url"}}</label>
+          <input type="text" name="VCSPUrl" value="{{.Config.VCSPUrl}}" placeholder="https://vcsp.example.com"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-slate-700">{{t "form.vcsp_login"}}</label>
+          <input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-slate-700">{{t "form.vcsp_password"}}</label>
+          <input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 10: Restore ===== -->
+    <div x-show="step===10"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.10.title"}}</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.10.subtitle"}}</p>
+        </div>
+        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="RestoreConfig" id="wiz-restore" class="rounded border-slate-300">
+        <div>
+          <label for="wiz-restore" class="text-sm font-medium text-slate-700">{{t "form.restore_enable"}}</label>
+          <div class="relative inline-block ml-1" x-data="{h:false}">
+            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.RestoreConfig"}}</div>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-sm font-medium text-slate-700">{{t "form.so_config_password"}}</label>
+        <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+      </div>
+    </div>
+
+    <!-- ===== STEP 11: Other Options ===== -->
+    <div x-show="step===11"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.11.title"}}</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.11.subtitle"}}</p>
+        </div>
+        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
+      </div>
+      <div class="space-y-4">
+        <!-- VIA only: single disk -->
+        <div x-show="cfg.ApplianceType!=='VSA'" class="flex items-start gap-3">
+          <input type="checkbox" name="VIASingleDisk" id="wiz-single-disk" class="mt-0.5 rounded border-slate-300">
+          <div>
+            <label for="wiz-single-disk" class="text-sm font-medium text-slate-700">{{t "form.single_disk"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VIASingleDisk"}}</div>
+            </div>
+          </div>
+        </div>
+        <!-- Output ISO name -->
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-slate-700">{{t "form.output_iso"}}</label>
+          <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="{{t "form.output_iso_ph"}}"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+        <!-- GRUB Timeout -->
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.grub_timeout"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.GrubTimeout"}}</div>
+            </div>
+          </div>
+          <input type="number" name="GrubTimeout" value="{{.Config.GrubTimeout}}" min="0" max="300"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+        <!-- Build options -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="CFGOnly" id="wiz-cfg-only" {{if .Config.CFGOnly}}checked{{end}} class="rounded border-slate-300">
+            <div>
+              <label for="wiz-cfg-only" class="text-sm text-slate-700">{{t "form.cfg_only"}}</label>
+              <div class="relative inline-block ml-1" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CFGOnly"}}</div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="InPlace" id="wiz-inplace" {{if .Config.InPlace}}checked{{end}} class="rounded border-slate-300">
+            <label for="wiz-inplace" class="text-sm text-slate-700">{{t "form.inplace"}}</label>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="CreateBackup" id="wiz-backup" {{if .Config.CreateBackup}}checked{{end}} class="rounded border-slate-300">
+            <label for="wiz-backup" class="text-sm text-slate-700">{{t "form.create_backup"}}</label>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="CleanupCFGFiles" id="wiz-cleanup" {{if .Config.CleanupCFGFiles}}checked{{end}} class="rounded border-slate-300">
+            <label for="wiz-cleanup" class="text-sm text-slate-700">{{t "form.cleanup_cfg"}}</label>
+          </div>
+        </div>
+        <!-- Debug -->
+        <div class="flex items-center gap-2 border-t pt-4">
+          <input type="checkbox" name="Debug" id="wiz-debug" {{if .Config.Debug}}checked{{end}} class="rounded border-slate-300">
+          <div>
+            <label for="wiz-debug" class="text-sm font-medium text-slate-700">{{t "form.debug"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Debug"}}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STEP 12: Save Preset ===== -->
+    <div x-show="step===12"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-x-4"
+         x-transition:enter-end="opacity-100 translate-x-0"
+         class="bg-white rounded-xl shadow-sm border border-emerald-200 p-6 space-y-5">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.12.title"}}</h2>
+        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.12.subtitle"}}</p>
+      </div>
+      <!-- Summary card -->
+      <div class="bg-slate-50 rounded-lg p-4 text-sm space-y-1 text-slate-700 border">
+        <div class="font-semibold text-slate-800 mb-2">{{t "wiz.summary_title"}}</div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <span class="text-slate-500">Appliance</span><span class="font-mono font-medium" x-text="cfg.ApplianceType"></span>
+          <span class="text-slate-500">{{t "form.hostname"}}</span><span class="font-mono" id="sum-hostname"></span>
+          <span class="text-slate-500">{{t "form.network"}}</span><span x-text="cfg.UseDHCP ? 'DHCP' : 'Static'"></span>
+          <span class="text-slate-500">MFA Admin</span><span x-text="cfg.VeeamAdminIsMfaEnabled ? '✓' : '✗'"></span>
+        </div>
+      </div>
+      <!-- Preset name -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-medium text-slate-700">{{t "wiz.preset_name_label"}}</label>
+        <input type="text" id="preset_name" placeholder="{{t "wiz.preset_name_ph"}}" maxlength="64"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+               x-init="$nextTick(()=>{const el=document.querySelector('[name=Hostname]');if(el&&el.value)$el.value=el.value;})">
+        <p class="text-xs text-slate-400">{{t "form.preset_name_ph"}}</p>
+      </div>
+    </div>
+
+  </form><!-- end #wizard-form -->
+
+  <!-- Error message -->
+  <div x-show="stepError" x-cloak class="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700"
+       x-text="stepError"></div>
+
+  <!-- Navigation buttons -->
+  <div class="mt-6 flex items-center justify-between gap-3">
+    <div class="flex gap-2">
+      <button type="button" @click="prev()" x-show="currentIndex > 0"
+              class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">
+        {{t "wiz.prev"}}
+      </button>
+      <a href="/mode/expert" x-show="currentIndex === 0"
+         class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-medium transition-colors">
+        {{t "nav.expert_mode"}} →
+      </a>
+    </div>
+    <div class="flex gap-2">
+      <button type="button" @click="skip()" x-show="isAdvanced && !saving"
+              class="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-sm font-medium transition-colors">
+        {{t "wiz.skip"}}
+      </button>
+      <button type="button" @click="next()" x-show="step !== 12 && !saving"
+              class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors">
+        {{t "wiz.next"}}
+      </button>
+      <button type="button" @click="finish()" x-show="step === 12" :disabled="saving"
+              class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2">
+        <span x-show="!saving">{{t "wiz.finish"}}</span>
+        <span x-show="saving" x-cloak>{{t "wiz.saving"}}</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Summary hostname sync (tiny script to update summary display) -->
+  <script>
+  (function(){
+    const h=document.querySelector('[name="Hostname"]');
+    const s=document.getElementById('sum-hostname');
+    if(h&&s){h.addEventListener('input',()=>{s.textContent=h.value;});s.textContent=h.value;}
+  })();
+  </script>
+
+</div>
+{{end}}
