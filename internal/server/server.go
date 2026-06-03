@@ -47,8 +47,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /admin/autodeploy/reset", s.handleAdminResetPS1)
 
 	mux.HandleFunc("GET /lang/{code}", s.handleSetLang)
-	mux.HandleFunc("GET /wizard",       s.handleWizard)
-	mux.HandleFunc("GET /mode/{mode}",  s.handleSetMode)
+	mux.HandleFunc("GET /wizard", s.handleWizard)
+	mux.HandleFunc("GET /mode/{mode}", s.handleSetMode)
 
 	mux.HandleFunc("GET /", s.handleIndex)
 

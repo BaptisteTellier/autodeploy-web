@@ -890,7 +890,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 		m["Commit"] = s.deps.Commit
 		m["BuildDate"] = s.deps.BuildDate
 		m["Lang"] = lang
-		m["Path"]     = r.URL.Path
+		m["Path"] = r.URL.Path
 		m["PathRoot"] = "/" + strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)[0]
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
