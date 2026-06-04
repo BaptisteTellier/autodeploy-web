@@ -187,6 +187,7 @@ function wizardApp(initialIsos = []) {
     stepError: '',
     saving: false,
     summary: {},
+    _lastAutoPresetName: '', // tracks the last hostname we auto-filled into preset_name
 
     // Minimal reactive config — only fields needed for conditional visibility.
     cfg: {
@@ -391,6 +392,13 @@ function wizardApp(initialIsos = []) {
         ha:           isChecked('HighAvailabilityEnabled'),
         debug:        isChecked('Debug'),
       };
+      // Auto-fill preset_name with the current hostname, but only if the user
+      // hasn't manually changed it from the last auto-filled value.
+      const presetEl = document.getElementById('preset_name');
+      if (presetEl && (presetEl.value === '' || presetEl.value === this._lastAutoPresetName)) {
+        presetEl.value = this.summary.hostname || '';
+        this._lastAutoPresetName = presetEl.value;
+      }
     },
 
     // --- Per-step validation (light) -----------------------------------------
