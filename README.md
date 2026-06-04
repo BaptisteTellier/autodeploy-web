@@ -20,6 +20,13 @@
 > If internet access is ever required, place it behind a reverse proxy with strong authentication (e.g. Caddy, Traefik, Nginx) and, ideally, a VPN. The `inst.ks=` direct-link feature (see below) is particularly sensitive, as it serves raw config files to any unauthenticated caller — which is by design for PXE/Anaconda use on a trusted LAN, but dangerous on a public network.
 
 ---
+## Preview
+<img width="1878" height="783" alt="image" src="https://github.com/user-attachments/assets/5fbb4dd4-b067-4cdb-8d63-4632ce437293" />
+<img width="989" height="750" alt="image" src="https://github.com/user-attachments/assets/a3eebd7c-dd69-48df-bc09-30d1143b79fd" />
+<img width="1536" height="1139" alt="image" src="https://github.com/user-attachments/assets/c65b87a8-5a8b-4dcc-8acc-ed65e423f088" />
+<img width="1559" height="474" alt="image" src="https://github.com/user-attachments/assets/085283c0-c799-45df-a417-c4f4bcb6566a" />
+
+---
 
 ## Quick start — only requirement: Docker
 
