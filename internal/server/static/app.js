@@ -162,7 +162,7 @@ function applyConfigToForm(data) {
 
 // --- Wizard ------------------------------------------------------------------
 
-function wizardApp() {
+function wizardApp(initialIsos = []) {
   // All 12 step definitions. Steps marked vsaOnly are hidden when ApplianceType !== 'VSA'.
   // Steps marked advanced can be skipped by the user.
   const STEPS = [
@@ -197,6 +197,10 @@ function wizardApp() {
       VeeamSoIsMfaEnabled: true,
       NodeExporter: false,
     },
+
+    // ISO list + selection (single source of truth, avoids duplicate name= bug)
+    isoList:     initialIsos,
+    isoSelected: '',
 
     // ISO upload state
     isoMode: 'select',   // 'select' | 'upload'
@@ -267,7 +271,6 @@ function wizardApp() {
     // --- ISO Upload ----------------------------------------------------------
     async uploadISO(file) {
       if (!file) return;
-      this.isoMode = 'upload';
       this.isoProgress = 0;
       this.isoStatus = 'uploading';
       this.isoError = '';
@@ -280,13 +283,17 @@ function wizardApp() {
         xhr.upload.addEventListener('progress', e => {
           if (e.lengthComputable) this.isoProgress = Math.round((e.loaded / e.total) * 100);
         });
-        xhr.addEventListener('load', () => {
+        xhr.addEventListener('load', async () => {
           if (xhr.status >= 200 && xhr.status < 400) {
             this.isoStatus = 'done';
             this.isoProgress = 100;
-            // Set the SourceISO hidden input to the uploaded filename
-            const nameInput = document.querySelector('[name="SourceISO"]');
-            if (nameInput) nameInput.value = file.name;
+            // Refresh the ISO list from the server and switch to select mode
+            try {
+              const list = await fetch('/library/iso').then(r => r.json());
+              if (Array.isArray(list)) this.isoList = list;
+            } catch (_) {}
+            this.isoSelected = file.name;
+            this.isoMode = 'select';
             resolve(file.name);
           } else {
             this.isoStatus = 'error';

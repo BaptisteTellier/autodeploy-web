@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div x-data="wizardApp()" x-cloak class="max-w-3xl mx-auto">
+<div x-data="wizardApp([{{range .SourceISOs}}{{jsonStr .}},{{end}}])" x-cloak class="max-w-3xl mx-auto">
 
   <!-- Progress bar + step counter -->
   <div class="mb-6">
@@ -70,6 +70,9 @@
             <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.SourceISO"}}</div>
           </div>
         </div>
+        <!-- Single source of truth for SourceISO — Alpine keeps it in sync -->
+        <input type="hidden" name="SourceISO" :value="isoSelected">
+
         <!-- Mode toggle -->
         <div class="flex gap-2">
           <button type="button" @click="isoMode='select'"
@@ -80,23 +83,20 @@
                   class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">{{t "wiz.iso_upload"}}</button>
         </div>
 
-        <!-- Select existing -->
+        <!-- Select existing — fully reactive, list refreshes after upload -->
         <div x-show="isoMode==='select'">
-          {{if .SourceISOs}}
-          <select name="SourceISO"
+          <div x-show="isoList.length === 0" class="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">{{t "wiz.iso_none"}}</div>
+          <select x-show="isoList.length > 0" x-model="isoSelected"
                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
             <option value="">— {{t "form.select_iso"}} —</option>
-            {{range .SourceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
+            <template x-for="iso in isoList" :key="iso">
+              <option :value="iso" x-text="iso"></option>
+            </template>
           </select>
-          {{else}}
-          <p class="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">{{t "wiz.iso_none"}}</p>
-          <input type="hidden" name="SourceISO" value="">
-          {{end}}
         </div>
 
         <!-- Upload -->
         <div x-show="isoMode==='upload'" class="space-y-2">
-          <input type="hidden" name="SourceISO" id="uploaded-iso-name">
           <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border-2 border-dashed border-slate-300 hover:border-emerald-400 rounded-lg px-4 py-6 text-center transition-colors">
             <div class="flex-1">
               <div class="text-sm font-medium text-slate-600">📁 {{t "wiz.iso_upload"}}</div>
@@ -115,7 +115,6 @@
                    :style="'width:'+isoProgress+'%'"></div>
             </div>
           </div>
-          <p x-show="isoStatus==='done'" class="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">✓ {{t "wiz.iso_done"}}</p>
           <p x-show="isoStatus==='error'" class="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2" x-text="{{tjs "wiz.iso_error"}} + isoError"></p>
         </div>
       </div>
