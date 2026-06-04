@@ -29,3 +29,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Internal planning / scratch documents (never commit these)
+plan-*.md
+implementation_plan.md
+task.md
