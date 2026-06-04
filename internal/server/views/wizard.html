@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div x-data="wizardApp([{{range .SourceISOs}}{{jsonStr .}},{{end}}])" x-cloak class="max-w-3xl mx-auto">
+<div x-data="wizardApp([{{range .SourceISOs}}{{jsonStr .}},{{end}}], {saveError: {{tjs "wiz.save_error"}}})" x-cloak class="max-w-3xl mx-auto">
 
   <!-- Progress bar + step counter -->
   <div class="mb-6">
@@ -85,10 +85,11 @@
 
         <!-- Select existing — fully reactive, list refreshes after upload -->
         <div x-show="isoMode==='select'">
+          <p x-show="isoStatus==='done'" x-cloak class="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 mb-2">{{t "wiz.iso_done"}}</p>
           <div x-show="isoList.length === 0" class="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">{{t "wiz.iso_none"}}</div>
           <select x-show="isoList.length > 0" x-model="isoSelected"
                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <option value="">— {{t "form.select_iso"}} —</option>
+            <option value="">{{t "form.select_iso"}}</option>
             <template x-for="iso in isoList" :key="iso">
               <option :value="iso" x-text="iso"></option>
             </template>
@@ -365,10 +366,22 @@
           <input type="checkbox" name="VeeamSoIsMfaEnabled" id="wiz-so-mfa"
                  x-model="cfg.VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}
                  class="mt-0.5 rounded border-slate-300">
-          <label for="wiz-so-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
+          <div>
+            <label for="wiz-so-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
+            <div class="relative inline-block ml-1" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoIsMfaEnabled"}}</div>
+            </div>
+          </div>
         </div>
         <div x-show="cfg.VeeamSoIsMfaEnabled" class="space-y-1.5 pl-7">
-          <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
+            <div class="relative inline-block" x-data="{h:false}">
+              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
+              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoMfaSecretKey"}}</div>
+            </div>
+          </div>
           <div class="flex gap-2">
             <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}"
                    class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono uppercase focus:ring-2 focus:ring-emerald-500 focus:outline-none">

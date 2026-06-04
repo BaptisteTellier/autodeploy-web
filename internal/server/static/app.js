@@ -162,7 +162,7 @@ function applyConfigToForm(data) {
 
 // --- Wizard ------------------------------------------------------------------
 
-function wizardApp(initialIsos = []) {
+function wizardApp(initialIsos = [], msgs = {}) {
   // All 12 step definitions. Steps marked vsaOnly are hidden when ApplianceType !== 'VSA'.
   // Steps marked advanced can be skipped by the user.
   const STEPS = [
@@ -353,7 +353,7 @@ function wizardApp(initialIsos = []) {
           body: JSON.stringify({ name, config: cfg }),
         });
         if (!res.ok) {
-          this.stepError = 'Save failed: ' + (await res.text());
+          this.stepError = (msgs.saveError || 'Save failed: ') + (await res.text());
           this.saving = false;
           return;
         }
