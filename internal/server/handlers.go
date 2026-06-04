@@ -892,6 +892,25 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 		m["Lang"] = lang
 		m["Path"] = r.URL.Path
 		m["PathRoot"] = "/" + strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)[0]
+		p := r.URL.Path
+		var ns string
+		switch {
+		case p == "/" || p == "":
+			ns = "newjob"
+		case p == "/wizard":
+			ns = "wizard"
+		case strings.HasPrefix(p, "/media/workspace"):
+			ns = "workspace"
+		case strings.HasPrefix(p, "/media/output"):
+			ns = "output"
+		case strings.HasPrefix(p, "/media/license"):
+			ns = "license"
+		case strings.HasPrefix(p, "/jobs"):
+			ns = "jobs"
+		case strings.HasPrefix(p, "/admin"):
+			ns = "admin"
+		}
+		m["NavSection"] = ns
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	set, ok := s.templates[lang]

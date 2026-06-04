@@ -4,11 +4,8 @@
 <style>[x-cloak]{display:none}</style>
 <div x-data="wizardApp()" x-cloak class="max-w-3xl mx-auto">
 
-  <!-- Header + progress -->
-  <div class="mb-6 text-center">
-    <h1 class="text-2xl font-bold text-slate-800 mb-1">{{t "wiz.title"}}</h1>
-    <p class="text-slate-500 text-sm mb-4">{{t "wiz.subtitle"}}</p>
-    <!-- Progress bar -->
+  <!-- Progress bar + step counter -->
+  <div class="mb-6">
     <div class="w-full bg-slate-200 rounded-full h-2 mb-2">
       <div class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
            :style="'width:'+progressPct+'%'"></div>
@@ -670,7 +667,7 @@
         <!-- Build options -->
         <div class="grid grid-cols-2 gap-3">
           <div class="flex items-center gap-2">
-            <input type="checkbox" name="CFGOnly" id="wiz-cfg-only" {{if .Config.CFGOnly}}checked{{end}} class="rounded border-slate-300">
+            <input type="checkbox" name="CFGOnly" id="wiz-cfg-only" class="rounded border-slate-300">
             <div>
               <label for="wiz-cfg-only" class="text-sm text-slate-700">{{t "form.cfg_only"}}</label>
               <div class="relative inline-block ml-1" x-data="{h:false}">
@@ -679,22 +676,40 @@
               </div>
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <input type="checkbox" name="InPlace" id="wiz-inplace" {{if .Config.InPlace}}checked{{end}} class="rounded border-slate-300">
-            <label for="wiz-inplace" class="text-sm text-slate-700">{{t "form.inplace"}}</label>
+          <div class="flex items-start gap-2">
+            <input type="checkbox" name="InPlace" id="wiz-inplace" class="mt-0.5 rounded border-slate-300">
+            <div>
+              <label for="wiz-inplace" class="text-sm text-slate-700">{{t "form.inplace"}}</label>
+              <div class="relative inline-block ml-1" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.InPlace"}}</div>
+              </div>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <input type="checkbox" name="CreateBackup" id="wiz-backup" {{if .Config.CreateBackup}}checked{{end}} class="rounded border-slate-300">
-            <label for="wiz-backup" class="text-sm text-slate-700">{{t "form.create_backup"}}</label>
+          <div class="flex items-start gap-2">
+            <input type="checkbox" name="CreateBackup" id="wiz-backup" class="mt-0.5 rounded border-slate-300">
+            <div>
+              <label for="wiz-backup" class="text-sm text-slate-700">{{t "form.create_backup"}}</label>
+              <div class="relative inline-block ml-1" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CreateBackup"}}</div>
+              </div>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <input type="checkbox" name="CleanupCFGFiles" id="wiz-cleanup" {{if .Config.CleanupCFGFiles}}checked{{end}} class="rounded border-slate-300">
-            <label for="wiz-cleanup" class="text-sm text-slate-700">{{t "form.cleanup_cfg"}}</label>
+          <div class="flex items-start gap-2">
+            <input type="checkbox" name="CleanupCFGFiles" id="wiz-cleanup" class="mt-0.5 rounded border-slate-300">
+            <div>
+              <label for="wiz-cleanup" class="text-sm text-slate-700">{{t "form.cleanup_cfg"}}</label>
+              <div class="relative inline-block ml-1" x-data="{h:false}">
+                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
+                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CleanupCFGFiles"}}</div>
+              </div>
+            </div>
           </div>
         </div>
         <!-- Debug -->
         <div class="flex items-center gap-2 border-t pt-4">
-          <input type="checkbox" name="Debug" id="wiz-debug" {{if .Config.Debug}}checked{{end}} class="rounded border-slate-300">
+          <input type="checkbox" name="Debug" id="wiz-debug" class="rounded border-slate-300">
           <div>
             <label for="wiz-debug" class="text-sm font-medium text-slate-700">{{t "form.debug"}}</label>
             <div class="relative inline-block ml-1" x-data="{h:false}">
@@ -716,14 +731,99 @@
         <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.12.title"}}</h2>
         <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.12.subtitle"}}</p>
       </div>
-      <!-- Summary card -->
-      <div class="bg-slate-50 rounded-lg p-4 text-sm space-y-1 text-slate-700 border">
-        <div class="font-semibold text-slate-800 mb-2">{{t "wiz.summary_title"}}</div>
-        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <span class="text-slate-500">Appliance</span><span class="font-mono font-medium" x-text="cfg.ApplianceType"></span>
-          <span class="text-slate-500">{{t "form.hostname"}}</span><span class="font-mono" id="sum-hostname"></span>
-          <span class="text-slate-500">{{t "form.network"}}</span><span x-text="cfg.UseDHCP ? 'DHCP' : 'Static'"></span>
-          <span class="text-slate-500">MFA Admin</span><span x-text="cfg.VeeamAdminIsMfaEnabled ? '✓' : '✗'"></span>
+      <!-- Summary card — populated when entering step 12 -->
+      <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 border" x-init="$watch('step', v => { if(v===12) buildSummary(); })">
+        <div class="font-semibold text-slate-800 mb-3">{{t "wiz.summary_title"}}</div>
+        <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+          <!-- Always visible -->
+          <span class="text-slate-500">Appliance</span>
+          <span class="font-mono font-semibold" x-text="cfg.ApplianceType"></span>
+
+          <span class="text-slate-500">{{t "form.hostname"}}</span>
+          <span class="font-mono" x-text="summary.hostname || '—'"></span>
+
+          <span class="text-slate-500">{{t "form.keyboard_layout"}}</span>
+          <span class="font-mono" x-text="summary.keyboard || '—'"></span>
+
+          <span class="text-slate-500">{{t "form.timezone"}}</span>
+          <span class="font-mono" x-text="summary.timezone || '—'"></span>
+
+          <span class="text-slate-500">{{t "form.network"}}</span>
+          <span x-text="cfg.UseDHCP ? 'DHCP' : (summary.ip || 'Static')"></span>
+
+          <span class="text-slate-500">MFA Admin</span>
+          <span x-text="cfg.VeeamAdminIsMfaEnabled ? '✓ enabled' : '✗ disabled'"></span>
+
+          <span class="text-slate-500">Security Officer</span>
+          <span x-text="cfg.VeeamSoIsEnabled ? ('✓' + (cfg.VeeamSoIsMfaEnabled ? ' + MFA' : '')) : '✗ disabled'"></span>
+
+          <span class="text-slate-500">{{t "form.ntp"}}</span>
+          <span class="font-mono truncate" x-text="summary.ntp || '—'"></span>
+
+          <!-- Options toggled on -->
+          <template x-if="summary.cfgOnly">
+            <span class="text-slate-500">{{t "form.cfg_only"}}</span>
+          </template>
+          <template x-if="summary.cfgOnly">
+            <span class="text-amber-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="summary.inPlace">
+            <span class="text-slate-500">{{t "form.inplace"}}</span>
+          </template>
+          <template x-if="summary.inPlace">
+            <span class="text-amber-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="summary.createBackup">
+            <span class="text-slate-500">{{t "form.create_backup"}}</span>
+          </template>
+          <template x-if="summary.createBackup">
+            <span class="text-emerald-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="summary.cleanupCfg">
+            <span class="text-slate-500">{{t "form.cleanup_cfg"}}</span>
+          </template>
+          <template x-if="summary.cleanupCfg">
+            <span class="text-emerald-600 font-medium">✓</span>
+          </template>
+
+          <!-- VSA-only options -->
+          <template x-if="cfg.ApplianceType==='VSA' && summary.nodeExporter">
+            <span class="text-slate-500">{{t "form.node_exporter"}}</span>
+          </template>
+          <template x-if="cfg.ApplianceType==='VSA' && summary.nodeExporter">
+            <span class="text-emerald-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="cfg.ApplianceType==='VSA' && summary.licenseVbr">
+            <span class="text-slate-500">{{t "form.license_vbr_tune"}}</span>
+          </template>
+          <template x-if="cfg.ApplianceType==='VSA' && summary.licenseVbr">
+            <span class="text-emerald-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="cfg.ApplianceType==='VSA' && summary.vcsp">
+            <span class="text-slate-500">{{t "form.vcsp"}}</span>
+          </template>
+          <template x-if="cfg.ApplianceType==='VSA' && summary.vcsp">
+            <span class="text-emerald-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="cfg.ApplianceType==='VSA' && summary.ha">
+            <span class="text-slate-500">HA</span>
+          </template>
+          <template x-if="cfg.ApplianceType==='VSA' && summary.ha">
+            <span class="text-emerald-600 font-medium">✓</span>
+          </template>
+
+          <template x-if="summary.debug">
+            <span class="text-slate-500">{{t "form.debug"}}</span>
+          </template>
+          <template x-if="summary.debug">
+            <span class="text-red-600 font-medium">⚠️ enabled</span>
+          </template>
         </div>
       </div>
       <!-- Preset name -->
@@ -731,7 +831,7 @@
         <label class="text-sm font-medium text-slate-700">{{t "wiz.preset_name_label"}}</label>
         <input type="text" id="preset_name" name="preset_name" placeholder="{{t "wiz.preset_name_ph"}}" maxlength="64"
                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-               x-init="$nextTick(()=>{const el=document.querySelector('[name=Hostname]');if(el&&el.value)$el.value=el.value;})">
+               x-init="$nextTick(()=>{ if(!$el.value){ const h=document.querySelector('[name=Hostname]'); if(h&&h.value) $el.value=h.value; } })">
         <p class="text-xs text-slate-400">{{t "form.preset_name_ph"}}</p>
       </div>
     </div>
@@ -771,14 +871,6 @@
     </div>
   </div>
 
-  <!-- Summary hostname sync (tiny script to update summary display) -->
-  <script>
-  (function(){
-    const h=document.querySelector('[name="Hostname"]');
-    const s=document.getElementById('sum-hostname');
-    if(h&&s){h.addEventListener('input',()=>{s.textContent=h.value;});s.textContent=h.value;}
-  })();
-  </script>
 
 </div>
 {{end}}

@@ -348,7 +348,10 @@ var translations = map[string]map[string]string{
 		"wiz.help.VIASingleDisk":                       "Use a single-disk layout. WARNING: this will wipe the entire disk.",
 		"wiz.help.GrubTimeout":                         "GRUB boot menu timeout in seconds (0 = instant boot, 300 = max).",
 		"wiz.help.CFGOnly":                             "Only inject the config files without rebuilding the ISO. Useful for remote kickstart (inst.ks=).",
-		"wiz.help.Debug":                               "Enable verbose debug output in the PS1 script. Do not use in production.",
+		"wiz.help.InPlace":                             "Modifies the ISO file directly instead of creating a new output ISO. This is irreversible — the original ISO is permanently altered and future modifications may be inconsistent.",
+		"wiz.help.CreateBackup":                        "When InPlace is enabled, clones the source ISO before modifying it, so the original is preserved. Has no effect when InPlace is off.",
+		"wiz.help.CleanupCFGFiles":                     "Removes the staging config files from the output folder after the build. Useful to keep the output clean. Disable for debugging to inspect the generated .cfg files.",
+		"wiz.help.Debug":                               "Enables root access and SSH inside the VSA/VIA appliance. Do not use in production — this creates a security risk.",
 	},
 
 	"fr": {
@@ -645,6 +648,9 @@ var translations = map[string]map[string]string{
 		"wiz.help.VIASingleDisk":                       "Utiliser une disposition mono-disque. ATTENTION : cela effacera l'intégralité du disque.",
 		"wiz.help.GrubTimeout":                         "Délai du menu de démarrage GRUB en secondes (0 = démarrage immédiat, 300 = maximum).",
 		"wiz.help.CFGOnly":                             "Injecter uniquement les fichiers de config sans reconstruire l'ISO. Utile pour le kickstart distant (inst.ks=).",
-		"wiz.help.Debug":                               "Activer la sortie de débogage verbose dans le script PS1. Ne pas utiliser en production.",
+		"wiz.help.InPlace":                             "Modifie le fichier ISO directement au lieu de créer un nouvel ISO de sortie. Irréversible — l'ISO source est altéré définitivement et les modifications futures peuvent être incohérentes.",
+		"wiz.help.CreateBackup":                        "Quand InPlace est activé, clone l'ISO source avant de le modifier pour préserver l'original. Sans effet si InPlace est désactivé.",
+		"wiz.help.CleanupCFGFiles":                     "Supprime les fichiers de config de staging du dossier de sortie après la construction. Utile pour garder l'output propre. Désactivez pour le debug afin d'inspecter les fichiers .cfg générés.",
+		"wiz.help.Debug":                               "Active l'accès root et SSH dans l'appliance VSA/VIA. Ne pas utiliser en production — cela crée un risque de sécurité.",
 	},
 }

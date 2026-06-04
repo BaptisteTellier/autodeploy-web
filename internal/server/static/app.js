@@ -186,6 +186,7 @@ function wizardApp() {
     maxReached: 1,
     stepError: '',
     saving: false,
+    summary: {},
 
     // Minimal reactive config — only fields needed for conditional visibility.
     cfg: {
@@ -355,6 +356,34 @@ function wizardApp() {
         this.stepError = 'Error: ' + e.message;
         this.saving = false;
       }
+    },
+
+    // --- Summary builder (called when entering step 12) ----------------------
+    buildSummary() {
+      const get = name => {
+        const el = document.querySelector(`[name="${CSS.escape(name)}"]`);
+        return el ? el.value.trim() : '';
+      };
+      const isChecked = name => {
+        const el = document.querySelector(`[name="${CSS.escape(name)}"]`);
+        return el ? el.checked : false;
+      };
+      this.summary = {
+        hostname:     get('Hostname'),
+        keyboard:     get('KeyboardLayout'),
+        timezone:     get('Timezone'),
+        ip:           get('StaticIP'),
+        ntp:          get('NtpServer').split(/[\n,]+/).filter(Boolean).slice(0, 2).join(', '),
+        cfgOnly:      isChecked('CFGOnly'),
+        inPlace:      isChecked('InPlace'),
+        createBackup: isChecked('CreateBackup'),
+        cleanupCfg:   isChecked('CleanupCFGFiles'),
+        nodeExporter: isChecked('NodeExporter'),
+        licenseVbr:   isChecked('LicenseVBRTune'),
+        vcsp:         isChecked('VCSPConnection'),
+        ha:           isChecked('HighAvailabilityEnabled'),
+        debug:        isChecked('Debug'),
+      };
     },
 
     // --- Per-step validation (light) -----------------------------------------
