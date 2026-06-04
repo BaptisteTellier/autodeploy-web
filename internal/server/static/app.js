@@ -370,7 +370,6 @@ function wizardApp() {
 
       switch (this.step) {
         case 1: {
-          if (!get('SourceISO') && !get('ApplianceType')) return 'Source ISO is required.';
           if (!get('SourceISO')) return 'Please select or upload a source ISO.';
           return '';
         }

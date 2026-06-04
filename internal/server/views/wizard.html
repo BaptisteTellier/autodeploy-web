@@ -729,7 +729,7 @@
       <!-- Preset name -->
       <div class="space-y-1.5">
         <label class="text-sm font-medium text-slate-700">{{t "wiz.preset_name_label"}}</label>
-        <input type="text" id="preset_name" placeholder="{{t "wiz.preset_name_ph"}}" maxlength="64"
+        <input type="text" id="preset_name" name="preset_name" placeholder="{{t "wiz.preset_name_ph"}}" maxlength="64"
                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                x-init="$nextTick(()=>{const el=document.querySelector('[name=Hostname]');if(el&&el.value)$el.value=el.value;})">
         <p class="text-xs text-slate-400">{{t "form.preset_name_ph"}}</p>
