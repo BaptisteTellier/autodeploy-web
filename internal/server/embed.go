@@ -69,11 +69,13 @@ var baseFuncMap = template.FuncMap{
 
 // funcMapForLang returns baseFuncMap plus the translation helpers bound to a
 // specific language:
-//   - t   "key"  → translated plain text (HTML-escaped by the template).
-//   - tjs "key"  → translated text JSON-encoded as a JS string literal, safe
+//   - t   "key"     → translated plain text (HTML-escaped by the template).
+//   - tjs "key"     → translated text JSON-encoded as a JS string literal, safe
 //     inside Alpine x-data / @click attributes and <script> blocks.
+//   - helpTip "key" → the standard "?" help-bubble block (Alpine toggle) with
+//     the translated text. One definition for the ~40 tooltips in the forms.
 func funcMapForLang(lang string) template.FuncMap {
-	fm := make(template.FuncMap, len(baseFuncMap)+2)
+	fm := make(template.FuncMap, len(baseFuncMap)+3)
 	for k, v := range baseFuncMap {
 		fm[k] = v
 	}
@@ -81,6 +83,13 @@ func funcMapForLang(lang string) template.FuncMap {
 	fm["tjs"] = func(key string) template.JS {
 		b, _ := json.Marshal(translate(lang, key))
 		return template.JS(b) //nolint:gosec
+	}
+	fm["helpTip"] = func(key string) template.HTML {
+		txt := template.HTMLEscapeString(translate(lang, key))
+		return template.HTML(`<div class="relative inline-block ml-1" x-data="{h:false}">` +
+			`<button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>` +
+			`<div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">` +
+			txt + `</div></div>`) //nolint:gosec — txt is HTML-escaped above; the rest is a fixed literal
 	}
 	return fm
 }

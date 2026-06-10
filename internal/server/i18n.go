@@ -226,6 +226,18 @@ var translations = map[string]map[string]string{
 		"admin.js_ps1_updated":       "autodeploy.ps1 updated.",
 		"admin.js_http_error":        "HTTP error ",
 		"admin.js_ps1_imported":      "autodeploy.ps1 imported.",
+		// admin server-side JSON messages (translate() in handlers)
+		"admin.err_download":   "download failed: ",
+		"admin.err_github":     "GitHub answered: ",
+		"admin.err_mkdir":      "directory creation failed: ",
+		"admin.err_create":     "file creation failed: ",
+		"admin.err_write":      "write failed: ",
+		"admin.err_multipart":  "invalid multipart: ",
+		"admin.err_no_file":    "no file: ",
+		"admin.err_ps1_only":   "only .ps1 files are accepted",
+		"admin.err_delete":     "delete failed: ",
+		"admin.msg_downloaded": "downloaded",
+		"admin.msg_imported":   "imported",
 
 		// --- media_workspace.html ---
 		"ws.title":            "🗂️ Workspace",
@@ -521,6 +533,18 @@ var translations = map[string]map[string]string{
 		"admin.js_ps1_updated":       "autodeploy.ps1 mis à jour.",
 		"admin.js_http_error":        "Erreur HTTP ",
 		"admin.js_ps1_imported":      "autodeploy.ps1 importé.",
+		// admin server-side JSON messages (translate() in handlers)
+		"admin.err_download":   "téléchargement échoué : ",
+		"admin.err_github":     "GitHub a répondu : ",
+		"admin.err_mkdir":      "création du dossier échouée : ",
+		"admin.err_create":     "création fichier : ",
+		"admin.err_write":      "écriture échouée : ",
+		"admin.err_multipart":  "multipart invalide : ",
+		"admin.err_no_file":    "aucun fichier : ",
+		"admin.err_ps1_only":   "seuls les fichiers .ps1 sont acceptés",
+		"admin.err_delete":     "suppression échouée : ",
+		"admin.msg_downloaded": "téléchargé",
+		"admin.msg_imported":   "importé",
 
 		// --- media_workspace.html ---
 		"ws.title":            "🗂️ Workspace",

@@ -23,7 +23,7 @@ type Job struct {
 	Appliance    string    `json:"appliance"` // VSA/VIA/...
 	SourceISO    string    `json:"source_iso"`
 	OutputISO    string    `json:"output_iso"`
-	ConfigPath   string    `json:"config_path"` // path inside /data/configs/<id>.json
+	ConfigPath   string    `json:"-"` // internal path under /data/configs/.jobs — never expose in API
 	CreatedAt    time.Time `json:"created_at"`
 	StartedAt    time.Time `json:"started_at,omitempty"`
 	FinishedAt   time.Time `json:"finished_at,omitempty"`
@@ -171,7 +171,7 @@ type JobView struct {
 	Appliance    string    `json:"appliance"`
 	SourceISO    string    `json:"source_iso"`
 	OutputISO    string    `json:"output_iso"`
-	ConfigPath   string    `json:"config_path"`
+	ConfigPath   string    `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	StartedAt    time.Time `json:"started_at,omitempty"`
 	FinishedAt   time.Time `json:"finished_at,omitempty"`

@@ -112,6 +112,9 @@ function genGUID() {
 }
 
 // --- JSON ↔ Form ---------------------------------------------------------
+// ⚠ These key sets mirror the Config struct in internal/config/schema.go.
+// Adding a non-string config field means updating the matching set here —
+// see the 8-file checklist in schema.go above the Config struct.
 
 const STRING_BOOL_KEYS = new Set([
   'VeeamAdminIsMfaEnabled', 'VeeamSoIsMfaEnabled', 'VeeamSoIsEnabled', 'NtpRunSync',
@@ -233,9 +236,8 @@ function wizardApp(initialIsos = [], msgs = {}) {
       this.stepError = '';
     },
 
-    next() {
-      const err = this._validate();
-      if (err) { this.stepError = err; return; }
+    // _advance moves to the next visible step and pushes maxReached forward.
+    _advance() {
       this.stepError = '';
       const idx = this.visibleSteps.findIndex(s => s.id === this.step);
       if (idx < this.visibleSteps.length - 1) {
@@ -246,6 +248,12 @@ function wizardApp(initialIsos = [], msgs = {}) {
           this.maxReached = nextId;
         }
       }
+    },
+
+    next() {
+      const err = this._validate();
+      if (err) { this.stepError = err; return; }
+      this._advance();
     },
 
     prev() {
@@ -255,18 +263,9 @@ function wizardApp(initialIsos = [], msgs = {}) {
     },
 
     skip() {
-      // Skip only allowed on advanced steps
+      // Skip only allowed on advanced steps (no validation).
       if (!this.isAdvanced) return;
-      this.stepError = '';
-      const idx = this.visibleSteps.findIndex(s => s.id === this.step);
-      if (idx < this.visibleSteps.length - 1) {
-        const nextId = this.visibleSteps[idx + 1].id;
-        this.step = nextId;
-        if (this.visibleSteps.findIndex(s => s.id === nextId) >
-            this.visibleSteps.findIndex(s => s.id === this.maxReached)) {
-          this.maxReached = nextId;
-        }
-      }
+      this._advance();
     },
 
     // --- ISO Upload ----------------------------------------------------------

@@ -54,7 +54,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	presets, _ := s.deps.Store.List()
 
 	data := map[string]any{
-		"Version":         s.deps.Version,
 		"Config":          cfg,
 		"Presets":         presets,
 		"PresetName":      presetName,
@@ -83,7 +82,6 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if errs := config.Validate(cfg); len(errs) > 0 {
 		// Re-render the form with errors.
 		data := map[string]any{
-			"Version":         s.deps.Version,
 			"Config":          cfg,
 			"Presets":         presetListOrEmpty(s.deps.Store),
 			"ApplianceTypes":  config.ApplianceTypes,
@@ -113,8 +111,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "views/jobs.html", map[string]any{
-		"Version": s.deps.Version,
-		"Jobs":    s.deps.JobManager.List(),
+		"Jobs": s.deps.JobManager.List(),
 	})
 }
 
@@ -126,9 +123,8 @@ func (s *Server) handleJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "views/job.html", map[string]any{
-		"Version": s.deps.Version,
-		"Job":     j.View(),
-		"Lines":   j.Snapshot(),
+		"Job":   j.View(),
+		"Lines": j.Snapshot(),
 	})
 }
 
@@ -267,7 +263,6 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, r, "views/admin.html", map[string]any{
-		"Version":            s.deps.Version,
 		"BakedPS1Version":    bakedVer,
 		"OverridePS1Version": overrideVer,
 		"OverrideModTime":    overrideMod,
@@ -278,133 +273,90 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 // handleAdminUpdatePS1 downloads the latest autodeploy.ps1 from GitHub and
 // saves it to /data/autodeploy/autodeploy.ps1 (used by the runner as override).
 func (s *Server) handleAdminUpdatePS1(w http.ResponseWriter, r *http.Request) {
+	lang := langFromRequest(r)
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(autodeployRawURL)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "téléchargement échoué : " + err.Error()})
+		writeJSONError(w, http.StatusBadGateway, translate(lang, "admin.err_download")+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "GitHub a répondu : " + resp.Status})
+		writeJSONError(w, http.StatusBadGateway, translate(lang, "admin.err_github")+resp.Status)
 		return
 	}
 
 	dir := filepath.Join(s.deps.DataDir, "autodeploy")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "mkdir : " + err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, translate(lang, "admin.err_mkdir")+err.Error())
 		return
 	}
 	dst := filepath.Join(dir, "autodeploy.ps1")
 	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "création fichier : " + err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, translate(lang, "admin.err_create")+err.Error())
 		return
 	}
 	defer f.Close()
 	n, err := io.Copy(f, resp.Body)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "écriture : " + err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, translate(lang, "admin.err_write")+err.Error())
 		return
 	}
 	_ = f.Close() // flush before reading version
 
-	ver := extractPS1Version(dst)
-	now := time.Now().Format("2006-01-02 15:04:05")
-
-	label := "autodeploy.ps1"
-	if ver != "" {
-		label = "autodeploy.ps1 v" + ver
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":         true,
-		"bytes":      n,
-		"version":    ver,
-		"updated_at": now,
-		"message":    fmt.Sprintf("%s téléchargé (%.1f KB)", label, float64(n)/1024),
-	})
+	writePS1Result(w, lang, dst, n, "admin.msg_downloaded")
 }
 
 // handleAdminUploadPS1 accepts a user-supplied autodeploy.ps1 (e.g. from a fork)
 // and saves it as the runtime override at /data/autodeploy/autodeploy.ps1.
 // The destination filename is fixed, so the uploaded filename can't traverse.
 func (s *Server) handleAdminUploadPS1(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	lang := langFromRequest(r)
 	r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB — scripts are tiny
 	if err := r.ParseMultipartForm(5 << 20); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "multipart invalide : " + err.Error()})
+		writeJSONError(w, http.StatusBadRequest, translate(lang, "admin.err_multipart")+err.Error())
 		return
 	}
 	f, hdr, err := r.FormFile("file")
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "aucun fichier : " + err.Error()})
+		writeJSONError(w, http.StatusBadRequest, translate(lang, "admin.err_no_file")+err.Error())
 		return
 	}
 	defer f.Close()
 
 	if !strings.EqualFold(filepath.Ext(filepath.Base(hdr.Filename)), ".ps1") {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "seuls les fichiers .ps1 sont acceptés"})
+		writeJSONError(w, http.StatusBadRequest, translate(lang, "admin.err_ps1_only"))
 		return
 	}
 
 	dir := filepath.Join(s.deps.DataDir, "autodeploy")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "mkdir : " + err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, translate(lang, "admin.err_mkdir")+err.Error())
 		return
 	}
 	dst := filepath.Join(dir, "autodeploy.ps1")
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "création fichier : " + err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, translate(lang, "admin.err_create")+err.Error())
 		return
 	}
 	n, err := io.Copy(out, f)
 	if err != nil {
 		_ = out.Close()
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "écriture : " + err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, translate(lang, "admin.err_write")+err.Error())
 		return
 	}
 	_ = out.Close() // flush before reading version
 
-	ver := extractPS1Version(dst)
-	now := time.Now().Format("2006-01-02 15:04:05")
-	label := "autodeploy.ps1"
-	if ver != "" {
-		label = "autodeploy.ps1 v" + ver
-	}
-
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":         true,
-		"bytes":      n,
-		"version":    ver,
-		"updated_at": now,
-		"message":    fmt.Sprintf("%s importé (%.1f KB)", label, float64(n)/1024),
-	})
+	writePS1Result(w, lang, dst, n, "admin.msg_imported")
 }
 
 // handleAdminResetPS1 deletes the runtime override so the baked-in script is used again.
 func (s *Server) handleAdminResetPS1(w http.ResponseWriter, r *http.Request) {
 	dst := filepath.Join(s.deps.DataDir, "autodeploy", "autodeploy.ps1")
 	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
-		http.Error(w, "suppression échouée : "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, translate(langFromRequest(r), "admin.err_delete")+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -460,8 +412,7 @@ func listDirInfo(dir string, exts []string) []MediaFile {
 
 func (s *Server) handleMediaWorkspace(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "views/media_workspace.html", map[string]any{
-		"Version": s.deps.Version,
-		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "iso"), nil), // all extensions
+		"Files": listDirInfo(filepath.Join(s.deps.DataDir, "iso"), nil), // all extensions
 	})
 }
 
@@ -550,8 +501,7 @@ func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {
 	// Sort newest first.
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ModTime.After(jobs[j].ModTime) })
 	s.render(w, r, "views/media_output.html", map[string]any{
-		"Version": s.deps.Version,
-		"Jobs":    jobs,
+		"Jobs": jobs,
 	})
 }
 
@@ -598,7 +548,6 @@ func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.render(w, r, "views/media_output_job.html", map[string]any{
-		"Version":      s.deps.Version,
 		"JobID":        jobID,
 		"FriendlyName": friendlyJobName(dir, jobID),
 		"Files":        files,
@@ -650,8 +599,7 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, path, name string
 
 func (s *Server) handleMediaLicense(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "views/media_license.html", map[string]any{
-		"Version": s.deps.Version,
-		"Files":   listDirInfo(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
+		"Files": listDirInfo(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
 	})
 }
 
@@ -842,6 +790,32 @@ func writeJSON(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+// writeJSONError sends `{"ok":false,"error":msg}` with the given status.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
+}
+
+// writePS1Result reports a successful autodeploy.ps1 download/import: size,
+// extracted version, timestamp and a translated message. verbKey is the i18n
+// key of the past participle ("admin.msg_downloaded" / "admin.msg_imported").
+func writePS1Result(w http.ResponseWriter, lang, dst string, n int64, verbKey string) {
+	ver := extractPS1Version(dst)
+	label := "autodeploy.ps1"
+	if ver != "" {
+		label = "autodeploy.ps1 v" + ver
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":         true,
+		"bytes":      n,
+		"version":    ver,
+		"updated_at": time.Now().Format("2006-01-02 15:04:05"),
+		"message":    fmt.Sprintf("%s %s (%.1f KB)", label, translate(lang, verbKey), float64(n)/1024),
+	})
 }
 
 func listDir(dir string, exts []string) []string {

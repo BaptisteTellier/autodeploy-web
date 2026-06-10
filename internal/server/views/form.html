@@ -70,26 +70,17 @@
     <div class="flex items-center gap-2 mt-6">
       <input type="checkbox" name="InPlace" {{if .Config.InPlace}}checked{{end}}>
       <span>{{t "form.inplace"}}</span>
-      <div class="relative inline-block" x-data="{h:false}">
-        <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-        <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.InPlace"}}</div>
-      </div>
+      {{helpTip "wiz.help.InPlace"}}
     </div>
     <div class="flex items-center gap-2 mt-6">
       <input type="checkbox" name="CreateBackup">
       <span>{{t "form.create_backup"}}</span>
-      <div class="relative inline-block" x-data="{h:false}">
-        <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-        <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CreateBackup"}}</div>
-      </div>
+      {{helpTip "wiz.help.CreateBackup"}}
     </div>
     <div class="flex items-center gap-2">
       <input type="checkbox" name="CleanupCFGFiles">
       <span>{{t "form.cleanup_cfg"}}</span>
-      <div class="relative inline-block" x-data="{h:false}">
-        <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-        <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CleanupCFGFiles"}}</div>
-      </div>
+      {{helpTip "wiz.help.CleanupCFGFiles"}}
     </div>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="CFGOnly" {{if .Config.CFGOnly}}checked{{end}}>

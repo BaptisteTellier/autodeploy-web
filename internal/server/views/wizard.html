@@ -50,10 +50,7 @@
       <div class="space-y-1.5">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.appliance_type"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.ApplianceType"}}</div>
-          </div>
+          {{helpTip "wiz.help.ApplianceType"}}
         </div>
         <select name="ApplianceType" x-model="cfg.ApplianceType"
                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -65,10 +62,7 @@
       <div class="space-y-2">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.source_iso"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.SourceISO"}}</div>
-          </div>
+          {{helpTip "wiz.help.SourceISO"}}
         </div>
         <!-- Single source of truth for SourceISO — Alpine keeps it in sync -->
         <input type="hidden" name="SourceISO" :value="isoSelected">
@@ -136,10 +130,7 @@
       <div class="space-y-1.5" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const opts=new Set([{{range .KeyboardLayouts}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{kbd:opts.has(v)?v:'custom',kbdTxt:opts.has(v)?'':v}})()">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.keyboard_layout"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.KeyboardLayout"}}</div>
-          </div>
+          {{helpTip "wiz.help.KeyboardLayout"}}
         </div>
         <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null"
                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -154,10 +145,7 @@
       <div class="space-y-1.5" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const opts=new Set([{{range .Timezones}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{tz:opts.has(v)?v:'custom',tzTxt:opts.has(v)?'':v}})()">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.timezone"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Timezone"}}</div>
-          </div>
+          {{helpTip "wiz.help.Timezone"}}
         </div>
         <select x-model="tz" :name="tz!=='custom'?'Timezone':null"
                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -172,10 +160,7 @@
       <div class="space-y-1.5">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.hostname"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Hostname"}}</div>
-          </div>
+          {{helpTip "wiz.help.Hostname"}}
         </div>
         <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required
                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -200,10 +185,7 @@
                class="mt-0.5 rounded border-slate-300">
         <div>
           <label for="wiz-dhcp" class="text-sm font-medium text-slate-700">{{t "form.use_dhcp"}}</label>
-          <div class="relative inline-block ml-1" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.UseDHCP"}}</div>
-          </div>
+          {{helpTip "wiz.help.UseDHCP"}}
         </div>
       </div>
 
@@ -213,10 +195,7 @@
           <div class="space-y-1.5">
             <div class="flex items-center gap-1">
               <label class="text-sm font-medium text-slate-700">{{t "form.static_ip"}}</label>
-              <div class="relative inline-block" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.StaticIP"}}</div>
-              </div>
+              {{helpTip "wiz.help.StaticIP"}}
             </div>
             <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" placeholder="192.168.1.100"
                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -224,10 +203,7 @@
           <div class="space-y-1.5">
             <div class="flex items-center gap-1">
               <label class="text-sm font-medium text-slate-700">{{t "form.subnet"}}</label>
-              <div class="relative inline-block" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Subnet"}}</div>
-              </div>
+              {{helpTip "wiz.help.Subnet"}}
             </div>
             <input type="text" name="Subnet" value="{{.Config.Subnet}}" placeholder="255.255.255.0"
                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -235,10 +211,7 @@
           <div class="space-y-1.5">
             <div class="flex items-center gap-1">
               <label class="text-sm font-medium text-slate-700">{{t "form.gateway"}}</label>
-              <div class="relative inline-block" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Gateway"}}</div>
-              </div>
+              {{helpTip "wiz.help.Gateway"}}
             </div>
             <input type="text" name="Gateway" value="{{.Config.Gateway}}" placeholder="192.168.1.1"
                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -246,10 +219,7 @@
           <div class="space-y-1.5">
             <div class="flex items-center gap-1">
               <label class="text-sm font-medium text-slate-700">{{t "form.dns_servers"}}</label>
-              <div class="relative inline-block" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.DNSServers"}}</div>
-              </div>
+              {{helpTip "wiz.help.DNSServers"}}
             </div>
             <textarea name="DNSServers" rows="2" placeholder="192.168.1.1&#10;8.8.8.8"
                       class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">{{range .Config.DNSServers}}{{.}}
@@ -274,10 +244,7 @@
       <div class="space-y-1.5">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.password_mixed15"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamAdminPassword"}}</div>
-          </div>
+          {{helpTip "wiz.help.VeeamAdminPassword"}}
         </div>
         <div class="flex gap-2">
           <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}"
@@ -295,19 +262,13 @@
                  class="mt-0.5 rounded border-slate-300">
           <div>
             <label for="wiz-admin-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamAdminIsMfaEnabled"}}</div>
-            </div>
+            {{helpTip "wiz.help.VeeamAdminIsMfaEnabled"}}
           </div>
         </div>
         <div x-show="cfg.VeeamAdminIsMfaEnabled" class="space-y-1.5 pl-7">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamAdminMfaSecretKey"}}</div>
-            </div>
+            {{helpTip "wiz.help.VeeamAdminMfaSecretKey"}}
           </div>
           <div class="flex gap-2">
             <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}"
@@ -336,10 +297,7 @@
                class="mt-0.5 rounded border-slate-300">
         <div>
           <label for="wiz-so-enabled" class="text-sm font-medium text-slate-700">{{t "form.so_enabled"}}</label>
-          <div class="relative inline-block ml-1" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoIsEnabled"}}</div>
-          </div>
+          {{helpTip "wiz.help.VeeamSoIsEnabled"}}
         </div>
       </div>
 
@@ -348,10 +306,7 @@
         <div class="space-y-1.5">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.password_so"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoPassword"}}</div>
-            </div>
+            {{helpTip "wiz.help.VeeamSoPassword"}}
           </div>
           <div class="flex gap-2">
             <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}"
@@ -368,19 +323,13 @@
                  class="mt-0.5 rounded border-slate-300">
           <div>
             <label for="wiz-so-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoIsMfaEnabled"}}</div>
-            </div>
+            {{helpTip "wiz.help.VeeamSoIsMfaEnabled"}}
           </div>
         </div>
         <div x-show="cfg.VeeamSoIsMfaEnabled" class="space-y-1.5 pl-7">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-80 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoMfaSecretKey"}}</div>
-            </div>
+            {{helpTip "wiz.help.VeeamSoMfaSecretKey"}}
           </div>
           <div class="flex gap-2">
             <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}"
@@ -394,10 +343,7 @@
         <div class="space-y-1.5">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.recovery_token"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VeeamSoRecoveryToken"}}</div>
-            </div>
+            {{helpTip "wiz.help.VeeamSoRecoveryToken"}}
           </div>
           <div class="flex gap-2">
             <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}"
@@ -422,10 +368,7 @@
       <div class="space-y-1.5">
         <div class="flex items-center gap-2">
           <label class="text-sm font-medium text-slate-700">{{t "form.ntp_servers"}}</label>
-          <div class="relative inline-block" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.NtpServer"}}</div>
-          </div>
+          {{helpTip "wiz.help.NtpServer"}}
         </div>
         <textarea name="NtpServer" rows="3" placeholder="time.nist.gov&#10;pool.ntp.org"
                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">{{range .Config.NtpServer}}{{.}}
@@ -436,10 +379,7 @@
                class="mt-0.5 rounded border-slate-300">
         <div>
           <label for="wiz-ntp-sync" class="text-sm font-medium text-slate-700">{{t "form.ntp_sync"}}</label>
-          <div class="relative inline-block ml-1" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.NtpRunSync"}}</div>
-          </div>
+          {{helpTip "wiz.help.NtpRunSync"}}
         </div>
       </div>
     </div>
@@ -463,10 +403,7 @@
                  class="rounded border-slate-300">
           <div>
             <label for="wiz-em" class="text-sm font-medium text-slate-700">{{t "form.allow_external"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.ExternalManagersInstallationEnabled"}}</div>
-            </div>
+            {{helpTip "wiz.help.ExternalManagersInstallationEnabled"}}
           </div>
         </div>
         <div class="space-y-1.5">
@@ -479,10 +416,7 @@
                  class="rounded border-slate-300">
           <div>
             <label for="wiz-ha" class="text-sm font-medium text-slate-700">{{t "form.ha_mode"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.HighAvailabilityEnabled"}}</div>
-            </div>
+            {{helpTip "wiz.help.HighAvailabilityEnabled"}}
           </div>
         </div>
         <div class="space-y-1.5">
@@ -512,10 +446,7 @@
                  class="rounded border-slate-300">
           <div>
             <label for="wiz-nexporter" class="text-sm font-medium text-slate-700">{{t "form.node_exporter"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.NodeExporter"}}</div>
-            </div>
+            {{helpTip "wiz.help.NodeExporter"}}
           </div>
         </div>
         <div x-show="cfg.NodeExporter" class="pl-7">
@@ -528,19 +459,13 @@
           <input type="checkbox" name="LicenseVBRTune" id="wiz-vbr" class="rounded border-slate-300">
           <div>
             <label for="wiz-vbr" class="text-sm font-medium text-slate-700">{{t "form.license_vbr_tune"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.LicenseVBRTune"}}</div>
-            </div>
+            {{helpTip "wiz.help.LicenseVBRTune"}}
           </div>
         </div>
         <div class="space-y-1.5">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.license_file"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.LicenseFile"}}</div>
-            </div>
+            {{helpTip "wiz.help.LicenseFile"}}
           </div>
           <select name="LicenseFile" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
             <option value="">— {{t "form.none_dash"}} —</option>
@@ -550,10 +475,7 @@
         <div class="space-y-1.5">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.syslog_server"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.SyslogServer"}}</div>
-            </div>
+            {{helpTip "wiz.help.SyslogServer"}}
           </div>
           <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" placeholder="192.168.1.100"
                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -578,10 +500,7 @@
         <input type="checkbox" name="VCSPConnection" id="wiz-vcsp" class="rounded border-slate-300">
         <div>
           <label for="wiz-vcsp" class="text-sm font-medium text-slate-700">{{t "form.vcsp_connect"}}</label>
-          <div class="relative inline-block ml-1" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VCSPConnection"}}</div>
-          </div>
+          {{helpTip "wiz.help.VCSPConnection"}}
         </div>
       </div>
       <div class="grid grid-cols-1 gap-4">
@@ -620,10 +539,7 @@
         <input type="checkbox" name="RestoreConfig" id="wiz-restore" class="rounded border-slate-300">
         <div>
           <label for="wiz-restore" class="text-sm font-medium text-slate-700">{{t "form.restore_enable"}}</label>
-          <div class="relative inline-block ml-1" x-data="{h:false}">
-            <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-            <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.RestoreConfig"}}</div>
-          </div>
+          {{helpTip "wiz.help.RestoreConfig"}}
         </div>
       </div>
       <div class="space-y-1.5">
@@ -652,10 +568,7 @@
           <input type="checkbox" name="VIASingleDisk" id="wiz-single-disk" class="mt-0.5 rounded border-slate-300">
           <div>
             <label for="wiz-single-disk" class="text-sm font-medium text-slate-700">{{t "form.single_disk"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.VIASingleDisk"}}</div>
-            </div>
+            {{helpTip "wiz.help.VIASingleDisk"}}
           </div>
         </div>
         <!-- Output ISO name -->
@@ -668,10 +581,7 @@
         <div class="space-y-1.5">
           <div class="flex items-center gap-2">
             <label class="text-sm font-medium text-slate-700">{{t "form.grub_timeout"}}</label>
-            <div class="relative inline-block" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.GrubTimeout"}}</div>
-            </div>
+            {{helpTip "wiz.help.GrubTimeout"}}
           </div>
           <input type="number" name="GrubTimeout" value="{{.Config.GrubTimeout}}" min="0" max="300"
                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -682,40 +592,28 @@
             <input type="checkbox" name="CFGOnly" id="wiz-cfg-only" class="rounded border-slate-300">
             <div>
               <label for="wiz-cfg-only" class="text-sm text-slate-700">{{t "form.cfg_only"}}</label>
-              <div class="relative inline-block ml-1" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-64 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CFGOnly"}}</div>
-              </div>
+              {{helpTip "wiz.help.CFGOnly"}}
             </div>
           </div>
           <div class="flex items-start gap-2">
             <input type="checkbox" name="InPlace" id="wiz-inplace" class="mt-0.5 rounded border-slate-300">
             <div>
               <label for="wiz-inplace" class="text-sm text-slate-700">{{t "form.inplace"}}</label>
-              <div class="relative inline-block ml-1" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.InPlace"}}</div>
-              </div>
+              {{helpTip "wiz.help.InPlace"}}
             </div>
           </div>
           <div class="flex items-start gap-2">
             <input type="checkbox" name="CreateBackup" id="wiz-backup" class="mt-0.5 rounded border-slate-300">
             <div>
               <label for="wiz-backup" class="text-sm text-slate-700">{{t "form.create_backup"}}</label>
-              <div class="relative inline-block ml-1" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CreateBackup"}}</div>
-              </div>
+              {{helpTip "wiz.help.CreateBackup"}}
             </div>
           </div>
           <div class="flex items-start gap-2">
             <input type="checkbox" name="CleanupCFGFiles" id="wiz-cleanup" class="mt-0.5 rounded border-slate-300">
             <div>
               <label for="wiz-cleanup" class="text-sm text-slate-700">{{t "form.cleanup_cfg"}}</label>
-              <div class="relative inline-block ml-1" x-data="{h:false}">
-                <button type="button" @click="h=!h" class="w-4 h-4 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none text-center">?</button>
-                <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.CleanupCFGFiles"}}</div>
-              </div>
+              {{helpTip "wiz.help.CleanupCFGFiles"}}
             </div>
           </div>
         </div>
@@ -724,10 +622,7 @@
           <input type="checkbox" name="Debug" id="wiz-debug" class="rounded border-slate-300">
           <div>
             <label for="wiz-debug" class="text-sm font-medium text-slate-700">{{t "form.debug"}}</label>
-            <div class="relative inline-block ml-1" x-data="{h:false}">
-              <button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>
-              <div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">{{t "wiz.help.Debug"}}</div>
-            </div>
+            {{helpTip "wiz.help.Debug"}}
           </div>
         </div>
       </div>

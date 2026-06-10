@@ -54,12 +54,16 @@ func main() {
 
 	store := config.NewStore(dataDir + "/configs")
 
+	// keepCompletedJobs caps how many finished jobs stay in the in-memory
+	// registry (their config snapshots are pruned with them).
+	const keepCompletedJobs = 50
+
 	mgr := job.NewManager(job.Options{
 		DataDir:       dataDir,
 		AutodeployDir: autodeployDir,
 		PSScript:      psScript,
 		MaxConcurrent: concurrency,
-		KeepCompleted: 50,
+		KeepCompleted: keepCompletedJobs,
 	})
 
 	srv := server.New(server.Deps{

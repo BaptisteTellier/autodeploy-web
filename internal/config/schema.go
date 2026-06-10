@@ -13,6 +13,19 @@ import (
 // FlexBool / FlexStringArray exist because the upstream PS1 historically
 // accepts both "true"/"false" strings and real booleans for some keys, and
 // both a single string and an array for NtpServer / DNSServers.
+//
+// ⚠ ADDING OR RENAMING A FIELD — the JSON tag doubles as the HTML form
+// `name=` attribute, an undocumented contract spanning 8 files. Update ALL of:
+//  1. this file (struct + tag)
+//  2. defaults.go             (default value)
+//  3. validate.go             (server-side rules)
+//  4. server/form_decode.go   (configFromForm parsing + VSA/VIA guards)
+//  5. server/views/form.html  (expert-form input)
+//  6. server/views/wizard.html (wizard-step input)
+//  7. server/static/app.js    (STRING_BOOL_KEYS / REAL_BOOL_KEYS / INT_KEYS /
+//     ARRAY_KEYS sets if the field is not a plain string)
+//  8. server/i18n.go          (form.* label + wiz.help.* tooltip, EN AND FR)
+// A missed file fails silently: the field decodes to its zero value.
 type Config struct {
 	// --- Core
 	SourceISO       string `json:"SourceISO"`
