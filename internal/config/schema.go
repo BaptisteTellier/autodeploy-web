@@ -25,6 +25,7 @@ import (
 //  7. server/static/app.js    (STRING_BOOL_KEYS / REAL_BOOL_KEYS / INT_KEYS /
 //     ARRAY_KEYS sets if the field is not a plain string)
 //  8. server/i18n.go          (form.* label + wiz.help.* tooltip, EN AND FR)
+//
 // A missed file fails silently: the field decodes to its zero value.
 type Config struct {
 	// --- Core
