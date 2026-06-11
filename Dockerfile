@@ -3,7 +3,7 @@
 ############################
 # Stage 1 — Build Go binary
 ############################
-FROM golang:1.22-alpine AS gobuild
+FROM golang:1.25-alpine AS gobuild
 ARG VERSION=dev
 ARG COMMIT=
 ARG BUILD_DATE=
