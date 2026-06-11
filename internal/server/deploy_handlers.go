@@ -15,6 +15,7 @@ import (
 	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 	"github.com/BaptisteTellier/autodeploy-web/internal/hypervisor"
 	"github.com/BaptisteTellier/autodeploy-web/internal/topology"
+	"github.com/BaptisteTellier/autodeploy-web/internal/wiring"
 )
 
 // kindView feeds the topology picker: a catalog Kind plus its ordered role labels.
@@ -250,10 +251,12 @@ func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int) (de
 		name = jobid[:min(8, len(jobid))]
 	}
 	return deploy.NodeDeploy{
-		Name:    name,
-		Role:    role,
-		ISOPath: filepath.Join(dir, iso),
-		Disks:   disksForConfig(c, vsaSize, viaSize),
+		Name:        name,
+		Role:        role,
+		ISOPath:     filepath.Join(dir, iso),
+		Disks:       disksForConfig(c, vsaSize, viaSize),
+		IP:          c.StaticIP,
+		PairingCode: wiring.DefaultPairingCode,
 	}, nil
 }
 
@@ -319,12 +322,28 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		UEFI:      true, // Veeam VSA/VIA appliances boot via UEFI/OVMF
 	}
 
+	powerOn := r.FormValue("power_on") != ""
+
+	// Optional post-boot wiring (register VIA/HA into the VSA via Veeam REST).
+	// Wiring needs the VMs powered on; enabling it implies power-on.
+	var wirer deploy.Wirer
+	if r.FormValue("wire") != "" {
+		powerOn = true
+		wirer = wiring.New(wiring.Config{
+			Username:       strDefault(strings.TrimSpace(r.FormValue("vsa_user")), "veeamadmin"),
+			Password:       r.FormValue("vsa_password"),
+			Insecure:       true,
+			ClusterDNSName: strings.TrimSpace(r.FormValue("cluster_dns")),
+		})
+	}
+
 	d, err := s.deps.DeployManager.Start(deploy.Spec{
 		Label:   string(kind),
 		Nodes:   nodes,
 		HV:      hv,
 		VM:      vmSpec,
-		PowerOn: r.FormValue("power_on") != "",
+		PowerOn: powerOn,
+		Wirer:   wirer,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

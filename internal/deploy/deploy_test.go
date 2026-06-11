@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -152,6 +153,54 @@ func TestDeployStopsOnNodeFailure(t *testing.T) {
 	}
 	if v.Nodes[1].Step != "queued" {
 		t.Errorf("node1 step = %q, want queued (deploy stops on first failure)", v.Nodes[1].Step)
+	}
+}
+
+// mockWirer records whether/with-what it was called and can force an error.
+type mockWirer struct {
+	called bool
+	nodes  []NodeDeploy
+	err    error
+}
+
+func (w *mockWirer) Wire(_ context.Context, nodes []NodeDeploy, log func(string)) error {
+	w.called = true
+	w.nodes = nodes
+	log("mock wiring")
+	return w.err
+}
+
+func TestWirerRunsAfterDeployWhenPoweredOn(t *testing.T) {
+	w := &mockWirer{}
+	m := NewManager()
+	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: &mockHV{}, PowerOn: true, Wirer: w})
+	waitDone(t, d)
+	if d.View().State != StateDone {
+		t.Fatalf("state = %q, want done", d.View().State)
+	}
+	if !w.called || len(w.nodes) != 2 {
+		t.Errorf("wirer called=%v nodes=%d, want true/2", w.called, len(w.nodes))
+	}
+}
+
+func TestWirerSkippedWhenNotPoweredOn(t *testing.T) {
+	w := &mockWirer{}
+	m := NewManager()
+	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: &mockHV{}, PowerOn: false, Wirer: w})
+	waitDone(t, d)
+	if w.called {
+		t.Error("wirer must not run when PowerOn is false")
+	}
+}
+
+func TestWirerFailureMarksDeploymentFailed(t *testing.T) {
+	w := &mockWirer{err: fmt.Errorf("boom")}
+	m := NewManager()
+	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: &mockHV{}, PowerOn: true, Wirer: w})
+	waitDone(t, d)
+	v := d.View()
+	if v.State != StateFailed || !strings.Contains(v.Error, "wiring") {
+		t.Errorf("state=%q err=%q, want failed with wiring error", v.State, v.Error)
 	}
 }
 

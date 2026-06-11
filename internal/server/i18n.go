@@ -405,6 +405,11 @@ var translations = map[string]map[string]string{
 		"deploy.role_mismatch":      "⚠️ This output's appliance type does not match the slot role.",
 		"deploy.vsa_disk":           "VSA disk size (GiB, ≥256)",
 		"deploy.via_disk":           "VIA disk size (GiB, ≥128)",
+		"deploy.wire":               "Wire the topology into the VSA after boot (Veeam REST)",
+		"deploy.wire_hint":          "Registers the VIA proxy / hardened repo (and creates the HA cluster) in the VSA once the appliances boot. Implies power-on. Pairing code defaults to 000000 (1h window).",
+		"deploy.vsa_user":           "VSA REST user",
+		"deploy.vsa_password":       "VSA REST password",
+		"deploy.cluster_dns":        "HA cluster DNS name (HA only)",
 	},
 
 	"fr": {
@@ -758,5 +763,10 @@ var translations = map[string]map[string]string{
 		"deploy.role_mismatch":      "⚠️ Le type d'appliance de cette sortie ne correspond pas au rôle du slot.",
 		"deploy.vsa_disk":           "Taille disque VSA (Gio, ≥256)",
 		"deploy.via_disk":           "Taille disque VIA (Gio, ≥128)",
+		"deploy.wire":               "Câbler la topologie dans la VSA après le boot (REST Veeam)",
+		"deploy.wire_hint":          "Enregistre le proxy VIA / le dépôt durci (et crée le cluster HA) dans la VSA une fois les appliances bootées. Implique le power-on. Le code de pairing vaut 000000 par défaut (fenêtre d'1h).",
+		"deploy.vsa_user":           "Utilisateur REST VSA",
+		"deploy.vsa_password":       "Mot de passe REST VSA",
+		"deploy.cluster_dns":        "Nom DNS du cluster HA (HA uniquement)",
 	},
 }

@@ -134,6 +134,29 @@
       </div>
     </div>
 
+    <!-- Wiring (register the topology into the VSA via Veeam REST) -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3" x-data="{ wire:false }">
+      <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
+        <input type="checkbox" name="wire" x-model="wire" class="rounded border-slate-300">
+        {{t "deploy.wire"}}
+      </label>
+      <p class="text-xs text-slate-400">{{t "deploy.wire_hint"}}</p>
+      <div x-show="wire" x-cloak class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label class="text-sm text-slate-600">{{t "deploy.vsa_user"}}
+          <input name="vsa_user" value="veeamadmin"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.vsa_password"}}
+          <input name="vsa_password" type="password"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
+          <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+      </div>
+    </div>
+
     <!-- Power on + launch -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <label class="flex items-center gap-2 text-sm text-slate-600">

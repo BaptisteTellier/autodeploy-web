@@ -34,10 +34,18 @@ const maxBufferedLines = 5000
 
 // NodeDeploy is one VM to create from a prebuilt ISO.
 type NodeDeploy struct {
-	Name    string // VM name (the appliance hostname baked into the ISO)
-	Role    string // display label (VSA / VIA-Proxy / VIA-HR)
-	ISOPath string // absolute path to the already-built customised ISO
-	Disks   []int  // disk sizes in GiB (role/config-derived)
+	Name        string // VM name (the appliance hostname baked into the ISO)
+	Role        string // display label (VSA / VIA-Proxy / VIA-HR)
+	ISOPath     string // absolute path to the already-built customised ISO
+	Disks       []int  // disk sizes in GiB (role/config-derived)
+	IP          string // static IP baked into the ISO (used by the wiring step)
+	PairingCode string // appliance pairing/handshake code (default "000000")
+}
+
+// Wirer registers the booted appliances into the VSA after deployment (the
+// Veeam-REST "wiring" step). Implemented by internal/wiring; nil = skip wiring.
+type Wirer interface {
+	Wire(ctx context.Context, nodes []NodeDeploy, log func(string)) error
 }
 
 // NodeStatus is the per-node progress within a deployment.
@@ -56,6 +64,7 @@ type Spec struct {
 	HV      hypervisor.Hypervisor
 	VM      hypervisor.VMSpec // base sizing (CPUs/MemoryMiB/Bridge/VLAN); Name+Disks set per node
 	PowerOn bool              // power VMs on after attaching the ISO (default: false)
+	Wirer   Wirer             // optional: wire the topology into the VSA after boot (nil = skip)
 }
 
 // Deployment is the tracked state of one running/finished deployment.
@@ -263,6 +272,21 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 		}
 	}
 	d.AppendLine("All nodes deployed.")
+
+	// Optional wiring step: register the booted appliances into the VSA. Only
+	// meaningful once the VMs are actually powered on.
+	if spec.Wirer != nil && spec.PowerOn {
+		d.AppendLine("Wiring topology into the VSA (Veeam REST)…")
+		if err := spec.Wirer.Wire(ctx, spec.Nodes, d.AppendLine); err != nil {
+			d.AppendLine(fmt.Sprintf("WIRING FAILED: %v", err))
+			d.mu.Lock()
+			d.Error = "wiring: " + err.Error()
+			d.mu.Unlock()
+			d.setState(StateFailed)
+			return
+		}
+		d.AppendLine("Topology wired.")
+	}
 	d.setState(StateDone)
 }
 
