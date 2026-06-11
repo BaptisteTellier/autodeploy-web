@@ -34,3 +34,7 @@ Thumbs.db
 plan-*.md
 implementation_plan.md
 task.md
+
+# Proxmox / Veeam integration-test credentials (local only — never commit)
+.pvetest.env
+**/.pvetest.env
