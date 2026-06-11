@@ -873,6 +873,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 			ns = "newjob"
 		case p == "/wizard":
 			ns = "wizard"
+		case strings.HasPrefix(p, "/deploy"):
+			ns = "deploy"
 		case strings.HasPrefix(p, "/media/workspace"):
 			ns = "workspace"
 		case strings.HasPrefix(p, "/media/output"):

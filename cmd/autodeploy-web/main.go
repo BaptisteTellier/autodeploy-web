@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
+	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 	"github.com/BaptisteTellier/autodeploy-web/internal/job"
 	"github.com/BaptisteTellier/autodeploy-web/internal/server"
 )
@@ -66,6 +67,8 @@ func main() {
 		KeepCompleted: keepCompletedJobs,
 	})
 
+	deployMgr := deploy.NewManager()
+
 	srv := server.New(server.Deps{
 		Version:       version,
 		Commit:        shortCommit(),
@@ -74,6 +77,8 @@ func main() {
 		AutodeployDir: autodeployDir,
 		Store:         store,
 		JobManager:    mgr,
+		DeployManager: deployMgr,
+		ISOBuilder:    deploy.NewJobISOBuilder(mgr, dataDir),
 	})
 
 	httpSrv := &http.Server{
@@ -97,6 +102,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)
+	deployMgr.Shutdown(ctx)
 	mgr.Shutdown(ctx)
 	log.Println("bye")
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
+	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 	"github.com/BaptisteTellier/autodeploy-web/internal/job"
 )
 
@@ -18,6 +19,8 @@ type Deps struct {
 	AutodeployDir string
 	Store         *config.Store
 	JobManager    *job.Manager
+	DeployManager *deploy.Manager
+	ISOBuilder    deploy.ISOBuilder
 }
 
 type Server struct {
@@ -49,6 +52,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /lang/{code}", s.handleSetLang)
 	mux.HandleFunc("GET /wizard", s.handleWizard)
 	mux.HandleFunc("GET /mode/{mode}", s.handleSetMode)
+
+	// Deploy = orchestrate a multi-VM Veeam topology onto a hypervisor.
+	mux.HandleFunc("GET /deploy", s.handleDeployPage)
+	mux.HandleFunc("POST /deploy", s.handleDeployStart)
+	mux.HandleFunc("GET /deploy/{id}", s.handleDeployDetail)
+	mux.HandleFunc("GET /deploy/{id}/stream", s.handleDeployStream)
 
 	mux.HandleFunc("GET /", s.handleIndex)
 

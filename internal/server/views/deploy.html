@@ -1,0 +1,161 @@
+{{define "views/deploy.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<style>[x-cloak]{display:none}</style>
+<div class="max-w-3xl mx-auto space-y-6">
+
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800">{{t "deploy.title"}}</h1>
+    <p class="text-sm text-slate-500 mt-0.5">{{t "deploy.subtitle"}}</p>
+  </div>
+
+  <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
+    {{t "deploy.warning"}}
+  </div>
+
+  <!-- catalog: topology kind -> ordered role labels -->
+  <script>
+    const DEPLOY_CATALOG = {
+      {{range .Kinds}}"{{.Kind}}": [{{range .Roles}}{{jsonStr .}},{{end}}],{{end}}
+    };
+  </script>
+
+  <form method="POST" action="/deploy" class="space-y-6"
+        x-data="{ kind:'', get nodes(){ return DEPLOY_CATALOG[this.kind] || []; } }">
+
+    <!-- Topology + nodes -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+      <h2 class="font-semibold text-slate-800">{{t "deploy.topology"}}</h2>
+      <select name="kind" x-model="kind" required
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        <option value="">{{t "deploy.select_topology"}}</option>
+        {{range .Kinds}}<option value="{{.Kind}}">{{.Kind}}</option>{{end}}
+      </select>
+
+      <div x-show="nodes.length" x-cloak class="space-y-3">
+        <h3 class="text-sm font-medium text-slate-600">{{t "deploy.nodes"}}</h3>
+        <template x-for="(role, i) in nodes" :key="i">
+          <div class="border border-slate-200 rounded-lg p-4 space-y-3">
+            <div class="text-sm font-semibold text-emerald-700" x-text="(i+1)+'. '+role"></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input :name="'node_'+i+'_hostname'" required placeholder="{{t "form.hostname"}}"
+                     class="border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <input :name="'node_'+i+'_ip'" required placeholder="{{t "form.static_ip"}}"
+                     class="border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <input :name="'node_'+i+'_subnet'" value="255.255.255.0" placeholder="{{t "form.subnet"}}"
+                     class="border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <input :name="'node_'+i+'_gateway'" placeholder="{{t "form.gateway"}}"
+                     class="border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <input :name="'node_'+i+'_dns'" placeholder="{{t "deploy.dns"}}"
+                     class="sm:col-span-2 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Base preset -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-2">
+      <h2 class="font-semibold text-slate-800">{{t "deploy.base_preset"}}</h2>
+      <select name="base_preset"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        <option value="">{{t "deploy.base_defaults"}}</option>
+        {{range .Presets}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+      </select>
+      <p class="text-xs text-slate-400">{{t "deploy.base_preset_hint"}}</p>
+    </div>
+
+    <!-- Destination -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+      <h2 class="font-semibold text-slate-800">{{t "deploy.destination"}}</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_url"}}
+          <input name="pve_url" required value="https://192.168.1.181:8006/api2/json"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.pve_node"}}
+          <input name="pve_node" required value="proxmox"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.pve_storage"}}
+          <input name="pve_storage" required value="local-lvm"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
+          <input name="pve_iso_storage" value="local"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.pve_user"}}
+          <input name="pve_user" value="root@pam"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.pve_password"}}
+          <input name="pve_password" type="password"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" name="pve_insecure" checked class="rounded border-slate-300">
+        {{t "deploy.pve_insecure"}}
+      </label>
+    </div>
+
+    <!-- VM sizing -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+      <h2 class="font-semibold text-slate-800">{{t "deploy.sizing"}}</h2>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <label class="text-sm text-slate-600">{{t "deploy.vm_cpus"}}
+          <input name="vm_cpus" type="number" min="1" value="4"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
+          <input name="vm_memory" type="number" min="512" value="8192"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.vm_disk"}}
+          <input name="vm_disk" type="number" min="1" value="100"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
+          <input name="vm_bridge" value="vmbr0"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+      </div>
+    </div>
+
+    <!-- Power on + launch -->
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" name="power_on" class="rounded border-slate-300">
+        {{t "deploy.power_on"}}
+      </label>
+      <button type="submit"
+              class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors">
+        {{t "deploy.launch"}}
+      </button>
+    </div>
+  </form>
+
+  <!-- Recent deployments -->
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+    <h2 class="font-semibold text-slate-800 mb-3">{{t "deploy.recent"}}</h2>
+    {{if .Deployments}}
+    <ul class="divide-y divide-slate-100 text-sm">
+      {{range .Deployments}}
+      <li class="py-2 flex items-center justify-between gap-3">
+        <a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline font-mono">{{.Kind}} · {{slice .ID 0 8}}</a>
+        <span class="text-xs px-2 py-0.5 rounded-full
+          {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-700{{end}}
+          {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-700{{end}}
+          {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-700{{end}}
+          {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-600{{end}}">{{.State}}</span>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p class="text-sm text-slate-400">{{t "deploy.none"}}</p>
+    {{end}}
+  </div>
+
+</div>
+{{end}}
