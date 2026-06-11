@@ -25,7 +25,7 @@ type VMSpec struct {
 	Name      string
 	CPUs      int
 	MemoryMiB int
-	DiskGiB   int
+	Disks     []int  // one entry per disk, size in GiB (e.g. [256,256] for a VSA)
 	Bridge    string // host network bridge / port group the NIC attaches to
 	VLAN      int    // 0 = untagged
 }

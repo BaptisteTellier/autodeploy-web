@@ -150,8 +150,17 @@ func (p *Proxmox) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 		{Name: "memory", Value: spec.MemoryMiB},
 		{Name: "ostype", Value: "l26"},
 		{Name: "scsihw", Value: "virtio-scsi-single"},
-		{Name: "scsi0", Value: fmt.Sprintf("%s:%d", p.cfg.Storage, spec.DiskGiB)},
 		{Name: "net0", Value: net0},
+	}
+	disks := spec.Disks
+	if len(disks) == 0 {
+		disks = []int{32} // safety default
+	}
+	for i, size := range disks {
+		opts = append(opts, proxmox.VirtualMachineOption{
+			Name:  fmt.Sprintf("scsi%d", i),
+			Value: fmt.Sprintf("%s:%d", p.cfg.Storage, size),
+		})
 	}
 	task, err := n.NewVirtualMachine(ctx, vmid, opts...)
 	if err != nil {

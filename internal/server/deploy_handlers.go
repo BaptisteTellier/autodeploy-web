@@ -1,8 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,19 +23,112 @@ type kindView struct {
 	Roles []string `json:"roles"`
 }
 
+func roleLabel(s topology.NodeSpec) string {
+	label := string(s.Role)
+	if s.HA {
+		label += " (HA)"
+	}
+	return label
+}
+
 // catalogViews builds the kind→roles catalog for the deploy form.
 func catalogViews() []kindView {
 	out := make([]kindView, 0, len(topology.AllKinds()))
 	for _, k := range topology.AllKinds() {
 		var roles []string
 		for _, s := range topology.Catalog(k) {
-			label := string(s.Role)
-			if s.HA {
-				label += " (HA)"
-			}
-			roles = append(roles, label)
+			roles = append(roles, roleLabel(s))
 		}
 		out = append(out, kindView{Kind: string(k), Roles: roles})
+	}
+	return out
+}
+
+// outputSummary describes a built output folder for the picker + summary card.
+type outputSummary struct {
+	JobID     string `json:"job_id"`
+	Name      string `json:"name"`
+	ISOFile   string `json:"iso_file"`
+	Appliance string `json:"appliance"`
+	Hostname  string `json:"hostname"`
+	Network   string `json:"network"`
+	MFAAdmin  bool   `json:"mfa_admin"`
+	SOEnabled bool   `json:"so_enabled"`
+	HA        bool   `json:"ha"`
+	Disks     string `json:"disks"`
+}
+
+// disksForConfig returns the per-role disk layout (sizes in GiB):
+// VSA = 2×256, VIA = 2×128, VIA single-disk = 1×128.
+func disksForConfig(c config.Config) []int {
+	if c.ApplianceType == "VSA" {
+		return []int{256, 256}
+	}
+	if c.VIASingleDisk {
+		return []int{128}
+	}
+	return []int{128, 128}
+}
+
+func disksLabel(d []int) string {
+	if len(d) == 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%d × %d GB", len(d), d[0])
+}
+
+// loadOutputConfig reads an output folder's job-config.json and locates its ISO.
+func loadOutputConfig(dir string) (cfg config.Config, isoFile string, ok bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, jobConfigName))
+	if err != nil {
+		return config.Config{}, "", false
+	}
+	if json.Unmarshal(raw, &cfg) != nil {
+		return config.Config{}, "", false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return config.Config{}, "", false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".iso") {
+			isoFile = e.Name()
+			break
+		}
+	}
+	return cfg, isoFile, true
+}
+
+// listOutputs returns every output folder that has both a config and an ISO.
+func (s *Server) listOutputs() []outputSummary {
+	base := filepath.Join(s.deps.DataDir, "output")
+	entries, _ := os.ReadDir(base)
+	var out []outputSummary
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(base, e.Name())
+		c, iso, ok := loadOutputConfig(dir)
+		if !ok || iso == "" {
+			continue
+		}
+		net := "DHCP"
+		if !c.UseDHCP {
+			net = c.StaticIP
+		}
+		out = append(out, outputSummary{
+			JobID:     e.Name(),
+			Name:      friendlyJobName(dir, e.Name()),
+			ISOFile:   iso,
+			Appliance: c.ApplianceType,
+			Hostname:  c.Hostname,
+			Network:   net,
+			MFAAdmin:  bool(c.VeeamAdminIsMfaEnabled),
+			SOEnabled: bool(c.VeeamSoIsEnabled),
+			HA:        c.HighAvailabilityEnabled,
+			Disks:     disksLabel(disksForConfig(c)),
+		})
 	}
 	return out
 }
@@ -42,9 +139,12 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	if s.deps.DeployManager != nil {
 		deployments = s.deps.DeployManager.List()
 	}
+	outputs := s.listOutputs()
+	outputsJSON, _ := json.Marshal(outputs)
 	s.render(w, r, "views/deploy.html", map[string]any{
 		"Kinds":       catalogViews(),
-		"Presets":     presetListOrEmpty(s.deps.Store),
+		"Outputs":     outputs,
+		"OutputsJSON": template.JS(outputsJSON), //nolint:gosec — JSON of our own structs, rendered in a <script> JSON context
 		"Deployments": deployments,
 	})
 }
@@ -119,11 +219,36 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleDeployStart parses the form, builds the topology + hypervisor, and
-// launches a deployment, then redirects to its detail page.
+// resolveOutputNode turns a chosen output folder (jobid) + slot role into a
+// deploy node: locates the prebuilt ISO and derives the disk layout from the
+// output's own config.
+func (s *Server) resolveOutputNode(jobid, role string) (deploy.NodeDeploy, error) {
+	jobid = filepath.Base(jobid)
+	dir := filepath.Join(s.deps.DataDir, "output", jobid)
+	c, iso, ok := loadOutputConfig(dir)
+	if !ok {
+		return deploy.NodeDeploy{}, fmt.Errorf("output %q: missing config", jobid)
+	}
+	if iso == "" {
+		return deploy.NodeDeploy{}, fmt.Errorf("output %q: no ISO file found", jobid)
+	}
+	name := c.Hostname
+	if name == "" {
+		name = jobid[:min(8, len(jobid))]
+	}
+	return deploy.NodeDeploy{
+		Name:    name,
+		Role:    role,
+		ISOPath: filepath.Join(dir, iso),
+		Disks:   disksForConfig(c),
+	}, nil
+}
+
+// handleDeployStart maps the chosen output folders onto the topology slots and
+// launches the deployment.
 func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 	lang := langFromRequest(r)
-	if s.deps.DeployManager == nil || s.deps.ISOBuilder == nil {
+	if s.deps.DeployManager == nil {
 		http.Error(w, translate(lang, "deploy.err_unavailable"), http.StatusServiceUnavailable)
 		return
 	}
@@ -139,37 +264,19 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Per-node identities, indexed node_<i>_<field>.
-	ids := make([]topology.Identity, len(specs))
-	for i := range specs {
-		p := fmt.Sprintf("node_%d_", i)
-		ids[i] = topology.Identity{
-			Hostname: strings.TrimSpace(r.FormValue(p + "hostname")),
-			StaticIP: strings.TrimSpace(r.FormValue(p + "ip")),
-			Subnet:   strings.TrimSpace(r.FormValue(p + "subnet")),
-			Gateway:  strings.TrimSpace(r.FormValue(p + "gateway")),
+	nodes := make([]deploy.NodeDeploy, len(specs))
+	for i, sp := range specs {
+		jobid := strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
+		if jobid == "" {
+			http.Error(w, translate(lang, "deploy.err_output_missing"), http.StatusUnprocessableEntity)
+			return
 		}
-		if dns := strings.TrimSpace(r.FormValue(p + "dns")); dns != "" {
-			ids[i].DNSServers = splitList(dns)
+		n, err := s.resolveOutputNode(jobid, roleLabel(sp))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
 		}
-	}
-
-	top, err := topology.New(kind, ids)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if errs := top.Validate(); len(errs) > 0 {
-		http.Error(w, errs[0].Error(), http.StatusUnprocessableEntity)
-		return
-	}
-
-	// Base config: a saved preset, else defaults.
-	base := config.Defaults()
-	if preset := r.FormValue("base_preset"); preset != "" {
-		if loaded, err := s.deps.Store.Load(preset); err == nil {
-			base = loaded
-		}
+		nodes[i] = n
 	}
 
 	hv, err := hypervisor.NewProxmox(hypervisor.ProxmoxConfig{
@@ -191,35 +298,22 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 	vmSpec := hypervisor.VMSpec{
 		CPUs:      atoiDefault(r.FormValue("vm_cpus"), 4),
 		MemoryMiB: atoiDefault(r.FormValue("vm_memory"), 8192),
-		DiskGiB:   atoiDefault(r.FormValue("vm_disk"), 100),
 		Bridge:    strDefault(strings.TrimSpace(r.FormValue("vm_bridge")), "vmbr0"),
 		VLAN:      atoiDefault(r.FormValue("vm_vlan"), 0),
 	}
 
 	d, err := s.deps.DeployManager.Start(deploy.Spec{
-		Topology: top,
-		Base:     base,
-		HV:       hv,
-		Builder:  s.deps.ISOBuilder,
-		VM:       vmSpec,
-		PowerOn:  r.FormValue("power_on") != "",
+		Label:   string(kind),
+		Nodes:   nodes,
+		HV:      hv,
+		VM:      vmSpec,
+		PowerOn: r.FormValue("power_on") != "",
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	http.Redirect(w, r, "/deploy/"+d.ID, http.StatusSeeOther)
-}
-
-// splitList splits a comma/newline-separated list into trimmed non-empty items.
-func splitList(s string) []string {
-	var out []string
-	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' }) {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 func atoiDefault(s string, def int) int {

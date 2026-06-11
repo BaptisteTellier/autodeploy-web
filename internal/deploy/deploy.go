@@ -1,12 +1,12 @@
-// Package deploy orchestrates the multi-VM Veeam topology deployment (Layer 2):
-// for each node of a topology it builds the customised ISO, uploads it to the
-// target hypervisor, creates the VM, attaches the ISO and sets the boot order.
-// It deliberately stops short of powering on / wiring by default — those are
-// gated by Spec.PowerOn and a later Veeam-REST wiring step.
+// Package deploy orchestrates a multi-VM Veeam topology deployment (Layer 2):
+// for each node it uploads an already-built ISO to the target hypervisor,
+// creates the VM (with role-derived disks), attaches the ISO and sets the boot
+// order. It deliberately stops short of powering on / wiring by default — those
+// are gated by Spec.PowerOn and a later Veeam-REST wiring step.
 //
-// The orchestrator depends only on interfaces (hypervisor.Hypervisor and the
-// local ISOBuilder), so it is unit-testable with mocks — no live hypervisor or
-// PowerShell/xorriso toolchain required.
+// The ISOs are produced beforehand by the Wizard/job pipeline and selected as
+// output folders in the UI — deploy never (re)builds an ISO. The orchestrator
+// depends only on hypervisor.Hypervisor, so it is unit-testable with a mock.
 package deploy
 
 import (
@@ -15,9 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BaptisteTellier/autodeploy-web/internal/config"
 	"github.com/BaptisteTellier/autodeploy-web/internal/hypervisor"
-	"github.com/BaptisteTellier/autodeploy-web/internal/topology"
 	"github.com/google/uuid"
 )
 
@@ -34,30 +32,30 @@ const (
 
 const maxBufferedLines = 5000
 
-// ISOBuilder produces the customised ISO for one node config and returns the
-// local path to the generated .iso. onLine receives the builder's log output so
-// it can be streamed into the deployment log.
-type ISOBuilder interface {
-	BuildISO(ctx context.Context, cfg config.Config, onLine func(string)) (isoPath string, err error)
+// NodeDeploy is one VM to create from a prebuilt ISO.
+type NodeDeploy struct {
+	Name    string // VM name (the appliance hostname baked into the ISO)
+	Role    string // display label (VSA / VIA-Proxy / VIA-HR)
+	ISOPath string // absolute path to the already-built customised ISO
+	Disks   []int  // disk sizes in GiB (role/config-derived)
 }
 
 // NodeStatus is the per-node progress within a deployment.
 type NodeStatus struct {
 	Hostname string `json:"hostname"`
 	Role     string `json:"role"`
-	Step     string `json:"step"`  // building-iso | uploading | creating-vm | attaching | booting | ready | failed
+	Step     string `json:"step"`  // uploading | creating-vm | attaching | booting | ready | failed
 	VMID     string `json:"vm_id"` // populated once the VM is created
 	Error    string `json:"error,omitempty"`
 }
 
 // Spec is everything needed to run one deployment.
 type Spec struct {
-	Topology topology.Topology
-	Base     config.Config         // base config applied per node (role+identity override it)
-	HV       hypervisor.Hypervisor // target hypervisor
-	Builder  ISOBuilder            // produces per-node ISOs
-	VM       hypervisor.VMSpec     // sizing template; Name is set per node
-	PowerOn  bool                  // power VMs on after attaching the ISO (default: false)
+	Label   string       // topology label, for display (e.g. "vsa+proxy")
+	Nodes   []NodeDeploy // ordered nodes (VSA first)
+	HV      hypervisor.Hypervisor
+	VM      hypervisor.VMSpec // base sizing (CPUs/MemoryMiB/Bridge/VLAN); Name+Disks set per node
+	PowerOn bool              // power VMs on after attaching the ISO (default: false)
 }
 
 // Deployment is the tracked state of one running/finished deployment.
@@ -196,28 +194,30 @@ func NewManager() *Manager {
 	}
 }
 
-// Start validates the topology and launches the deployment asynchronously.
+// Start validates the spec and launches the deployment asynchronously.
 func (m *Manager) Start(spec Spec) (*Deployment, error) {
-	if errs := spec.Topology.Validate(); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid topology: %v", errs[0])
+	if len(spec.Nodes) == 0 {
+		return nil, fmt.Errorf("deploy: no nodes to deploy")
 	}
 	if spec.HV == nil {
 		return nil, fmt.Errorf("deploy: hypervisor is required")
 	}
-	if spec.Builder == nil {
-		return nil, fmt.Errorf("deploy: ISO builder is required")
+	for i, n := range spec.Nodes {
+		if n.ISOPath == "" {
+			return nil, fmt.Errorf("deploy: node %d (%s) has no ISO selected", i, n.Name)
+		}
 	}
 
 	d := &Deployment{
 		ID:        uuid.NewString(),
-		Kind:      string(spec.Topology.Kind),
+		Kind:      spec.Label,
 		State:     StatePending,
 		CreatedAt: time.Now(),
 		done:      make(chan struct{}),
 	}
-	d.Nodes = make([]NodeStatus, len(spec.Topology.Nodes))
-	for i, n := range spec.Topology.Nodes {
-		d.Nodes[i] = NodeStatus{Hostname: n.Identity.Hostname, Role: string(n.Spec.Role), Step: "queued"}
+	d.Nodes = make([]NodeStatus, len(spec.Nodes))
+	for i, n := range spec.Nodes {
+		d.Nodes[i] = NodeStatus{Hostname: n.Name, Role: n.Role, Step: "queued"}
 	}
 
 	m.mu.Lock()
@@ -251,13 +251,12 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 		}
 	}()
 
-	for i, node := range spec.Topology.Nodes {
-		host := node.Identity.Hostname
+	for i, node := range spec.Nodes {
 		if err := m.deployNode(ctx, d, i, node, spec); err != nil {
 			d.setNode(i, func(ns *NodeStatus) { ns.Step = "failed"; ns.Error = err.Error() })
-			d.AppendLine(fmt.Sprintf("[%s] FAILED: %v", host, err))
+			d.AppendLine(fmt.Sprintf("[%s] FAILED: %v", node.Name, err))
 			d.mu.Lock()
-			d.Error = fmt.Sprintf("node %s: %v", host, err)
+			d.Error = fmt.Sprintf("node %s: %v", node.Name, err)
 			d.mu.Unlock()
 			d.setState(StateFailed)
 			return
@@ -267,30 +266,23 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 	d.setState(StateDone)
 }
 
-// deployNode runs the per-node sequence: build ISO → upload → create VM →
-// attach ISO → set boot order → (optionally) power on.
-func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node topology.Node, spec Spec) error {
-	host := node.Identity.Hostname
-	cfg := node.BuildConfig(spec.Base)
-
-	d.setNode(i, func(ns *NodeStatus) { ns.Step = "building-iso" })
-	d.AppendLine(fmt.Sprintf("[%s] building ISO (%s)…", host, node.Spec.Role))
-	isoPath, err := spec.Builder.BuildISO(ctx, cfg, func(l string) { d.AppendLine("[" + host + "] " + l) })
-	if err != nil {
-		return fmt.Errorf("build ISO: %w", err)
-	}
+// deployNode runs the per-node sequence: upload ISO → create VM → attach ISO →
+// set boot order → (optionally) power on.
+func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node NodeDeploy, spec Spec) error {
+	host := node.Name
 
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading" })
-	d.AppendLine(fmt.Sprintf("[%s] uploading ISO %s…", host, isoPath))
-	isoRef, err := spec.HV.UploadISO(ctx, isoPath)
+	d.AppendLine(fmt.Sprintf("[%s] uploading ISO %s…", host, node.ISOPath))
+	isoRef, err := spec.HV.UploadISO(ctx, node.ISOPath)
 	if err != nil {
 		return fmt.Errorf("upload ISO: %w", err)
 	}
 
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = "creating-vm" })
-	d.AppendLine(fmt.Sprintf("[%s] creating VM…", host))
+	d.AppendLine(fmt.Sprintf("[%s] creating VM (%d disk(s))…", host, len(node.Disks)))
 	vmSpec := spec.VM
 	vmSpec.Name = host
+	vmSpec.Disks = node.Disks
 	vm, err := spec.HV.CreateVM(ctx, vmSpec)
 	if err != nil {
 		return fmt.Errorf("create VM: %w", err)
@@ -327,7 +319,7 @@ func (m *Manager) Get(id string) (*Deployment, bool) {
 	return d, ok
 }
 
-// List returns snapshots of all deployments, newest first.
+// List returns snapshots of all deployments, newest first is not guaranteed.
 func (m *Manager) List() []View {
 	m.mu.RLock()
 	ds := make([]*Deployment, 0, len(m.deployments))

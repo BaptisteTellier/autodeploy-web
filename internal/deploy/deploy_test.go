@@ -7,22 +7,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BaptisteTellier/autodeploy-web/internal/config"
 	"github.com/BaptisteTellier/autodeploy-web/internal/hypervisor"
-	"github.com/BaptisteTellier/autodeploy-web/internal/topology"
 )
 
 // mockHV records the calls made to it, in order, and hands out sequential VM IDs.
+// uploadErr, if set, makes UploadISO fail for the matching ISO path.
 type mockHV struct {
-	mu     sync.Mutex
-	calls  []string
-	nextID int
+	mu        sync.Mutex
+	calls     []string
+	nextID    int
+	uploadErr string // ISO path that should fail to upload ("" = none)
 }
 
 func (h *mockHV) log(s string) { h.mu.Lock(); h.calls = append(h.calls, s); h.mu.Unlock() }
 
 func (h *mockHV) UploadISO(_ context.Context, p string) (string, error) {
 	h.log("upload:" + p)
+	if h.uploadErr != "" && p == h.uploadErr {
+		return "", fmt.Errorf("synthetic upload failure")
+	}
 	return "local:iso/" + p, nil
 }
 func (h *mockHV) CreateVM(_ context.Context, spec hypervisor.VMSpec) (hypervisor.VMRef, error) {
@@ -30,7 +33,7 @@ func (h *mockHV) CreateVM(_ context.Context, spec hypervisor.VMSpec) (hypervisor
 	h.nextID++
 	id := fmt.Sprintf("%d", 100+h.nextID)
 	h.mu.Unlock()
-	h.log("create:" + spec.Name)
+	h.log(fmt.Sprintf("create:%s:disks=%v", spec.Name, spec.Disks))
 	return hypervisor.VMRef{ID: id, Node: "test"}, nil
 }
 func (h *mockHV) AttachISO(_ context.Context, vm hypervisor.VMRef, ref string) error {
@@ -65,25 +68,6 @@ func (h *mockHV) Destroy(_ context.Context, vm hypervisor.VMRef) error {
 	return nil
 }
 
-// mockBuilder returns a deterministic ISO path; failAt>=0 fails that node index.
-type mockBuilder struct {
-	mu     sync.Mutex
-	n      int
-	failAt int
-}
-
-func (b *mockBuilder) BuildISO(_ context.Context, cfg config.Config, onLine func(string)) (string, error) {
-	b.mu.Lock()
-	idx := b.n
-	b.n++
-	b.mu.Unlock()
-	onLine("building " + cfg.Hostname)
-	if b.failAt >= 0 && idx == b.failAt {
-		return "", fmt.Errorf("synthetic build failure")
-	}
-	return cfg.Hostname + ".iso", nil
-}
-
 func waitDone(t *testing.T, d *Deployment) {
 	t.Helper()
 	select {
@@ -93,28 +77,22 @@ func waitDone(t *testing.T, d *Deployment) {
 	}
 }
 
-func vsaProxy(t *testing.T) topology.Topology {
-	t.Helper()
-	top, err := topology.New(topology.KindVSAProxy, []topology.Identity{
-		{Hostname: "vsa-01", StaticIP: "10.0.0.10", Subnet: "255.255.255.0", Gateway: "10.0.0.1"},
-		{Hostname: "proxy-01", StaticIP: "10.0.0.11", Subnet: "255.255.255.0", Gateway: "10.0.0.1"},
-	})
-	if err != nil {
-		t.Fatalf("topology.New: %v", err)
+func twoNodes() []NodeDeploy {
+	return []NodeDeploy{
+		{Name: "vsa-01", Role: "VSA", ISOPath: "/out/a/vsa.iso", Disks: []int{256, 256}},
+		{Name: "proxy-01", Role: "VIA-Proxy", ISOPath: "/out/b/via.iso", Disks: []int{128, 128}},
 	}
-	return top
 }
 
 func TestDeploySequenceHappyPath(t *testing.T) {
 	hv := &mockHV{}
 	m := NewManager()
 	d, err := m.Start(Spec{
-		Topology: vsaProxy(t),
-		Base:     config.Defaults(),
-		HV:       hv,
-		Builder:  &mockBuilder{failAt: -1},
-		VM:       hypervisor.VMSpec{CPUs: 2, MemoryMiB: 4096, DiskGiB: 32, Bridge: "vmbr0"},
-		PowerOn:  false,
+		Label:   "vsa+proxy",
+		Nodes:   twoNodes(),
+		HV:      hv,
+		VM:      hypervisor.VMSpec{CPUs: 2, MemoryMiB: 4096, Bridge: "vmbr0"},
+		PowerOn: false,
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -126,20 +104,16 @@ func TestDeploySequenceHappyPath(t *testing.T) {
 		t.Fatalf("state = %q, want done (err=%q)", v.State, v.Error)
 	}
 	for _, n := range v.Nodes {
-		if n.Step != "ready" {
-			t.Errorf("node %s step = %q, want ready", n.Hostname, n.Step)
-		}
-		if n.VMID == "" {
-			t.Errorf("node %s has no VMID", n.Hostname)
+		if n.Step != "ready" || n.VMID == "" {
+			t.Errorf("node %s = %+v, want ready with VMID", n.Hostname, n)
 		}
 	}
-	// Expect: upload, create, attach, bootcd for each of the 2 nodes; no poweron.
 	want := []string{
-		"upload:vsa-01.iso", "create:vsa-01", "attach:101:local:iso/vsa-01.iso", "bootcd:101",
-		"upload:proxy-01.iso", "create:proxy-01", "attach:102:local:iso/proxy-01.iso", "bootcd:102",
+		"upload:/out/a/vsa.iso", "create:vsa-01:disks=[256 256]", "attach:101:local:iso//out/a/vsa.iso", "bootcd:101",
+		"upload:/out/b/via.iso", "create:proxy-01:disks=[128 128]", "attach:102:local:iso//out/b/via.iso", "bootcd:102",
 	}
 	if len(hv.calls) != len(want) {
-		t.Fatalf("calls = %v, want %v", hv.calls, want)
+		t.Fatalf("calls = %v\nwant %v", hv.calls, want)
 	}
 	for i := range want {
 		if hv.calls[i] != want[i] {
@@ -151,13 +125,7 @@ func TestDeploySequenceHappyPath(t *testing.T) {
 func TestDeployPowerOnInvokesBoot(t *testing.T) {
 	hv := &mockHV{}
 	m := NewManager()
-	d, _ := m.Start(Spec{
-		Topology: vsaProxy(t),
-		Base:     config.Defaults(),
-		HV:       hv,
-		Builder:  &mockBuilder{failAt: -1},
-		PowerOn:  true,
-	})
+	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: hv, PowerOn: true})
 	waitDone(t, d)
 	poweron := 0
 	for _, c := range hv.calls {
@@ -171,15 +139,9 @@ func TestDeployPowerOnInvokesBoot(t *testing.T) {
 }
 
 func TestDeployStopsOnNodeFailure(t *testing.T) {
-	hv := &mockHV{}
+	hv := &mockHV{uploadErr: "/out/a/vsa.iso"} // first node's upload fails
 	m := NewManager()
-	d, _ := m.Start(Spec{
-		Topology: vsaProxy(t),
-		Base:     config.Defaults(),
-		HV:       hv,
-		Builder:  &mockBuilder{failAt: 0}, // first node's ISO build fails
-		PowerOn:  false,
-	})
+	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: hv})
 	waitDone(t, d)
 	v := d.View()
 	if v.State != StateFailed {
@@ -188,19 +150,20 @@ func TestDeployStopsOnNodeFailure(t *testing.T) {
 	if v.Nodes[0].Step != "failed" || v.Nodes[0].Error == "" {
 		t.Errorf("node0 = %+v, want failed with error", v.Nodes[0])
 	}
-	// Second node must never have been touched.
 	if v.Nodes[1].Step != "queued" {
-		t.Errorf("node1 step = %q, want queued (deploy should stop on first failure)", v.Nodes[1].Step)
-	}
-	if len(hv.calls) != 0 {
-		t.Errorf("hypervisor should not be called when the first ISO build fails, got %v", hv.calls)
+		t.Errorf("node1 step = %q, want queued (deploy stops on first failure)", v.Nodes[1].Step)
 	}
 }
 
-func TestStartRejectsInvalidTopology(t *testing.T) {
+func TestStartValidation(t *testing.T) {
 	m := NewManager()
-	bad := topology.Topology{Kind: topology.KindVSA, Nodes: nil} // 0 nodes, expects 1
-	if _, err := m.Start(Spec{Topology: bad, HV: &mockHV{}, Builder: &mockBuilder{failAt: -1}}); err == nil {
-		t.Error("Start should reject an invalid topology")
+	if _, err := m.Start(Spec{Nodes: nil, HV: &mockHV{}}); err == nil {
+		t.Error("Start should reject an empty node list")
+	}
+	if _, err := m.Start(Spec{Nodes: []NodeDeploy{{Name: "x"}}, HV: &mockHV{}}); err == nil {
+		t.Error("Start should reject a node with no ISO path")
+	}
+	if _, err := m.Start(Spec{Nodes: twoNodes(), HV: nil}); err == nil {
+		t.Error("Start should reject a nil hypervisor")
 	}
 }

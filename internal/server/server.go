@@ -20,7 +20,6 @@ type Deps struct {
 	Store         *config.Store
 	JobManager    *job.Manager
 	DeployManager *deploy.Manager
-	ISOBuilder    deploy.ISOBuilder
 }
 
 type Server struct {

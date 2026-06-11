@@ -130,7 +130,7 @@ func TestProxmoxCreateAndAttachISO(t *testing.T) {
 		Name:      "autodeploy-itest",
 		CPUs:      1,
 		MemoryMiB: 1024,
-		DiskGiB:   1,
+		Disks:     []int{1},
 		Bridge:    bridge,
 	}
 	vm, err := hv.CreateVM(ctx, spec)

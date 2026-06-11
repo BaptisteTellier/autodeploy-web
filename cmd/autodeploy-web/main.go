@@ -78,7 +78,6 @@ func main() {
 		Store:         store,
 		JobManager:    mgr,
 		DeployManager: deployMgr,
-		ISOBuilder:    deploy.NewJobISOBuilder(mgr, dataDir),
 	})
 
 	httpSrv := &http.Server{
