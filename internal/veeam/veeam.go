@@ -1,0 +1,388 @@
+// Package veeam is a thin client for the Veeam Backup & Replication REST API
+// (exposed by the VSA appliance on :9419). It implements exactly the operations
+// the deploy "wiring" step needs to register a freshly-deployed topology:
+// create credentials, add Linux managed servers (VIA proxy / hardened repo),
+// add a hardened repository, add a VMware backup proxy, and create a 2-node HA
+// cluster.
+//
+// The calls and payloads are a 1:1 port of BaptisteTellier/vbr-ha-cluster
+// (already REST) and BaptisteTellier/autodeploy Install-VeeamInfra.ps1 (cmdlets
+// mapped to their REST equivalents). Most infrastructure operations are async
+// and return a session id to poll via WaitSession.
+package veeam
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// Config holds connection settings for a VBR REST endpoint.
+type Config struct {
+	BaseURL    string // e.g. "https://192.168.1.10:9419"
+	Username   string
+	Password   string
+	Insecure   bool   // skip TLS verification (VSA ships a self-signed cert)
+	APIVersion string // x-api-version header; default "1.2-rev0" (VBR 13). "" = don't send.
+}
+
+// Client talks to one VBR REST endpoint.
+type Client struct {
+	cfg   Config
+	http  *http.Client
+	token string
+}
+
+// New builds a client. No network call happens until Authenticate.
+func New(cfg Config) *Client {
+	if cfg.APIVersion == "" {
+		cfg.APIVersion = "1.2-rev0"
+	}
+	hc := &http.Client{Timeout: 60 * time.Second}
+	if cfg.Insecure {
+		hc.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec — self-signed VSA cert, opt-in
+	}
+	return &Client{cfg: cfg, http: hc}
+}
+
+func (c *Client) url(path string) string { return strings.TrimRight(c.cfg.BaseURL, "/") + path }
+
+// Authenticate performs the OAuth2 password grant and stores the bearer token.
+func (c *Client) Authenticate(ctx context.Context) error {
+	form := url.Values{
+		"grant_type": {"Password"},
+		"username":   {c.cfg.Username},
+		"password":   {c.cfg.Password},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/api/oauth2/token"), strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	if c.cfg.APIVersion != "" {
+		req.Header.Set("x-api-version", c.cfg.APIVersion)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return apiError("POST", c.url("/api/oauth2/token"), resp)
+	}
+	var out struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	if out.AccessToken == "" {
+		return fmt.Errorf("veeam: empty access_token")
+	}
+	c.token = out.AccessToken
+	return nil
+}
+
+// do performs an authenticated JSON request. body and out may be nil.
+func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.url(path), rdr)
+	if err != nil {
+		return err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.cfg.APIVersion != "" {
+		req.Header.Set("x-api-version", c.cfg.APIVersion)
+	}
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return apiError(method, path, resp)
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+func apiError(method, path string, resp *http.Response) error {
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	detail := strings.TrimSpace(string(b))
+	// Surface VBR's {"message":...} when present.
+	var m struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(b, &m) == nil && m.Message != "" {
+		detail = m.Message
+	}
+	return fmt.Errorf("veeam: HTTP %d %s %s: %s", resp.StatusCode, method, path, detail)
+}
+
+// idResponse is the common {"id": "..."} body (credentials id or async session id).
+type idResponse struct {
+	ID string `json:"id"`
+}
+
+// --- sessions ----------------------------------------------------------------
+
+// WaitSession polls an async session to completion. It mirrors VBR's dual model:
+// backup/restore sessions finish on result.status ∈ {Success,Warning,Failed};
+// infrastructure sessions finish on state == "Stopped" (treated as success when
+// no result.status is set). Returns an error on Failed or timeout.
+func (c *Client) WaitSession(ctx context.Context, sessionID string, poll, timeout time.Duration) error {
+	if poll <= 0 {
+		poll = 10 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		var s struct {
+			State  string `json:"state"`
+			Result struct {
+				Status string `json:"status"`
+			} `json:"result"`
+		}
+		if err := c.do(ctx, http.MethodGet, "/api/v1/sessions/"+url.PathEscape(sessionID), nil, &s); err != nil {
+			return err
+		}
+		switch {
+		case s.Result.Status == "Failed":
+			return fmt.Errorf("veeam: session %s failed", sessionID)
+		case s.Result.Status == "Success" || s.Result.Status == "Warning":
+			return nil
+		case s.State == "Stopped":
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("veeam: session %s did not finish within %s (state=%q)", sessionID, timeout, s.State)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
+	}
+}
+
+// --- credentials -------------------------------------------------------------
+
+// CreateCredentials creates a Linux password credential and returns its id.
+func (c *Client) CreateCredentials(ctx context.Context, username, password, description string) (string, error) {
+	body := map[string]any{
+		"type":               "Linux",
+		"username":           username,
+		"password":           password,
+		"description":        description,
+		"authenticationType": "Password",
+	}
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/credentials", body, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+// --- connection certificate --------------------------------------------------
+
+// ConnectionCertificate calls POST /api/v1/connectionCertificate for a Linux
+// host. It returns the base64 PEM certificate (for embedding in the HA cluster
+// payload) and the SHA-256 fingerprint of the DER bytes (the value
+// AddLinuxHost expects as sshFingerprint, == -ForceDeployerFingerprint).
+// credentialsID may be "" for the initial pairing.
+func (c *Client) ConnectionCertificate(ctx context.Context, ip, credentialsID string) (certB64, fingerprint string, err error) {
+	body := map[string]any{"serverName": ip, "type": "LinuxHost"}
+	if credentialsID != "" {
+		body["credentialsId"] = credentialsID
+	}
+	var out struct {
+		CertificateUpload struct {
+			Certificate string `json:"certificate"`
+		} `json:"certificateUpload"`
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/v1/connectionCertificate", body, &out); err != nil {
+		return "", "", err
+	}
+	certB64 = out.CertificateUpload.Certificate
+	if certB64 != "" {
+		der, derr := base64.StdEncoding.DecodeString(certB64)
+		if derr != nil {
+			return "", "", fmt.Errorf("veeam: decode certificate: %w", derr)
+		}
+		sum := sha256.Sum256(der)
+		return certB64, strings.ToUpper(hex.EncodeToString(sum[:])), nil
+	}
+	if out.Fingerprint != "" {
+		return "", out.Fingerprint, nil
+	}
+	return "", "", fmt.Errorf("veeam: no certificate/fingerprint for %s", ip)
+}
+
+// --- managed servers ---------------------------------------------------------
+
+// AddLinuxHost adds a Linux managed server via certificate-based pairing
+// (handshake/pairing code shown on the appliance at boot). If sshFingerprint is
+// empty it is fetched via ConnectionCertificate (ForceDeployerFingerprint).
+// Returns the async session id.
+func (c *Client) AddLinuxHost(ctx context.Context, ip, description, handshakeCode, sshFingerprint string) (string, error) {
+	if sshFingerprint == "" {
+		_, fp, err := c.ConnectionCertificate(ctx, ip, "")
+		if err != nil {
+			return "", err
+		}
+		sshFingerprint = fp
+	}
+	body := map[string]any{
+		"type":                   "LinuxHost",
+		"name":                   ip,
+		"description":            description,
+		"credentialsStorageType": "Certificate",
+		"handshakeCode":          handshakeCode,
+		"sshFingerprint":         sshFingerprint,
+	}
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/managedServers", body, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+// FindManagedServerByName returns the managed server id whose name/IP matches, or "".
+func (c *Client) FindManagedServerByName(ctx context.Context, name string) (string, error) {
+	var out struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/backupInfrastructure/managedServers?nameFilter="+url.QueryEscape(name)+"&limit=10", nil, &out); err != nil {
+		return "", err
+	}
+	for _, s := range out.Data {
+		if s.Name == name {
+			return s.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// --- repositories ------------------------------------------------------------
+
+// AddHardenedRepository adds a LinuxHardened repository on hostID with optional
+// XFS fast clone and immutability. Returns the async session id.
+func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, description string, xfsFastClone bool, immutabilityDays int) (string, error) {
+	body := map[string]any{
+		"type":        "LinuxHardened",
+		"name":        name,
+		"description": description,
+		"hostId":      hostID,
+		"repository": map[string]any{
+			"path":                           path,
+			"useFastCloningOnXFSVolumes":     xfsFastClone,
+			"makeRecentBackupsImmutableDays": immutabilityDays,
+		},
+	}
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/repositories", body, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+// --- proxies -----------------------------------------------------------------
+
+// AddVmwareProxy registers a VMware backup proxy on the given Linux managed
+// server (the REST equivalent of Add-VBRViLinuxProxy). Returns the async
+// session id.
+//
+// NOTE: confirm the exact schema against the VBR REST reference for your
+// version; the field names below follow the documented VmwareProxy model.
+func (c *Client) AddVmwareProxy(ctx context.Context, hostID string, maxTasks int) (string, error) {
+	if maxTasks <= 0 {
+		maxTasks = 4
+	}
+	body := map[string]any{
+		"type":         "Vmware",
+		"server":       map[string]any{"hostId": hostID, "maxTaskCount": maxTasks},
+		"maxTaskCount": maxTasks,
+	}
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/proxies", body, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+// --- HA cluster --------------------------------------------------------------
+
+// HASpec describes the 2-node HA cluster to create.
+type HASpec struct {
+	PrimaryNodeIP             string
+	SecondaryNodeIP           string
+	SecondaryCredentialsID    string
+	ClusterDNSName            string
+	CertificatePEMBase64      string // from ConnectionCertificate(secondary, credsID)
+	ClusterEndpoint           string // optional VIP
+	CrossSubnet               bool
+	PrimaryExternalEndpoint   string // required when CrossSubnet
+	SecondaryExternalEndpoint string // required when CrossSubnet
+}
+
+// CreateHACluster creates the HA cluster and returns the async session id.
+func (c *Client) CreateHACluster(ctx context.Context, spec HASpec) (string, error) {
+	body := map[string]any{
+		"primaryNodeIpAddress":       spec.PrimaryNodeIP,
+		"secondaryNodeIpAddress":     spec.SecondaryNodeIP,
+		"secondaryNodeCredentialsId": spec.SecondaryCredentialsID,
+		"clusterDnsName":             spec.ClusterDNSName,
+		"certificate": map[string]any{
+			"certificate": spec.CertificatePEMBase64,
+			"formatType":  "Pem",
+		},
+	}
+	if spec.ClusterEndpoint != "" {
+		body["clusterEndpoint"] = spec.ClusterEndpoint
+	}
+	if spec.CrossSubnet {
+		body["isCrossSubnetMode"] = true
+		body["primaryNodeExternalEndpoint"] = spec.PrimaryExternalEndpoint
+		body["secondaryNodeExternalEndpoint"] = spec.SecondaryExternalEndpoint
+	}
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/highAvailabilityCluster", body, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+// Logout best-effort revokes the token.
+func (c *Client) Logout(ctx context.Context) {
+	_ = c.do(ctx, http.MethodPost, "/api/oauth2/logout", nil, nil)
+}
