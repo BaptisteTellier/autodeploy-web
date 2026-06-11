@@ -401,8 +401,10 @@ var translations = map[string]map[string]string{
 		"deploy.select_output":      "— select an output —",
 		"deploy.no_outputs":         "No built outputs yet — create one first in the",
 		"deploy.disks":              "Disks",
-		"deploy.disks_hint":         "Disks are derived per role: VSA 2×256 GB, VIA 2×128 GB, VIA single-disk 1×128 GB.",
+		"deploy.disks_hint":         "Disk count is fixed per role (VSA 2×, VIA 2×, VIA single-disk 1×). The sizes below are role minimums you may raise.",
 		"deploy.role_mismatch":      "⚠️ This output's appliance type does not match the slot role.",
+		"deploy.vsa_disk":           "VSA disk size (GiB, ≥256)",
+		"deploy.via_disk":           "VIA disk size (GiB, ≥128)",
 	},
 
 	"fr": {
@@ -752,7 +754,9 @@ var translations = map[string]map[string]string{
 		"deploy.select_output":      "— choisir une sortie —",
 		"deploy.no_outputs":         "Aucune sortie construite — créez-en une d'abord via l'",
 		"deploy.disks":              "Disques",
-		"deploy.disks_hint":         "Les disques sont déduits par rôle : VSA 2×256 Go, VIA 2×128 Go, VIA mono-disque 1×128 Go.",
+		"deploy.disks_hint":         "Le nombre de disques est fixé par rôle (VSA 2×, VIA 2×, VIA mono-disque 1×). Les tailles ci-dessous sont les minimums par rôle, librement augmentables.",
 		"deploy.role_mismatch":      "⚠️ Le type d'appliance de cette sortie ne correspond pas au rôle du slot.",
+		"deploy.vsa_disk":           "Taille disque VSA (Gio, ≥256)",
+		"deploy.via_disk":           "Taille disque VIA (Gio, ≥128)",
 	},
 }

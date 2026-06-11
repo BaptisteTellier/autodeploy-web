@@ -152,6 +152,16 @@ func (p *Proxmox) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 		{Name: "scsihw", Value: "virtio-scsi-single"},
 		{Name: "net0", Value: net0},
 	}
+	if spec.UEFI {
+		// OVMF needs q35 + a dedicated EFI vars disk (Proxmox docs). Secure Boot
+		// keys are NOT pre-enrolled (pre-enrolled-keys=0) so the custom-built
+		// Veeam installer ISO boots without Secure Boot enforcement.
+		opts = append(opts,
+			proxmox.VirtualMachineOption{Name: "bios", Value: "ovmf"},
+			proxmox.VirtualMachineOption{Name: "machine", Value: "q35"},
+			proxmox.VirtualMachineOption{Name: "efidisk0", Value: fmt.Sprintf("%s:1,efitype=4m,pre-enrolled-keys=0", p.cfg.Storage)},
+		)
+	}
 	disks := spec.Disks
 	if len(disks) == 0 {
 		disks = []int{32} // safety default

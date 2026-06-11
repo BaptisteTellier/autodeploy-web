@@ -28,6 +28,7 @@ type VMSpec struct {
 	Disks     []int  // one entry per disk, size in GiB (e.g. [256,256] for a VSA)
 	Bridge    string // host network bridge / port group the NIC attaches to
 	VLAN      int    // 0 = untagged
+	UEFI      bool   // boot via OVMF/UEFI (adds q35 machine + an EFI vars disk)
 }
 
 // VMRef identifies a created VM within a provider. Its fields are opaque to the

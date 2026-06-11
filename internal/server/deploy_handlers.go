@@ -58,16 +58,29 @@ type outputSummary struct {
 	Disks     string `json:"disks"`
 }
 
-// disksForConfig returns the per-role disk layout (sizes in GiB):
-// VSA = 2×256, VIA = 2×128, VIA single-disk = 1×128.
-func disksForConfig(c config.Config) []int {
+// Minimum per-role disk sizes (GiB). The user may request larger, never smaller.
+const (
+	minVSADiskGiB = 256
+	minVIADiskGiB = 128
+)
+
+// disksForConfig returns the per-role disk layout (sizes in GiB). Disk COUNT is
+// fixed by role — VSA 2 disks, VIA 2 disks, VIA single-disk 1 disk — while the
+// SIZE is the caller's choice, floored at the role minimum.
+func disksForConfig(c config.Config, vsaSize, viaSize int) []int {
 	if c.ApplianceType == "VSA" {
-		return []int{256, 256}
+		if vsaSize < minVSADiskGiB {
+			vsaSize = minVSADiskGiB
+		}
+		return []int{vsaSize, vsaSize}
+	}
+	if viaSize < minVIADiskGiB {
+		viaSize = minVIADiskGiB
 	}
 	if c.VIASingleDisk {
-		return []int{128}
+		return []int{viaSize}
 	}
-	return []int{128, 128}
+	return []int{viaSize, viaSize}
 }
 
 func disksLabel(d []int) string {
@@ -127,7 +140,7 @@ func (s *Server) listOutputs() []outputSummary {
 			MFAAdmin:  bool(c.VeeamAdminIsMfaEnabled),
 			SOEnabled: bool(c.VeeamSoIsEnabled),
 			HA:        c.HighAvailabilityEnabled,
-			Disks:     disksLabel(disksForConfig(c)),
+			Disks:     disksLabel(disksForConfig(c, minVSADiskGiB, minVIADiskGiB)),
 		})
 	}
 	return out
@@ -222,7 +235,7 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 // resolveOutputNode turns a chosen output folder (jobid) + slot role into a
 // deploy node: locates the prebuilt ISO and derives the disk layout from the
 // output's own config.
-func (s *Server) resolveOutputNode(jobid, role string) (deploy.NodeDeploy, error) {
+func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int) (deploy.NodeDeploy, error) {
 	jobid = filepath.Base(jobid)
 	dir := filepath.Join(s.deps.DataDir, "output", jobid)
 	c, iso, ok := loadOutputConfig(dir)
@@ -240,7 +253,7 @@ func (s *Server) resolveOutputNode(jobid, role string) (deploy.NodeDeploy, error
 		Name:    name,
 		Role:    role,
 		ISOPath: filepath.Join(dir, iso),
-		Disks:   disksForConfig(c),
+		Disks:   disksForConfig(c, vsaSize, viaSize),
 	}, nil
 }
 
@@ -264,6 +277,9 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	vsaSize := atoiMin(r.FormValue("vsa_disk"), minVSADiskGiB, minVSADiskGiB)
+	viaSize := atoiMin(r.FormValue("via_disk"), minVIADiskGiB, minVIADiskGiB)
+
 	nodes := make([]deploy.NodeDeploy, len(specs))
 	for i, sp := range specs {
 		jobid := strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
@@ -271,7 +287,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, translate(lang, "deploy.err_output_missing"), http.StatusUnprocessableEntity)
 			return
 		}
-		n, err := s.resolveOutputNode(jobid, roleLabel(sp))
+		n, err := s.resolveOutputNode(jobid, roleLabel(sp), vsaSize, viaSize)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -300,6 +316,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		MemoryMiB: atoiDefault(r.FormValue("vm_memory"), 8192),
 		Bridge:    strDefault(strings.TrimSpace(r.FormValue("vm_bridge")), "vmbr0"),
 		VLAN:      atoiDefault(r.FormValue("vm_vlan"), 0),
+		UEFI:      true, // Veeam VSA/VIA appliances boot via UEFI/OVMF
 	}
 
 	d, err := s.deps.DeployManager.Start(deploy.Spec{
@@ -321,6 +338,18 @@ func atoiDefault(s string, def int) int {
 		return n
 	}
 	return def
+}
+
+// atoiMin parses s, falling back to def, then floors the result at min.
+func atoiMin(s string, def, min int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		n = def
+	}
+	if n < min {
+		n = min
+	}
+	return n
 }
 
 func strDefault(s, def string) string {

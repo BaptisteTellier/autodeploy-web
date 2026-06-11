@@ -132,6 +132,7 @@ func TestProxmoxCreateAndAttachISO(t *testing.T) {
 		MemoryMiB: 1024,
 		Disks:     []int{1},
 		Bridge:    bridge,
+		UEFI:      true, // exercise the OVMF + EFI-disk path
 	}
 	vm, err := hv.CreateVM(ctx, spec)
 	if err != nil {
