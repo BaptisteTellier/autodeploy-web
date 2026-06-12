@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -172,7 +173,7 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 		"Outputs":       outputs,
 		"OutputsJSON":   template.JS(outputsJSON), //nolint:gosec — JSON of our own structs, rendered in a <script> JSON context
 		"Deployments":   deployments,
-		"WorkspaceISOs": listDir(filepath.Join(s.deps.DataDir, "iso"), []string{".iso"}),
+		"WorkspaceISOs": originalISOs(filepath.Join(s.deps.DataDir, "iso")),
 		"KSBaseURL":     "http://" + r.Host,
 	})
 }
@@ -272,7 +273,7 @@ type ksParams struct {
 // mode points at the output's .cfg (served over /content) plus the original
 // role ISO. The disk layout is derived from the output's own config, which is
 // also returned (the wiring step reads the VSA admin password from it).
-func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks ksParams) (deploy.NodeDeploy, config.Config, error) {
+func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks ksParams, bootCmd string) (deploy.NodeDeploy, config.Config, error) {
 	jobid = filepath.Base(jobid)
 	dir := filepath.Join(s.deps.DataDir, "output", jobid)
 	c, iso, cfgFile, ok := loadOutputConfig(dir)
@@ -304,6 +305,7 @@ func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks 
 		}
 		node.KSUrl = strings.TrimRight(ks.baseURL, "/") + "/media/output/" + jobid + "/" + cfgFile + "/content"
 		node.BaseISOPath = filepath.Join(s.deps.DataDir, "iso", filepath.Base(baseISO))
+		node.BootCommand = strings.TrimSpace(bootCmd) // "" => role default typed at GRUB
 		return node, c, nil
 	}
 
@@ -312,6 +314,54 @@ func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks 
 	}
 	node.ISOPath = filepath.Join(dir, iso)
 	return node, c, nil
+}
+
+// originalISOs lists the ORIGINAL Veeam ISOs in dir, excluding customised builds
+// (those carry "_customized" in the name). Remote kickstart must always boot an
+// unmodified appliance ISO and inject the kickstart over HTTP — never a
+// pre-customised ISO.
+func originalISOs(dir string) []string {
+	all := listDir(dir, []string{".iso"})
+	out := make([]string, 0, len(all))
+	for _, name := range all {
+		if strings.Contains(strings.ToLower(name), "_customized") {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// handleDeployStop cancels a running deployment (leaves the VMs in place).
+func (s *Server) handleDeployStop(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DeployManager == nil {
+		http.NotFound(w, r)
+		return
+	}
+	id := r.PathValue("id")
+	if !s.deps.DeployManager.Cancel(id) {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/deploy/"+id, http.StatusSeeOther)
+}
+
+// handleDeployRemove stops the deployment and destroys all the VMs it created,
+// then drops it from the registry and returns to the deploy index.
+func (s *Server) handleDeployRemove(w http.ResponseWriter, r *http.Request) {
+	lang := langFromRequest(r)
+	if s.deps.DeployManager == nil {
+		http.NotFound(w, r)
+		return
+	}
+	id := r.PathValue("id")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	if _, err := s.deps.DeployManager.Remove(ctx, id); err != nil {
+		http.Error(w, translate(lang, "deploy.err_remove")+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/deploy", http.StatusSeeOther)
 }
 
 // handleDeployStart maps the chosen output folders onto the topology slots and
@@ -352,7 +402,8 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, translate(lang, "deploy.err_output_missing"), http.StatusUnprocessableEntity)
 			return
 		}
-		n, c, err := s.resolveOutputNode(jobid, roleLabel(sp), vsaSize, viaSize, ks)
+		bootCmd := r.FormValue(fmt.Sprintf("node_%d_bootcmd", i))
+		n, c, err := s.resolveOutputNode(jobid, roleLabel(sp), vsaSize, viaSize, ks, bootCmd)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return

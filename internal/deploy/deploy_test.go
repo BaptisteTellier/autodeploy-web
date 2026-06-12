@@ -267,6 +267,50 @@ func TestKickstartFlow(t *testing.T) {
 	}
 }
 
+func TestRemoveDestroysCreatedVMs(t *testing.T) {
+	hv := &mockHV{}
+	m := NewManager()
+	d, err := m.Start(Spec{Label: "vsa+proxy", Nodes: twoNodes(), HV: hv, VM: hypervisor.VMSpec{Bridge: "vmbr0"}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitDone(t, d)
+
+	removed, err := m.Remove(context.Background(), d.ID)
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("removed = %d, want 2", removed)
+	}
+	// Both created VMs (101, 102) must have been destroyed.
+	joined := strings.Join(hv.calls, "|")
+	if !strings.Contains(joined, "destroy:101") || !strings.Contains(joined, "destroy:102") {
+		t.Errorf("expected destroy of both VMs, got %v", hv.calls)
+	}
+	// Deployment is dropped from the registry.
+	if _, ok := m.Get(d.ID); ok {
+		t.Error("deployment should be gone after Remove")
+	}
+}
+
+func TestBootCommandOverrideFromText(t *testing.T) {
+	// An edited boot command is typed verbatim (one GRUB line per row).
+	keys := BootCommandKeysFromText("linuxefi /vmlinuz inst.ks=http://h/k.cfg/content\nboot")
+	if keys[0] != "c" {
+		t.Errorf("first key = %q, want c", keys[0])
+	}
+	ret := 0
+	for _, k := range keys {
+		if k == "ret" {
+			ret++
+		}
+	}
+	if ret != 2 { // two non-empty lines
+		t.Errorf("ret count = %d, want 2", ret)
+	}
+}
+
 func TestBootCommandKeys(t *testing.T) {
 	keys := BootCommandKeys("VIA-Proxy", "http://10.0.0.1:8080/x.cfg/content")
 	if keys[0] != "c" {

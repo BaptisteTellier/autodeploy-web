@@ -47,6 +47,7 @@ type NodeDeploy struct {
 	// Remote kickstart (both set => kickstart mode for this node):
 	KSUrl       string // kickstart URL (…/media/output/<job>/<file>.cfg/content)
 	BaseISOPath string // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
+	BootCommand string // optional override of the GRUB boot command (one line per row); "" = role default
 }
 
 // kickstart reports whether this node deploys via remote kickstart.
@@ -125,10 +126,13 @@ type Deployment struct {
 	FinishedAt time.Time    `json:"finished_at,omitempty"`
 	Error      string       `json:"error,omitempty"`
 
-	mu    sync.Mutex
-	lines []string
-	subs  []chan string
-	done  chan struct{}
+	mu       sync.Mutex
+	lines    []string
+	subs     []chan string
+	done     chan struct{}
+	hv       hypervisor.Hypervisor // retained so Remove can destroy the created VMs
+	cancel   context.CancelFunc    // cancels the run goroutine (set once running)
+	canceled bool                  // true when a STOP was requested (vs. a real failure)
 }
 
 // View is a race-free snapshot of a Deployment's public fields.
@@ -229,6 +233,13 @@ func (d *Deployment) setState(s State) {
 	d.mu.Unlock()
 }
 
+// isCanceled reports whether a STOP was requested for this deployment.
+func (d *Deployment) isCanceled() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.canceled
+}
+
 func (d *Deployment) setNode(i int, mutate func(*NodeStatus)) {
 	d.mu.Lock()
 	mutate(&d.Nodes[i])
@@ -304,6 +315,7 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 		State:     StatePending,
 		CreatedAt: time.Now(),
 		done:      make(chan struct{}),
+		hv:        spec.HV,
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {
@@ -333,6 +345,9 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 	d.setState(StateRunning)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
 	go func() {
 		select {
 		case <-m.stopCh:
@@ -343,6 +358,12 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 
 	for i, node := range spec.Nodes {
 		if err := m.deployNode(ctx, d, i, node, spec); err != nil {
+			if d.isCanceled() {
+				d.setNode(i, func(ns *NodeStatus) { ns.Step = "canceled" })
+				d.AppendLine("Deployment stopped by user.")
+				d.setState(StateCanceled)
+				return
+			}
 			d.setNode(i, func(ns *NodeStatus) { ns.Step = "failed"; ns.Error = err.Error() })
 			d.AppendLine(fmt.Sprintf("[%s] FAILED: %v", node.Name, err))
 			d.mu.Lock()
@@ -366,6 +387,11 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 		defer wcancel()
 		d.AppendLine(fmt.Sprintf("Wiring topology into the VSA (Veeam REST, timeout %s)…", wireTimeout))
 		if err := spec.Wirer.Wire(wctx, spec.Nodes, d.AppendLine); err != nil {
+			if d.isCanceled() {
+				d.AppendLine("Deployment stopped by user.")
+				d.setState(StateCanceled)
+				return
+			}
 			d.AppendLine(fmt.Sprintf("WIRING FAILED: %v", err))
 			d.mu.Lock()
 			d.Error = "wiring: " + err.Error()
@@ -453,7 +479,11 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 			return ctx.Err()
 		case <-time.After(bootWait):
 		}
-		if err := spec.HV.SendKeys(ctx, vm, BootCommandKeys(node.Role, node.KSUrl)); err != nil {
+		keys := BootCommandKeys(node.Role, node.KSUrl)
+		if node.BootCommand != "" {
+			keys = BootCommandKeysFromText(node.BootCommand) // user-edited override
+		}
+		if err := spec.HV.SendKeys(ctx, vm, keys); err != nil {
 			return fmt.Errorf("type boot command: %w", err)
 		}
 	}
@@ -476,6 +506,74 @@ func (m *Manager) Get(id string) (*Deployment, bool) {
 	defer m.mu.RUnlock()
 	d, ok := m.deployments[id]
 	return d, ok
+}
+
+// Cancel requests a running deployment to stop. It cancels the run context so
+// the orchestration goroutine unwinds at the next cancellation point and the
+// deployment lands in StateCanceled. No-op for an unknown or finished
+// deployment. Created VMs are left in place — use Remove to also destroy them.
+func (m *Manager) Cancel(id string) bool {
+	d, ok := m.Get(id)
+	if !ok {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.canceled {
+		return true
+	}
+	d.canceled = true
+	if d.cancel != nil {
+		d.cancel()
+	}
+	return true
+}
+
+// Remove stops the deployment (if still running), destroys every VM it created
+// on the target hypervisor (Destroy powers the VM off first), and drops it from
+// the registry. It returns the number of VMs destroyed. The work is bounded by
+// ctx. The deployment is removed from the registry even if some VMs fail to
+// destroy, so a partially-failed removal can be retried manually on the
+// hypervisor.
+func (m *Manager) Remove(ctx context.Context, id string) (int, error) {
+	d, ok := m.Get(id)
+	if !ok {
+		return 0, fmt.Errorf("deploy: deployment %q not found", id)
+	}
+
+	// Stop the run first and wait (bounded) for the goroutine to unwind so we
+	// don't race against in-flight VM creation.
+	m.Cancel(id)
+	select {
+	case <-d.Done():
+	case <-ctx.Done():
+	case <-time.After(30 * time.Second):
+	}
+
+	v := d.View()
+	var errs []string
+	removed := 0
+	if d.hv != nil {
+		for _, n := range v.Nodes {
+			if n.VMID == "" {
+				continue // never got created
+			}
+			if err := d.hv.Destroy(ctx, hypervisor.VMRef{ID: n.VMID}); err != nil {
+				errs = append(errs, fmt.Sprintf("VM %s: %v", n.VMID, err))
+				continue
+			}
+			removed++
+		}
+	}
+
+	m.mu.Lock()
+	delete(m.deployments, id)
+	m.mu.Unlock()
+
+	if len(errs) > 0 {
+		return removed, fmt.Errorf("destroyed %d VM(s); errors: %s", removed, strings.Join(errs, "; "))
+	}
+	return removed, nil
 }
 
 // List returns snapshots of all deployments, newest first is not guaranteed.

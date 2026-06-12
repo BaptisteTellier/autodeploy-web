@@ -30,22 +30,48 @@ func linuxLine(role, ksURL string) string {
 		" inst.ks=" + ksURL + " ip=dhcp quiet inst.assumeyes"
 }
 
-// BootCommandKeys returns the QEMU sendkey sequence that types the remote
-// kickstart boot command at the GRUB menu for the given role. It opens the GRUB
-// console ("c", which also halts the menu countdown), types the three lines and
-// presses Enter after each.
-func BootCommandKeys(role, ksURL string) []string {
-	lines := []string{
+// bootLines returns the three GRUB lines for a role + kickstart URL.
+func bootLines(role, ksURL string) []string {
+	return []string{
 		linuxLine(role, ksURL),
 		"initrdefi /images/pxeboot/initrd.img",
 		"boot",
 	}
+}
+
+// BootCommandText returns the full GRUB boot command (the three lines joined by
+// newlines) for the given role and kickstart URL. This is what the deploy UI
+// pre-fills in the editable "advanced boot command" box.
+func BootCommandText(role, ksURL string) string {
+	return strings.Join(bootLines(role, ksURL), "\n")
+}
+
+// bootKeysFromLines turns GRUB command lines into a QEMU sendkey sequence: it
+// opens the GRUB console ("c", which also halts the menu countdown), types each
+// non-empty line and presses Enter after it.
+func bootKeysFromLines(lines []string) []string {
 	keys := []string{"c"} // open the GRUB console (also stops the autoboot countdown)
 	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
 		keys = append(keys, KeysForText(l)...)
 		keys = append(keys, "ret")
 	}
 	return keys
+}
+
+// BootCommandKeys returns the QEMU sendkey sequence that types the role-specific
+// remote-kickstart boot command at the GRUB menu.
+func BootCommandKeys(role, ksURL string) []string {
+	return bootKeysFromLines(bootLines(role, ksURL))
+}
+
+// BootCommandKeysFromText returns the sendkey sequence for a user-supplied,
+// possibly edited boot command (one GRUB line per text line).
+func BootCommandKeysFromText(text string) []string {
+	return bootKeysFromLines(strings.Split(text, "\n"))
 }
 
 // keyNames maps non-alphanumeric characters to QEMU sendkey names.

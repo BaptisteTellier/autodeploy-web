@@ -11,7 +11,41 @@
       {{if eq (printf "%s" .Deployment.State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
       {{if eq (printf "%s" .Deployment.State) "failed"}}bg-red-100 text-red-800{{end}}
       {{if eq (printf "%s" .Deployment.State) "pending"}}bg-slate-100 text-slate-800{{end}}
+      {{if eq (printf "%s" .Deployment.State) "canceled"}}bg-slate-200 text-slate-700{{end}}
     ">{{.Deployment.State}}</span>
+  </div>
+
+  <!-- Actions: stop a running deployment, or remove it (destroying its VMs) -->
+  <div x-data="{ showRemove:false, confirmed:false }" class="flex flex-wrap items-center gap-2">
+    <span id="dep-actions" data-running="{{if or (eq (printf "%s" .Deployment.State) "running") (eq (printf "%s" .Deployment.State) "pending")}}1{{end}}" class="contents">
+      {{if or (eq (printf "%s" .Deployment.State) "running") (eq (printf "%s" .Deployment.State) "pending")}}
+      <form method="POST" action="/deploy/{{.Deployment.ID}}/stop">
+        <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors">⏹ {{t "deploy.stop"}}</button>
+      </form>
+      {{end}}
+    </span>
+    <button type="button" @click="showRemove=true; confirmed=false"
+            class="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">🗑 {{t "deploy.remove"}}</button>
+
+    <!-- Confirmation modal -->
+    <div x-show="showRemove" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showRemove=false" @keydown.escape.window="showRemove=false">
+      <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+        <h3 class="font-semibold text-slate-800">{{t "deploy.remove_title"}}</h3>
+        <p class="text-sm text-slate-600">{{t "deploy.remove_warning"}}</p>
+        <p class="text-xs text-slate-500 font-mono">{{len .Deployment.Nodes}} VM(s) · {{.Deployment.Kind}}</p>
+        <label class="flex items-start gap-2 text-sm text-slate-700">
+          <input type="checkbox" x-model="confirmed" class="mt-0.5 rounded border-slate-300">
+          <span>{{t "deploy.remove_confirm"}}</span>
+        </label>
+        <div class="flex justify-end gap-2">
+          <button type="button" @click="showRemove=false" class="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200">{{t "deploy.cancel"}}</button>
+          <form method="POST" action="/deploy/{{.Deployment.ID}}/remove">
+            <button type="submit" :disabled="!confirmed"
+                    class="px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">{{t "deploy.remove_button"}}</button>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 
   {{if .Deployment.Error}}
@@ -36,7 +70,7 @@
         <td class="px-4 py-3">{{$n.Role}}</td>
         <td class="px-4 py-3">
           <span class="text-xs px-2 py-0.5 rounded-full
-            {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
+            {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created") (eq $n.Step "canceled"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
           <!-- ISO upload progress bar — revealed live by the "progress" SSE event -->
           <div class="deploy-progress mt-1 flex items-center gap-2 {{if not (and (eq $n.Step "uploading") (gt $n.Progress 0))}}hidden{{end}}" data-node="{{$i}}">
             <div class="w-32 bg-slate-200 rounded-full h-1.5 overflow-hidden">
