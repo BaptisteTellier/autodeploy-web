@@ -218,7 +218,7 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 	hist, ch, cancel := d.Subscribe(256)
 	defer cancel()
 	for _, line := range hist {
-		writeSSE(w, "log", line)
+		writeDeployLine(w, line)
 	}
 	flusher.Flush()
 
@@ -234,7 +234,7 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 				return
 			}
-			writeSSE(w, "log", line)
+			writeDeployLine(w, line)
 			flusher.Flush()
 		case <-heartbeat.C:
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
@@ -245,6 +245,18 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// writeDeployLine routes a deployment log line to the right SSE event: a
+// structured upload-progress event ("progress", data "<node>:<pct>") or a plain
+// "log" line. Progress events drive the per-node upload bar without cluttering
+// the text log.
+func writeDeployLine(w http.ResponseWriter, line string) {
+	if node, pct, ok := deploy.ParseProgressLine(line); ok {
+		writeSSE(w, "progress", fmt.Sprintf("%d:%d", node, pct))
+		return
+	}
+	writeSSE(w, "log", line)
 }
 
 // ksParams carries the remote-kickstart settings of one deployment request.

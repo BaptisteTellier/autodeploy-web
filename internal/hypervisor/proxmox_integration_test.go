@@ -103,7 +103,9 @@ func TestProxmoxCreateAndAttachISO(t *testing.T) {
 	if isoPath == "" {
 		isoPath = makeDummyISO(t)
 	}
-	isoRef, err := hv.UploadISO(ctx, isoPath)
+	isoRef, err := hv.UploadISO(ctx, isoPath, func(done, total int64) {
+		t.Logf("upload progress: %d/%d bytes", done, total)
+	})
 	if err != nil {
 		t.Fatalf("UploadISO: %v", err)
 	}

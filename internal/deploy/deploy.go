@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,9 +62,33 @@ type Wirer interface {
 type NodeStatus struct {
 	Hostname string `json:"hostname"`
 	Role     string `json:"role"`
-	Step     string `json:"step"`  // uploading | creating-vm | attaching | booting | ready | failed
-	VMID     string `json:"vm_id"` // populated once the VM is created
+	Step     string `json:"step"`     // uploading | creating-vm | attaching | booting | ready | failed
+	VMID     string `json:"vm_id"`    // populated once the VM is created
+	Progress int    `json:"progress"` // 0–100: ISO upload percent (only meaningful during "uploading")
 	Error    string `json:"error,omitempty"`
+}
+
+// progressPrefix marks a log line as a structured upload-progress event rather
+// than human-readable text. The SSE handler routes these to a "progress" event
+// (and the client renders a bar) instead of printing them to the log. Riding
+// the existing log channel avoids a second fan-out path.
+const progressPrefix = "\x00progress\x00"
+
+// ProgressLine formats a progress event for a node index and percent.
+func ProgressLine(node, pct int) string {
+	return fmt.Sprintf("%s%d %d", progressPrefix, node, pct)
+}
+
+// ParseProgressLine reports whether line is a progress event and, if so, the
+// node index and percent it carries.
+func ParseProgressLine(line string) (node, pct int, ok bool) {
+	if !strings.HasPrefix(line, progressPrefix) {
+		return 0, 0, false
+	}
+	if _, err := fmt.Sscanf(line[len(progressPrefix):], "%d %d", &node, &pct); err != nil {
+		return 0, 0, false
+	}
+	return node, pct, true
 }
 
 // Spec is everything needed to run one deployment.
@@ -210,6 +235,35 @@ func (d *Deployment) setNode(i int, mutate func(*NodeStatus)) {
 	d.mu.Unlock()
 }
 
+// uploadProgress returns a hypervisor.ProgressFunc that records the node's
+// upload percent (for the live bar) and emits a human log line every 25%. The
+// percent rides the log channel as a structured progress event (see
+// ProgressLine); it is throttled upstream by the hypervisor's progressReader.
+func (d *Deployment) uploadProgress(i int, host string) hypervisor.ProgressFunc {
+	lastPct, lastMilestone := -1, -1
+	return func(done, total int64) {
+		pct := 0
+		if total > 0 {
+			pct = int(done * 100 / total)
+		}
+		if pct == lastPct {
+			return
+		}
+		lastPct = pct
+		d.setNode(i, func(ns *NodeStatus) { ns.Progress = pct })
+		d.AppendLine(ProgressLine(i, pct))
+		if m := pct / 25; m > lastMilestone {
+			lastMilestone = m
+			d.AppendLine(fmt.Sprintf("[%s] uploading… %d%% (%s / %s)", host, pct, humanGiB(done), humanGiB(total)))
+		}
+	}
+}
+
+// humanGiB renders a byte count as a compact GiB string (e.g. "6.4 GB").
+func humanGiB(b int64) string {
+	return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+}
+
 // Manager owns the in-memory deployment registry.
 type Manager struct {
 	mu          sync.RWMutex
@@ -330,7 +384,8 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node NodeDeploy, spec Spec) error {
 	host := node.Name
 
-	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading" })
+	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading"; ns.Progress = 0 })
+	onProgress := d.uploadProgress(i, host)
 	var isoRef string
 	var err error
 	if node.kickstart() {
@@ -343,7 +398,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		}
 		if isoRef == "" {
 			d.AppendLine(fmt.Sprintf("[%s] base ISO %s not in library — uploading…", host, name))
-			isoRef, err = spec.HV.UploadISO(ctx, node.BaseISOPath)
+			isoRef, err = spec.HV.UploadISO(ctx, node.BaseISOPath, onProgress)
 			if err != nil {
 				return fmt.Errorf("upload base ISO: %w", err)
 			}
@@ -352,7 +407,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		}
 	} else {
 		d.AppendLine(fmt.Sprintf("[%s] uploading ISO %s…", host, node.ISOPath))
-		isoRef, err = spec.HV.UploadISO(ctx, node.ISOPath)
+		isoRef, err = spec.HV.UploadISO(ctx, node.ISOPath, onProgress)
 		if err != nil {
 			return fmt.Errorf("upload ISO: %w", err)
 		}

@@ -4,13 +4,39 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/luthermonson/go-proxmox"
 )
+
+// progressReader wraps an io.Reader and reports cumulative bytes read through a
+// ProgressFunc, throttled so a multi-GB upload doesn't fire on every chunk.
+type progressReader struct {
+	r        io.Reader
+	total    int64
+	done     int64
+	cb       ProgressFunc
+	interval time.Duration
+	last     time.Time
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	pr.done += int64(n)
+	if pr.cb != nil {
+		// Emit on a fixed cadence, and always on the final read.
+		if err == io.EOF || time.Since(pr.last) >= pr.interval {
+			pr.last = time.Now()
+			pr.cb(pr.done, pr.total)
+		}
+	}
+	return n, err
+}
 
 // ProxmoxConfig holds connection + placement settings for a Proxmox VE target.
 type ProxmoxConfig struct {
@@ -103,8 +129,14 @@ func waitTask(ctx context.Context, t *proxmox.Task, max time.Duration) error {
 }
 
 // UploadISO uploads a local ISO to the ISO storage and returns its volume
-// reference ("<storage>:iso/<filename>") usable as a CD-ROM source.
-func (p *Proxmox) UploadISO(ctx context.Context, localPath string) (string, error) {
+// reference ("<storage>:iso/<filename>") usable as a CD-ROM source. When
+// progress is non-nil it is called periodically with bytes sent / total.
+//
+// This mirrors go-proxmox's Storage.UploadWithName but streams the file through
+// a progressReader (the library's UploadReader concatenates the multipart
+// header + the body reader + trailer with io.MultiReader, so the file is never
+// buffered in memory and our counting reader sees every byte as it is sent).
+func (p *Proxmox) UploadISO(ctx context.Context, localPath string, progress ProgressFunc) (string, error) {
 	n, err := p.node(ctx)
 	if err != nil {
 		return "", err
@@ -114,13 +146,34 @@ func (p *Proxmox) UploadISO(ctx context.Context, localPath string) (string, erro
 		return "", fmt.Errorf("proxmox: get storage %q: %w", p.cfg.isoStorage(), err)
 	}
 	name := filepath.Base(localPath)
-	task, err := store.UploadWithName("iso", localPath, name)
+
+	f, err := os.Open(localPath)
 	if err != nil {
+		return "", fmt.Errorf("proxmox: open ISO %q: %w", name, err)
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("proxmox: stat ISO %q: %w", name, err)
+	}
+	size := st.Size()
+
+	body := io.Reader(f)
+	if progress != nil {
+		body = &progressReader{r: f, total: size, cb: progress, interval: time.Second}
+	}
+
+	var upid proxmox.UPID
+	uploadPath := fmt.Sprintf("/nodes/%s/storage/%s/upload", store.Node, store.Name)
+	if err := p.client.UploadReader(uploadPath, map[string]string{"content": "iso"}, name, body, size, &upid); err != nil {
 		return "", fmt.Errorf("proxmox: upload ISO %q: %w", name, err)
 	}
-	// ISOs can be large; allow a generous ceiling.
-	if err := waitTask(ctx, task, 2*time.Hour); err != nil {
+	// ISOs can be large; allow a generous ceiling for the server-side import.
+	if err := waitTask(ctx, proxmox.NewTask(upid, p.client), 2*time.Hour); err != nil {
 		return "", fmt.Errorf("proxmox: upload ISO %q: %w", name, err)
+	}
+	if progress != nil {
+		progress(size, size) // ensure the bar lands on 100%
 	}
 	return fmt.Sprintf("%s:iso/%s", p.cfg.isoStorage(), name), nil
 }

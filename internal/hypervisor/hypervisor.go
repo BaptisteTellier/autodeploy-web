@@ -31,6 +31,12 @@ type VMSpec struct {
 	UEFI      bool   // boot via OVMF/UEFI (adds q35 machine + an EFI vars disk)
 }
 
+// ProgressFunc reports transfer progress during a long upload: done and total
+// bytes (total is 0 when the size is unknown). It is invoked periodically
+// (throttled by the implementation), so it is safe to update UI state from it.
+// Pass nil to opt out of progress reporting.
+type ProgressFunc func(done, total int64)
+
 // VMRef identifies a created VM within a provider. Its fields are opaque to the
 // orchestrator and only meaningful to the implementation that produced it.
 type VMRef struct {
@@ -43,8 +49,10 @@ type VMRef struct {
 // deployment; the orchestrator does not call a single VMRef concurrently.
 type Hypervisor interface {
 	// UploadISO makes a local ISO available to the hypervisor's storage and
-	// returns a provider-native reference (e.g. "local:iso/foo.iso").
-	UploadISO(ctx context.Context, localPath string) (isoRef string, err error)
+	// returns a provider-native reference (e.g. "local:iso/foo.iso"). progress,
+	// if non-nil, is called periodically with bytes sent / total during the
+	// transfer (ISOs are 15–20 GB, so this drives the deploy progress bar).
+	UploadISO(ctx context.Context, localPath string, progress ProgressFunc) (isoRef string, err error)
 
 	// FindISO returns the provider-native reference of an ISO already present
 	// in the hypervisor's library ("" if absent). Used by the remote-kickstart

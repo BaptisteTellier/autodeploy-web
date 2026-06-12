@@ -23,10 +23,14 @@ type mockHV struct {
 
 func (h *mockHV) log(s string) { h.mu.Lock(); h.calls = append(h.calls, s); h.mu.Unlock() }
 
-func (h *mockHV) UploadISO(_ context.Context, p string) (string, error) {
+func (h *mockHV) UploadISO(_ context.Context, p string, progress hypervisor.ProgressFunc) (string, error) {
 	h.log("upload:" + p)
 	if h.uploadErr != "" && p == h.uploadErr {
 		return "", fmt.Errorf("synthetic upload failure")
+	}
+	if progress != nil {
+		progress(50, 100) // exercise the progress path
+		progress(100, 100)
 	}
 	return "local:iso/" + p, nil
 }

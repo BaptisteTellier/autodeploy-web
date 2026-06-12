@@ -30,16 +30,23 @@
         </tr>
       </thead>
       <tbody>
-      {{range .Deployment.Nodes}}
+      {{range $i, $n := .Deployment.Nodes}}
       <tr class="border-t">
-        <td class="px-4 py-3 font-mono">{{.Hostname}}</td>
-        <td class="px-4 py-3">{{.Role}}</td>
+        <td class="px-4 py-3 font-mono">{{$n.Hostname}}</td>
+        <td class="px-4 py-3">{{$n.Role}}</td>
         <td class="px-4 py-3">
           <span class="text-xs px-2 py-0.5 rounded-full
-            {{if eq .Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq .Step "failed"}}bg-red-100 text-red-700{{else if (or (eq .Step "queued") (eq .Step "created"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{.Step}}</span>
-          {{if .Error}}<div class="text-xs text-red-600 mt-1">{{.Error}}</div>{{end}}
+            {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
+          <!-- ISO upload progress bar — revealed live by the "progress" SSE event -->
+          <div class="deploy-progress mt-1 flex items-center gap-2 {{if not (and (eq $n.Step "uploading") (gt $n.Progress 0))}}hidden{{end}}" data-node="{{$i}}">
+            <div class="w-32 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+              <div class="prog-bar bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width:{{$n.Progress}}%"></div>
+            </div>
+            <span class="prog-pct text-[10px] text-slate-400 tabular-nums">{{$n.Progress}}%</span>
+          </div>
+          {{if $n.Error}}<div class="text-xs text-red-600 mt-1">{{$n.Error}}</div>{{end}}
         </td>
-        <td class="px-4 py-3 font-mono text-slate-600">{{.VMID}}</td>
+        <td class="px-4 py-3 font-mono text-slate-600">{{$n.VMID}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -66,6 +73,16 @@
     es.addEventListener('log', e => {
       log.textContent += e.data + "\n";
       log.scrollTop = log.scrollHeight;
+    });
+    // Live ISO-upload progress: data is "<nodeIndex>:<pct>".
+    es.addEventListener('progress', e => {
+      const sep = e.data.indexOf(':');
+      const idx = e.data.slice(0, sep), pct = e.data.slice(sep + 1);
+      const box = document.querySelector('.deploy-progress[data-node="' + idx + '"]');
+      if (!box) return;
+      box.classList.remove('hidden');
+      box.querySelector('.prog-bar').style.width = pct + '%';
+      box.querySelector('.prog-pct').textContent = pct + '%';
     });
     es.addEventListener('state', e => {
       stateEl.textContent = e.data;
