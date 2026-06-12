@@ -182,6 +182,7 @@ Change the port or concurrency by copying `.env.example` → `.env` and editing 
 - ✅ **Web form** instead of editing JSON by hand — with live validation, password generators, GUID generator, preset save/load, import/export.
 - ✅ **Live build log** streamed in real time (SSE) — see xorriso progress line by line.
 - ✅ **JSON round-trip 100% compatible** with `autodeploy.ps1` — export the form as JSON and run it directly with the PS1 on Windows.
+- ✅ **Auto-Deploy** — provision a whole multi-VM Veeam topology (VSA + VIA proxies / hardened repos, optional HA) straight onto Proxmox, with optional **remote kickstart** and automatic **Veeam REST wiring** — no Terraform, no Packer.
 - ✅ **Auto-updated** — each new release of `autodeploy.ps1` triggers a new image automatically.
 
 ## How it works
@@ -277,10 +278,108 @@ Key points:
 
 ---
 
+## Auto-Deploy — multi-VM topologies on Proxmox
+
+Beyond building a single ISO, autodeploy-web can **provision and wire up a complete
+Veeam topology** on a hypervisor in one shot — from the **Deploy** page (`/deploy`).
+You pick a topology, point it at a Proxmox host, choose where each VM's customised
+output came from, and click deploy. It is **Go-native** — no Terraform, no Packer.
+
+> [!NOTE]
+> **Proxmox VE is the MVP target.** The hypervisor layer is an interface
+> (`internal/hypervisor`); vSphere and Hyper-V back-ends are planned but not yet
+> implemented. Everything below describes the Proxmox path.
+
+### 1. Pick a topology
+
+| # | Topology | VMs created |
+|---|---|---|
+| a | **VSA** | 1× VSA |
+| b | **VSA + VIA Proxy** | VSA + 1× VMware backup proxy |
+| c | **VSA + VIA HR** | VSA + 1× hardened repository |
+| d | **VSA + VIA Proxy + HR** | VSA + proxy + hardened repo |
+| e | **VSA HA + HR** | 2× VSA (HA pair) + hardened repo |
+| f | **VSA HA + Proxy + HR** | 2× VSA (HA pair) + proxy + hardened repo |
+
+### 2. Choose the destination Proxmox
+
+Connection settings are entered **in the Deploy form** (nothing is stored on disk):
+
+| Field | Example | Notes |
+|---|---|---|
+| `pve_url` | `https://192.168.1.181:8006/api2/json` | Proxmox API base URL |
+| `pve_node` | `proxmox` | Target node name |
+| `pve_storage` | `local-lvm` | Where VM disks land |
+| `pve_iso_storage` | `local` | Where ISOs are uploaded / looked up |
+| `pve_bridge` | `vmbr0` | Network bridge (+ optional VLAN) |
+| auth | `root@pam` + password **or** API token (`root@pam!autodeploy` + secret) | API token recommended |
+
+VMs are created with **UEFI/OVMF + an EFI disk** (`pre-enrolled-keys=0` so the custom
+ISO boots without Secure Boot), `q35` machine type, and CPU/RAM you set in the form
+(defaults: 4 vCPU / 8 GiB).
+
+### 3. Pick each VM's output + verify
+
+For every VM in the topology you select **which build output folder** it uses (the
+customised ISO/config produced earlier by a normal job). A wizard-style **summary
+card** lets you verify the whole plan before launch.
+
+**Disks are derived from the role** (and can be raised above the minimum):
+
+| Role | Disks |
+|---|---|
+| VSA | 2 × 256 GiB |
+| VIA (proxy / HR) | 2 × 128 GiB |
+| VIA + *Single Disk* | 1 × 128 GiB |
+
+### 4. Two boot modes
+
+- **Customised ISO (classic, most robust).** The per-VM ISO is attached and booted;
+  the kickstart embedded in the ISO runs itself. **No keystrokes** are injected.
+- **Remote kickstart (Packer-like).** Tick *Remote kickstart* and pick an **original**
+  VSA/VIA ISO from the hypervisor library (it is uploaded automatically if missing).
+  At boot, autodeploy-web injects the **role-aware GRUB command** through the
+  hypervisor console (QEMU `sendkey` on Proxmox) so the appliance fetches its
+  kickstart over HTTP from autodeploy-web:
+  - VSA → `inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<HTTP> ip=dhcp …`
+  - VIA → `inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<HTTP> ip=dhcp …`
+
+  `c` is sent first to halt the GRUB countdown and open the console; a configurable
+  **boot-wait** (default 10 s) gives slow OVMF POST time to reach GRUB before typing.
+  Console keystroke injection is inherently best-effort — the classic ISO mode stays
+  the most reliable choice when you don't want to avoid per-VM ISO uploads.
+
+### 5. Optional post-boot wiring (Veeam REST)
+
+If enabled, once the VMs are up autodeploy-web **registers the topology into the VSA**
+over the Veeam B&R REST API (`:9419`): adds the VIA backup proxy, the hardened
+repository, and — for HA topologies — builds the 2-node HA cluster.
+
+- It **waits for each node to answer** on the network before wiring (no blind firing).
+- Bounded by a **configurable timeout** (default **45 min**) so it never hangs forever.
+- VSA REST credentials are taken from the chosen output's own config
+  (`veeamadmin` + its admin password) — **never asked again** in the UI.
+- The **HA cluster DNS name** is requested **only** for HA topologies.
+
+### Live status
+
+The deploy detail page streams a **live log (SSE)** and shows a **per-node step badge**
+— `created` → `installing` → `ready`, or `failed` — so you can see exactly where each
+VM is.
+
+> [!WARNING]
+> The Deploy form posts **Proxmox credentials** (and triggers Veeam REST calls with
+> the appliance admin password). Like the rest of autodeploy-web this has **no
+> authentication** — keep it on a trusted LAN only.
+
+---
+
 ## Limitations
 
 - 🚫 **No authentication** — designed for LAN use. Add a reverse proxy (Caddy, Traefik) for public exposure.
-- 🚫 **No job persistence** — restart clears in-memory jobs. Presets and ISOs on disk survive.
+- 🚫 **No job persistence** — restart clears in-memory jobs (and deployments). Presets and ISOs on disk survive.
+- 🚧 **Auto-Deploy is Proxmox-only (MVP).** vSphere and Hyper-V back-ends are planned but not yet implemented.
+- ⚠️ **Remote-kickstart keystroke injection is best-effort** — there is no clean screenshot/console feedback over the Proxmox API, so the classic customised-ISO boot mode remains the most reliable.
 - The PS1 hard-coded behaviours (NTP failure aborts build, etc.) apply unchanged.
 
 ## Migrating from autodeploy (PS1)
