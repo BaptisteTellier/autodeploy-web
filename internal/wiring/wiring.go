@@ -105,6 +105,9 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 
 	// Register each VIA node (proxy / hardened repo) once it answers on the
 	// network (its unattended install must be finished before pairing works).
+	// Operations are idempotent (find-before-add), mirroring the reference, so
+	// the wiring can be safely re-run after a partial failure.
+	var hardenedRepoID string
 	for _, n := range vias {
 		if n.IP == "" {
 			return fmt.Errorf("node %q (%s) has no IP", n.Name, n.Role)
@@ -113,29 +116,50 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		if err := waitNodeUp(ctx, n.IP, log); err != nil {
 			return fmt.Errorf("node %s not reachable: %w", n.IP, err)
 		}
-		log(fmt.Sprintf("adding Linux host %s (%s)…", n.IP, n.Role))
-		sess, err := client.AddLinuxHost(ctx, n.IP, n.Role, pairing(n), "")
-		if err != nil {
-			return fmt.Errorf("add host %s: %w", n.IP, err)
-		}
-		if err := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-			return fmt.Errorf("add host %s: %w", n.IP, err)
-		}
+
 		hostID, err := client.FindManagedServerByName(ctx, n.IP)
-		if err != nil || hostID == "" {
-			return fmt.Errorf("resolve managed server %s: %v", n.IP, err)
+		if err != nil {
+			return fmt.Errorf("lookup managed server %s: %w", n.IP, err)
+		}
+		if hostID == "" {
+			log(fmt.Sprintf("adding Linux host %s (%s)…", n.IP, n.Role))
+			sess, err := client.AddLinuxHost(ctx, n.IP, n.Role, pairing(n), "")
+			if err != nil {
+				return fmt.Errorf("add host %s: %w", n.IP, err)
+			}
+			if err := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+				return fmt.Errorf("add host %s: %w", n.IP, err)
+			}
+			if hostID, err = client.FindManagedServerByName(ctx, n.IP); err != nil || hostID == "" {
+				return fmt.Errorf("resolve managed server %s: %v", n.IP, err)
+			}
+		} else {
+			log(fmt.Sprintf("Linux host %s already registered — skipping.", n.IP))
 		}
 
 		switch {
 		case isHR(n.Role):
-			log(fmt.Sprintf("creating hardened repository on %s…", n.IP))
-			rs, err := client.AddHardenedRepository(ctx, "HR-"+n.Name, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
+			repoName := "HR-" + n.Name
+			id, err := client.FindRepositoryByName(ctx, repoName)
 			if err != nil {
-				return fmt.Errorf("add hardened repo %s: %w", n.IP, err)
+				return fmt.Errorf("lookup repo %s: %w", repoName, err)
 			}
-			if err := client.WaitSession(ctx, rs, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-				return fmt.Errorf("hardened repo %s: %w", n.IP, err)
+			if id == "" {
+				log(fmt.Sprintf("creating hardened repository on %s…", n.IP))
+				rs, err := client.AddHardenedRepository(ctx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
+				if err != nil {
+					return fmt.Errorf("add hardened repo %s: %w", n.IP, err)
+				}
+				if err := client.WaitSession(ctx, rs, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+					return fmt.Errorf("hardened repo %s: %w", n.IP, err)
+				}
+				if id, err = client.FindRepositoryByName(ctx, repoName); err != nil {
+					return fmt.Errorf("resolve repo %s: %w", repoName, err)
+				}
+			} else {
+				log(fmt.Sprintf("hardened repository %q already exists — skipping.", repoName))
 			}
+			hardenedRepoID = id
 		case isProxy(n.Role):
 			log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
 			ps, err := client.AddVmwareProxy(ctx, hostID, 4)
@@ -148,13 +172,55 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		}
 	}
 
-	// HA topology: two VSA nodes → create the cluster (secondary joins primary).
+	// HA topology: two VSA nodes → move config backup off the default repo onto
+	// the hardened repo, remove the default repo, then create the cluster. This
+	// prerequisite ordering follows the vbr-ha-cluster reference (Steps 3.5/4/7).
 	if len(vsas) >= 2 {
+		if hardenedRepoID != "" {
+			log("redirecting config backup to the hardened repository…")
+			if err := client.RedirectConfigBackup(ctx, hardenedRepoID); err != nil {
+				return fmt.Errorf("redirect config backup: %w", err)
+			}
+			log("removing the Default Backup Repository…")
+			if err := w.removeDefaultRepository(ctx, client, log); err != nil {
+				return fmt.Errorf("remove default repository: %w", err)
+			}
+		}
 		if err := w.createHA(ctx, client, vsas[0], vsas[1], log); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// removeDefaultRepository deletes every backup in "Default Backup Repository"
+// then removes the repo (reference Step 4). No-op if the repo is absent.
+func (w *Wirer) removeDefaultRepository(ctx context.Context, client *veeam.Client, log func(string)) error {
+	const name = "Default Backup Repository"
+	id, err := client.FindRepositoryByName(ctx, name)
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		log("Default Backup Repository not found — skipping.")
+		return nil
+	}
+	backups, err := client.ListBackups(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, b := range backups {
+		sess, err := client.DeleteBackup(ctx, b)
+		if err != nil {
+			return fmt.Errorf("delete backup %s: %w", b, err)
+		}
+		if sess != "" {
+			if err := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+				return fmt.Errorf("delete backup %s: %w", b, err)
+			}
+		}
+	}
+	return client.DeleteRepository(ctx, id)
 }
 
 // waitNodeUp waits until the host answers on one of the Veeam appliance ports

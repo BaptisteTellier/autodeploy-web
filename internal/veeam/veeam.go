@@ -43,11 +43,10 @@ type Client struct {
 	token string
 }
 
-// New builds a client. No network call happens until Authenticate.
+// New builds a client. No network call happens until Authenticate. APIVersion
+// is left empty by default so the VSA picks its own latest x-api-version (the
+// vbr-ha-cluster reference sends no version header); set it only to pin one.
 func New(cfg Config) *Client {
-	if cfg.APIVersion == "" {
-		cfg.APIVersion = "1.2-rev0"
-	}
 	hc := &http.Client{Timeout: 60 * time.Second}
 	if cfg.Insecure {
 		hc.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec — self-signed VSA cert, opt-in
@@ -295,6 +294,85 @@ func (c *Client) FindManagedServerByName(ctx context.Context, name string) (stri
 
 // --- repositories ------------------------------------------------------------
 
+// FindRepositoryByName returns the id of the repository with an exact name
+// match, or "". Used for idempotency and to resolve the hardened repo / the
+// "Default Backup Repository".
+func (c *Client) FindRepositoryByName(ctx context.Context, name string) (string, error) {
+	var out struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/backupInfrastructure/repositories?nameFilter="+url.QueryEscape(name)+"&limit=50", nil, &out); err != nil {
+		return "", err
+	}
+	for _, r := range out.Data {
+		if r.Name == name {
+			return r.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// DeleteRepository removes a repository by id (synchronous).
+func (c *Client) DeleteRepository(ctx context.Context, repoID string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/backupInfrastructure/repositories/"+url.PathEscape(repoID), nil, nil)
+}
+
+// --- config backup -----------------------------------------------------------
+
+// RedirectConfigBackup points the VBR configuration backup at repoID using the
+// reference read-modify-write: GET settings, swap backupRepositoryId, force
+// notifications.SNMPEnabled=false (VBR validates it on every PUT), PUT back.
+// No-op when it already targets repoID.
+func (c *Client) RedirectConfigBackup(ctx context.Context, repoID string) error {
+	var settings map[string]any
+	if err := c.do(ctx, http.MethodGet, "/api/v1/configBackup", nil, &settings); err != nil {
+		return err
+	}
+	if cur, _ := settings["backupRepositoryId"].(string); cur == repoID {
+		return nil
+	}
+	settings["backupRepositoryId"] = repoID
+	if n, ok := settings["notifications"].(map[string]any); ok {
+		n["SNMPEnabled"] = false
+	}
+	return c.do(ctx, http.MethodPut, "/api/v1/configBackup", settings, nil)
+}
+
+// --- backups -----------------------------------------------------------------
+
+// ListBackups returns the ids of backups stored in repoID.
+func (c *Client) ListBackups(ctx context.Context, repoID string) ([]string, error) {
+	var out struct {
+		Data []struct {
+			ID                 string `json:"id"`
+			RepositoryID       string `json:"repositoryId"`
+			BackupRepositoryID string `json:"backupRepositoryId"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/backups?limit=1000", nil, &out); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, b := range out.Data {
+		if b.RepositoryID == repoID || b.BackupRepositoryID == repoID {
+			ids = append(ids, b.ID)
+		}
+	}
+	return ids, nil
+}
+
+// DeleteBackup deletes a backup by id and returns the async session id.
+func (c *Client) DeleteBackup(ctx context.Context, backupID string) (string, error) {
+	var out idResponse
+	if err := c.do(ctx, http.MethodDelete, "/api/v1/backups/"+url.PathEscape(backupID), nil, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
 // AddHardenedRepository adds a LinuxHardened repository on hostID with optional
 // XFS fast clone and immutability. Returns the async session id.
 func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, description string, xfsFastClone bool, immutabilityDays int) (string, error) {
@@ -322,14 +400,15 @@ func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, 
 // server (the REST equivalent of Add-VBRViLinuxProxy). Returns the async
 // session id.
 //
-// NOTE: confirm the exact schema against the VBR REST reference for your
-// version; the field names below follow the documented VmwareProxy model.
+// NOTE: the reference (Install-VeeamInfra.ps1) uses the Add-VBRViLinuxProxy
+// cmdlet — there is no REST payload to copy — so this schema follows the VBR
+// REST "ViProxy" model and should be confirmed against your VBR version.
 func (c *Client) AddVmwareProxy(ctx context.Context, hostID string, maxTasks int) (string, error) {
 	if maxTasks <= 0 {
 		maxTasks = 4
 	}
 	body := map[string]any{
-		"type":         "Vmware",
+		"type":         "ViProxy",
 		"server":       map[string]any{"hostId": hostID, "maxTaskCount": maxTasks},
 		"maxTaskCount": maxTasks,
 	}

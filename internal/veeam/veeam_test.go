@@ -222,6 +222,71 @@ func TestWaitSessionDualModel(t *testing.T) {
 	}
 }
 
+func TestRedirectConfigBackupReadModifyWrite(t *testing.T) {
+	mux := baseMux()
+	var put map[string]any
+	mux.HandleFunc("/api/v1/configBackup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"backupRepositoryId": "old-repo",
+				"notifications":      map[string]any{"SNMPEnabled": true},
+			})
+			return
+		}
+		put = decode(t, r) // PUT
+		w.WriteHeader(http.StatusOK)
+	})
+	c, _ := newTestClient(t, mux)
+	if err := c.RedirectConfigBackup(context.Background(), "new-repo"); err != nil {
+		t.Fatalf("RedirectConfigBackup: %v", err)
+	}
+	if put["backupRepositoryId"] != "new-repo" {
+		t.Errorf("backupRepositoryId = %v, want new-repo", put["backupRepositoryId"])
+	}
+	n, ok := put["notifications"].(map[string]any)
+	if !ok || n["SNMPEnabled"] != false {
+		t.Errorf("SNMPEnabled must be forced false, got %v", put["notifications"])
+	}
+}
+
+func TestRedirectConfigBackupNoopWhenSame(t *testing.T) {
+	mux := baseMux()
+	puts := 0
+	mux.HandleFunc("/api/v1/configBackup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"backupRepositoryId": "repo-1"})
+			return
+		}
+		puts++
+	})
+	c, _ := newTestClient(t, mux)
+	if err := c.RedirectConfigBackup(context.Background(), "repo-1"); err != nil {
+		t.Fatalf("RedirectConfigBackup: %v", err)
+	}
+	if puts != 0 {
+		t.Errorf("PUT issued %d times, want 0 (already targeted)", puts)
+	}
+}
+
+func TestListBackupsFiltersByRepo(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backups", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+			{"id": "b1", "repositoryId": "r1"},
+			{"id": "b2", "repositoryId": "r2"},
+			{"id": "b3", "backupRepositoryId": "r1"},
+		}})
+	})
+	c, _ := newTestClient(t, mux)
+	ids, err := c.ListBackups(context.Background(), "r1")
+	if err != nil {
+		t.Fatalf("ListBackups: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("ids = %v, want 2 (b1,b3)", ids)
+	}
+}
+
 func TestAPIErrorSurfacesMessage(t *testing.T) {
 	mux := baseMux()
 	mux.HandleFunc("/api/v1/credentials", func(w http.ResponseWriter, r *http.Request) {
