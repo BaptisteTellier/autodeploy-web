@@ -17,7 +17,8 @@ type mockHV struct {
 	mu        sync.Mutex
 	calls     []string
 	nextID    int
-	uploadErr string // ISO path that should fail to upload ("" = none)
+	uploadErr string          // ISO path that should fail to upload ("" = none)
+	libISOs   map[string]bool // ISO names already present in the library
 }
 
 func (h *mockHV) log(s string) { h.mu.Lock(); h.calls = append(h.calls, s); h.mu.Unlock() }
@@ -28,6 +29,17 @@ func (h *mockHV) UploadISO(_ context.Context, p string) (string, error) {
 		return "", fmt.Errorf("synthetic upload failure")
 	}
 	return "local:iso/" + p, nil
+}
+func (h *mockHV) FindISO(_ context.Context, name string) (string, error) {
+	h.log("findiso:" + name)
+	if h.libISOs[name] {
+		return "local:iso/" + name, nil
+	}
+	return "", nil
+}
+func (h *mockHV) SendKeys(_ context.Context, vm hypervisor.VMRef, keys []string) error {
+	h.log(fmt.Sprintf("sendkeys:%s:%d", vm.ID, len(keys)))
+	return nil
 }
 func (h *mockHV) CreateVM(_ context.Context, spec hypervisor.VMSpec) (hypervisor.VMRef, error) {
 	h.mu.Lock()
@@ -212,7 +224,62 @@ func TestStartValidation(t *testing.T) {
 	if _, err := m.Start(Spec{Nodes: []NodeDeploy{{Name: "x"}}, HV: &mockHV{}}); err == nil {
 		t.Error("Start should reject a node with no ISO path")
 	}
+	if _, err := m.Start(Spec{Nodes: []NodeDeploy{{Name: "x", KSUrl: "http://h/ks"}}, HV: &mockHV{}}); err == nil {
+		t.Error("Start should reject a kickstart node with no base ISO")
+	}
 	if _, err := m.Start(Spec{Nodes: twoNodes(), HV: nil}); err == nil {
 		t.Error("Start should reject a nil hypervisor")
+	}
+}
+
+func TestKickstartFlow(t *testing.T) {
+	hv := &mockHV{libISOs: map[string]bool{"via.iso": true}} // VIA ISO already in library
+	m := NewManager()
+	nodes := []NodeDeploy{
+		{Name: "vsa-01", Role: "VSA", KSUrl: "http://h/media/output/a/vbr-ks.cfg/content", BaseISOPath: "/data/iso/vsa.iso", Disks: []int{256, 256}},
+		{Name: "hr-01", Role: "VIA-HR", KSUrl: "http://h/media/output/b/hr-ks.cfg/content", BaseISOPath: "/data/iso/via.iso", Disks: []int{128}},
+	}
+	d, err := m.Start(Spec{Label: "ks", Nodes: nodes, HV: hv, BootWait: time.Millisecond})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitDone(t, d)
+	v := d.View()
+	if v.State != StateDone {
+		t.Fatalf("state = %q (err=%q), want done", v.State, v.Error)
+	}
+
+	joined := strings.Join(hv.calls, "|")
+	// Node 1: VSA ISO not in library → findiso then upload; kickstart implies power-on + sendkeys.
+	for _, want := range []string{"findiso:vsa.iso", "upload:/data/iso/vsa.iso", "poweron:101", "sendkeys:101:"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("calls missing %q: %v", want, hv.calls)
+		}
+	}
+	// Node 2: VIA ISO already in library → findiso but NO upload.
+	if !strings.Contains(joined, "findiso:via.iso") || strings.Contains(joined, "upload:/data/iso/via.iso") {
+		t.Errorf("library ISO should not be re-uploaded: %v", hv.calls)
+	}
+}
+
+func TestBootCommandKeys(t *testing.T) {
+	keys := BootCommandKeys("http://10.0.0.1:8080/x.cfg/content")
+	if keys[0] != "c" {
+		t.Errorf("first key = %q, want c (open GRUB console)", keys[0])
+	}
+	ret := 0
+	for _, k := range keys {
+		if k == "ret" {
+			ret++
+		}
+	}
+	if ret != 3 {
+		t.Errorf("ret count = %d, want 3 (one per GRUB line)", ret)
+	}
+	joined := strings.Join(keys, " ")
+	for _, frag := range []string{"shift-semicolon", "slash", "dot", "equal"} {
+		if !strings.Contains(joined, frag) {
+			t.Errorf("keys missing %q (URL char mapping)", frag)
+		}
 	}
 }

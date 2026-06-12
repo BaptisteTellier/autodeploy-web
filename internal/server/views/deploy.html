@@ -28,8 +28,11 @@
   </script>
 
   <form method="POST" action="/deploy" class="space-y-6"
-        x-data="{ kind:'', sel:{},
+        x-data="{ kind:'', sel:{}, ks:false, wire:false,
                   get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
+                  get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
+                  get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
+                  get isHA(){ return this.kind.startsWith('vsa-ha'); },
                   summ(i){ return OUTPUTS_BY_ID[this.sel[i]] || null; } }">
 
     <!-- Topology + per-slot output selection -->
@@ -68,6 +71,36 @@
             </div>
           </div>
         </template>
+      </div>
+    </div>
+
+    <!-- Remote kickstart (boot the ORIGINAL ISO + inject inst.ks= via GRUB) -->
+    <div x-show="roles.length" x-cloak class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+      <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
+        <input type="checkbox" name="remote_ks" x-model="ks" class="rounded border-slate-300">
+        {{t "deploy.kickstart"}}
+      </label>
+      <p class="text-xs text-slate-400">{{t "deploy.kickstart_hint"}}</p>
+      <div x-show="ks" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label x-show="hasVSA" class="text-sm text-slate-600">{{t "deploy.base_iso_vsa"}}
+          <select name="vsa_base_iso"
+                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <option value="">{{t "form.select_iso"}}</option>
+            {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </label>
+        <label x-show="hasVIA" class="text-sm text-slate-600">{{t "deploy.base_iso_via"}}
+          <select name="via_base_iso"
+                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <option value="">{{t "form.select_iso"}}</option>
+            {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </label>
+        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.ks_base_url"}}
+          <input name="ks_base_url" value="{{.KSBaseURL}}"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <span class="text-xs text-slate-400">{{t "deploy.ks_base_url_hint"}}</span>
+        </label>
       </div>
     </div>
 
@@ -135,22 +168,18 @@
     </div>
 
     <!-- Wiring (register the topology into the VSA via Veeam REST) -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3" x-data="{ wire:false }">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
       <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
         <input type="checkbox" name="wire" x-model="wire" class="rounded border-slate-300">
         {{t "deploy.wire"}}
       </label>
       <p class="text-xs text-slate-400">{{t "deploy.wire_hint"}}</p>
-      <div x-show="wire" x-cloak class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <label class="text-sm text-slate-600">{{t "deploy.vsa_user"}}
-          <input name="vsa_user" value="veeamadmin"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+      <div x-show="wire" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="text-sm text-slate-600">{{t "deploy.wire_timeout"}}
+          <input name="wire_timeout" type="number" min="5" value="45"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
-        <label class="text-sm text-slate-600">{{t "deploy.vsa_password"}}
-          <input name="vsa_password" type="password"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
+        <label x-show="isHA" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
           <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>

@@ -8,6 +8,7 @@ package wiring
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -102,10 +103,15 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	log("VSA REST is up — authenticated.")
 	defer client.Logout(context.Background())
 
-	// Register each VIA node (proxy / hardened repo).
+	// Register each VIA node (proxy / hardened repo) once it answers on the
+	// network (its unattended install must be finished before pairing works).
 	for _, n := range vias {
 		if n.IP == "" {
 			return fmt.Errorf("node %q (%s) has no IP", n.Name, n.Role)
+		}
+		log(fmt.Sprintf("waiting for %s (%s) to come up…", n.IP, n.Role))
+		if err := waitNodeUp(ctx, n.IP, log); err != nil {
+			return fmt.Errorf("node %s not reachable: %w", n.IP, err)
 		}
 		log(fmt.Sprintf("adding Linux host %s (%s)…", n.IP, n.Role))
 		sess, err := client.AddLinuxHost(ctx, n.IP, n.Role, pairing(n), "")
@@ -149,6 +155,29 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		}
 	}
 	return nil
+}
+
+// waitNodeUp waits until the host answers on one of the Veeam appliance ports
+// (6160 = deployer service used for pairing, 443, 22). The overall deadline is
+// the caller's context (the deploy WireTimeout).
+func waitNodeUp(ctx context.Context, ip string, log func(string)) error {
+	ports := []string{"6160", "443", "22"}
+	dialer := net.Dialer{Timeout: 3 * time.Second}
+	for {
+		for _, port := range ports {
+			conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip, port))
+			if err == nil {
+				_ = conn.Close()
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(15 * time.Second):
+			log(fmt.Sprintf("…%s still installing/booting", ip))
+		}
+	}
 }
 
 // waitReady polls the VSA OAuth endpoint until authentication succeeds.

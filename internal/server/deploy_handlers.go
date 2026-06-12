@@ -50,6 +50,7 @@ type outputSummary struct {
 	JobID     string `json:"job_id"`
 	Name      string `json:"name"`
 	ISOFile   string `json:"iso_file"`
+	CfgFile   string `json:"cfg_file"`
 	Appliance string `json:"appliance"`
 	Hostname  string `json:"hostname"`
 	Network   string `json:"network"`
@@ -91,26 +92,36 @@ func disksLabel(d []int) string {
 	return fmt.Sprintf("%d × %d GB", len(d), d[0])
 }
 
-// loadOutputConfig reads an output folder's job-config.json and locates its ISO.
-func loadOutputConfig(dir string) (cfg config.Config, isoFile string, ok bool) {
+// loadOutputConfig reads an output folder's job-config.json and locates its
+// ISO and kickstart .cfg files (either may be absent depending on the job mode).
+func loadOutputConfig(dir string) (cfg config.Config, isoFile, cfgFile string, ok bool) {
 	raw, err := os.ReadFile(filepath.Join(dir, jobConfigName))
 	if err != nil {
-		return config.Config{}, "", false
+		return config.Config{}, "", "", false
 	}
 	if json.Unmarshal(raw, &cfg) != nil {
-		return config.Config{}, "", false
+		return config.Config{}, "", "", false
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return config.Config{}, "", false
+		return config.Config{}, "", "", false
 	}
 	for _, e := range entries {
-		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".iso") {
-			isoFile = e.Name()
-			break
+		if e.IsDir() {
+			continue
+		}
+		switch strings.ToLower(filepath.Ext(e.Name())) {
+		case ".iso":
+			if isoFile == "" {
+				isoFile = e.Name()
+			}
+		case ".cfg":
+			if cfgFile == "" {
+				cfgFile = e.Name()
+			}
 		}
 	}
-	return cfg, isoFile, true
+	return cfg, isoFile, cfgFile, true
 }
 
 // listOutputs returns every output folder that has both a config and an ISO.
@@ -123,9 +134,9 @@ func (s *Server) listOutputs() []outputSummary {
 			continue
 		}
 		dir := filepath.Join(base, e.Name())
-		c, iso, ok := loadOutputConfig(dir)
-		if !ok || iso == "" {
-			continue
+		c, iso, cfgFile, ok := loadOutputConfig(dir)
+		if !ok || (iso == "" && cfgFile == "") {
+			continue // needs at least an ISO (classic) or a .cfg (kickstart)
 		}
 		net := "DHCP"
 		if !c.UseDHCP {
@@ -135,6 +146,7 @@ func (s *Server) listOutputs() []outputSummary {
 			JobID:     e.Name(),
 			Name:      friendlyJobName(dir, e.Name()),
 			ISOFile:   iso,
+			CfgFile:   cfgFile,
 			Appliance: c.ApplianceType,
 			Hostname:  c.Hostname,
 			Network:   net,
@@ -156,10 +168,12 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	outputs := s.listOutputs()
 	outputsJSON, _ := json.Marshal(outputs)
 	s.render(w, r, "views/deploy.html", map[string]any{
-		"Kinds":       catalogViews(),
-		"Outputs":     outputs,
-		"OutputsJSON": template.JS(outputsJSON), //nolint:gosec — JSON of our own structs, rendered in a <script> JSON context
-		"Deployments": deployments,
+		"Kinds":         catalogViews(),
+		"Outputs":       outputs,
+		"OutputsJSON":   template.JS(outputsJSON), //nolint:gosec — JSON of our own structs, rendered in a <script> JSON context
+		"Deployments":   deployments,
+		"WorkspaceISOs": listDir(filepath.Join(s.deps.DataDir, "iso"), []string{".iso"}),
+		"KSBaseURL":     "http://" + r.Host,
 	})
 }
 
@@ -233,31 +247,59 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ksParams carries the remote-kickstart settings of one deployment request.
+type ksParams struct {
+	enabled bool
+	baseURL string // autodeploy-web base URL reachable from the appliances
+	vsaISO  string // original VSA ISO filename (in /data/iso and/or the library)
+	viaISO  string // original VIA ISO filename
+}
+
 // resolveOutputNode turns a chosen output folder (jobid) + slot role into a
-// deploy node: locates the prebuilt ISO and derives the disk layout from the
-// output's own config.
-func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int) (deploy.NodeDeploy, error) {
+// deploy node. Classic mode points at the prebuilt customised ISO; kickstart
+// mode points at the output's .cfg (served over /content) plus the original
+// role ISO. The disk layout is derived from the output's own config, which is
+// also returned (the wiring step reads the VSA admin password from it).
+func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks ksParams) (deploy.NodeDeploy, config.Config, error) {
 	jobid = filepath.Base(jobid)
 	dir := filepath.Join(s.deps.DataDir, "output", jobid)
-	c, iso, ok := loadOutputConfig(dir)
+	c, iso, cfgFile, ok := loadOutputConfig(dir)
 	if !ok {
-		return deploy.NodeDeploy{}, fmt.Errorf("output %q: missing config", jobid)
-	}
-	if iso == "" {
-		return deploy.NodeDeploy{}, fmt.Errorf("output %q: no ISO file found", jobid)
+		return deploy.NodeDeploy{}, config.Config{}, fmt.Errorf("output %q: missing config", jobid)
 	}
 	name := c.Hostname
 	if name == "" {
 		name = jobid[:min(8, len(jobid))]
 	}
-	return deploy.NodeDeploy{
+	node := deploy.NodeDeploy{
 		Name:        name,
 		Role:        role,
-		ISOPath:     filepath.Join(dir, iso),
 		Disks:       disksForConfig(c, vsaSize, viaSize),
 		IP:          c.StaticIP,
 		PairingCode: wiring.DefaultPairingCode,
-	}, nil
+	}
+
+	if ks.enabled {
+		if cfgFile == "" {
+			return deploy.NodeDeploy{}, config.Config{}, fmt.Errorf("output %q: no .cfg kickstart file (build with CleanupCFGFiles off or CFG-only)", jobid)
+		}
+		baseISO := ks.viaISO
+		if strings.HasPrefix(role, "VSA") {
+			baseISO = ks.vsaISO
+		}
+		if baseISO == "" {
+			return deploy.NodeDeploy{}, config.Config{}, fmt.Errorf("no base ISO selected for role %s", role)
+		}
+		node.KSUrl = strings.TrimRight(ks.baseURL, "/") + "/media/output/" + jobid + "/" + cfgFile + "/content"
+		node.BaseISOPath = filepath.Join(s.deps.DataDir, "iso", filepath.Base(baseISO))
+		return node, c, nil
+	}
+
+	if iso == "" {
+		return deploy.NodeDeploy{}, config.Config{}, fmt.Errorf("output %q: no ISO file found", jobid)
+	}
+	node.ISOPath = filepath.Join(dir, iso)
+	return node, c, nil
 }
 
 // handleDeployStart maps the chosen output folders onto the topology slots and
@@ -283,17 +325,28 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 	vsaSize := atoiMin(r.FormValue("vsa_disk"), minVSADiskGiB, minVSADiskGiB)
 	viaSize := atoiMin(r.FormValue("via_disk"), minVIADiskGiB, minVIADiskGiB)
 
+	ks := ksParams{
+		enabled: r.FormValue("remote_ks") != "",
+		baseURL: strDefault(strings.TrimSpace(r.FormValue("ks_base_url")), "http://"+r.Host),
+		vsaISO:  strings.TrimSpace(r.FormValue("vsa_base_iso")),
+		viaISO:  strings.TrimSpace(r.FormValue("via_base_iso")),
+	}
+
 	nodes := make([]deploy.NodeDeploy, len(specs))
+	var primaryCfg config.Config // first VSA's config — wiring creds come from it
 	for i, sp := range specs {
 		jobid := strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
 		if jobid == "" {
 			http.Error(w, translate(lang, "deploy.err_output_missing"), http.StatusUnprocessableEntity)
 			return
 		}
-		n, err := s.resolveOutputNode(jobid, roleLabel(sp), vsaSize, viaSize)
+		n, c, err := s.resolveOutputNode(jobid, roleLabel(sp), vsaSize, viaSize, ks)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
+		}
+		if i == 0 {
+			primaryCfg = c
 		}
 		nodes[i] = n
 	}
@@ -325,25 +378,32 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 	powerOn := r.FormValue("power_on") != ""
 
 	// Optional post-boot wiring (register VIA/HA into the VSA via Veeam REST).
-	// Wiring needs the VMs powered on; enabling it implies power-on.
+	// Wiring needs the VMs powered on; enabling it implies power-on. The VSA
+	// REST credentials come from the chosen output's own config (veeamadmin +
+	// VeeamAdminPassword) — never asked again in the UI.
 	var wirer deploy.Wirer
 	if r.FormValue("wire") != "" {
+		if primaryCfg.VeeamAdminPassword == "" {
+			http.Error(w, translate(lang, "deploy.err_no_admin_pw"), http.StatusUnprocessableEntity)
+			return
+		}
 		powerOn = true
 		wirer = wiring.New(wiring.Config{
-			Username:       strDefault(strings.TrimSpace(r.FormValue("vsa_user")), "veeamadmin"),
-			Password:       r.FormValue("vsa_password"),
+			Username:       "veeamadmin",
+			Password:       primaryCfg.VeeamAdminPassword,
 			Insecure:       true,
 			ClusterDNSName: strings.TrimSpace(r.FormValue("cluster_dns")),
 		})
 	}
 
 	d, err := s.deps.DeployManager.Start(deploy.Spec{
-		Label:   string(kind),
-		Nodes:   nodes,
-		HV:      hv,
-		VM:      vmSpec,
-		PowerOn: powerOn,
-		Wirer:   wirer,
+		Label:       string(kind),
+		Nodes:       nodes,
+		HV:          hv,
+		VM:          vmSpec,
+		PowerOn:     powerOn,
+		Wirer:       wirer,
+		WireTimeout: time.Duration(atoiMin(r.FormValue("wire_timeout"), 45, 5)) * time.Minute,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

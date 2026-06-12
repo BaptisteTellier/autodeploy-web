@@ -12,6 +12,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -32,15 +33,23 @@ const (
 
 const maxBufferedLines = 5000
 
-// NodeDeploy is one VM to create from a prebuilt ISO.
+// NodeDeploy is one VM to create from a prebuilt ISO — or, in remote-kickstart
+// mode, from an original Veeam ISO plus a kickstart URL injected into GRUB.
 type NodeDeploy struct {
-	Name        string // VM name (the appliance hostname baked into the ISO)
+	Name        string // VM name (the appliance hostname baked into the ISO/cfg)
 	Role        string // display label (VSA / VIA-Proxy / VIA-HR)
-	ISOPath     string // absolute path to the already-built customised ISO
+	ISOPath     string // absolute path to the already-built customised ISO ("" in kickstart mode)
 	Disks       []int  // disk sizes in GiB (role/config-derived)
 	IP          string // static IP baked into the ISO (used by the wiring step)
 	PairingCode string // appliance pairing/handshake code (default "000000")
+
+	// Remote kickstart (both set => kickstart mode for this node):
+	KSUrl       string // kickstart URL (…/media/output/<job>/<file>.cfg/content)
+	BaseISOPath string // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
 }
+
+// kickstart reports whether this node deploys via remote kickstart.
+func (n NodeDeploy) kickstart() bool { return n.KSUrl != "" }
 
 // Wirer registers the booted appliances into the VSA after deployment (the
 // Veeam-REST "wiring" step). Implemented by internal/wiring; nil = skip wiring.
@@ -65,7 +74,21 @@ type Spec struct {
 	VM      hypervisor.VMSpec // base sizing (CPUs/MemoryMiB/Bridge/VLAN); Name+Disks set per node
 	PowerOn bool              // power VMs on after attaching the ISO (default: false)
 	Wirer   Wirer             // optional: wire the topology into the VSA after boot (nil = skip)
+
+	// WireTimeout bounds the whole wiring step (waiting for the appliances to
+	// install/boot + the REST registrations). 0 = DefaultWireTimeout.
+	WireTimeout time.Duration
+
+	// BootWait is how long to wait after power-on before typing the GRUB boot
+	// command (kickstart mode). 0 = DefaultBootWait.
+	BootWait time.Duration
 }
+
+// DefaultWireTimeout caps the wiring step so it never waits forever.
+const DefaultWireTimeout = 45 * time.Minute
+
+// DefaultBootWait gives GRUB time to appear before keystrokes are sent.
+const DefaultBootWait = 8 * time.Second
 
 // Deployment is the tracked state of one running/finished deployment.
 type Deployment struct {
@@ -212,7 +235,11 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 		return nil, fmt.Errorf("deploy: hypervisor is required")
 	}
 	for i, n := range spec.Nodes {
-		if n.ISOPath == "" {
+		if n.kickstart() {
+			if n.BaseISOPath == "" {
+				return nil, fmt.Errorf("deploy: node %d (%s) is kickstart but has no base ISO", i, n.Name)
+			}
+		} else if n.ISOPath == "" {
 			return nil, fmt.Errorf("deploy: node %d (%s) has no ISO selected", i, n.Name)
 		}
 	}
@@ -274,10 +301,17 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 	d.AppendLine("All nodes deployed.")
 
 	// Optional wiring step: register the booted appliances into the VSA. Only
-	// meaningful once the VMs are actually powered on.
+	// meaningful once the VMs are actually powered on. Bounded by WireTimeout
+	// so it can never wait forever.
 	if spec.Wirer != nil && spec.PowerOn {
-		d.AppendLine("Wiring topology into the VSA (Veeam REST)…")
-		if err := spec.Wirer.Wire(ctx, spec.Nodes, d.AppendLine); err != nil {
+		wireTimeout := spec.WireTimeout
+		if wireTimeout <= 0 {
+			wireTimeout = DefaultWireTimeout
+		}
+		wctx, wcancel := context.WithTimeout(ctx, wireTimeout)
+		defer wcancel()
+		d.AppendLine(fmt.Sprintf("Wiring topology into the VSA (Veeam REST, timeout %s)…", wireTimeout))
+		if err := spec.Wirer.Wire(wctx, spec.Nodes, d.AppendLine); err != nil {
 			d.AppendLine(fmt.Sprintf("WIRING FAILED: %v", err))
 			d.mu.Lock()
 			d.Error = "wiring: " + err.Error()
@@ -290,16 +324,38 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 	d.setState(StateDone)
 }
 
-// deployNode runs the per-node sequence: upload ISO → create VM → attach ISO →
-// set boot order → (optionally) power on.
+// deployNode runs the per-node sequence: resolve/upload the ISO → create VM →
+// attach ISO → set boot order → (optionally) power on → (kickstart mode) type
+// the GRUB boot command pointing at the node's kickstart URL.
 func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node NodeDeploy, spec Spec) error {
 	host := node.Name
 
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading" })
-	d.AppendLine(fmt.Sprintf("[%s] uploading ISO %s…", host, node.ISOPath))
-	isoRef, err := spec.HV.UploadISO(ctx, node.ISOPath)
-	if err != nil {
-		return fmt.Errorf("upload ISO: %w", err)
+	var isoRef string
+	var err error
+	if node.kickstart() {
+		// Original Veeam ISO: reuse the library copy when present, upload once
+		// otherwise (shared by every node of the same role).
+		name := filepath.Base(node.BaseISOPath)
+		isoRef, err = spec.HV.FindISO(ctx, name)
+		if err != nil {
+			return fmt.Errorf("find base ISO: %w", err)
+		}
+		if isoRef == "" {
+			d.AppendLine(fmt.Sprintf("[%s] base ISO %s not in library — uploading…", host, name))
+			isoRef, err = spec.HV.UploadISO(ctx, node.BaseISOPath)
+			if err != nil {
+				return fmt.Errorf("upload base ISO: %w", err)
+			}
+		} else {
+			d.AppendLine(fmt.Sprintf("[%s] base ISO already in library: %s", host, isoRef))
+		}
+	} else {
+		d.AppendLine(fmt.Sprintf("[%s] uploading ISO %s…", host, node.ISOPath))
+		isoRef, err = spec.HV.UploadISO(ctx, node.ISOPath)
+		if err != nil {
+			return fmt.Errorf("upload ISO: %w", err)
+		}
 	}
 
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = "creating-vm" })
@@ -322,11 +378,28 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		return fmt.Errorf("set boot order: %w", err)
 	}
 
-	if spec.PowerOn {
+	if spec.PowerOn || node.kickstart() {
 		d.setNode(i, func(ns *NodeStatus) { ns.Step = "booting" })
 		d.AppendLine(fmt.Sprintf("[%s] powering on VM %s…", host, vm.ID))
 		if err := spec.HV.PowerOn(ctx, vm); err != nil {
 			return fmt.Errorf("power on: %w", err)
+		}
+	}
+
+	if node.kickstart() {
+		bootWait := spec.BootWait
+		if bootWait <= 0 {
+			bootWait = DefaultBootWait
+		}
+		d.setNode(i, func(ns *NodeStatus) { ns.Step = "kickstarting" })
+		d.AppendLine(fmt.Sprintf("[%s] waiting %s for GRUB, then typing the boot command (inst.ks=%s)…", host, bootWait, node.KSUrl))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(bootWait):
+		}
+		if err := spec.HV.SendKeys(ctx, vm, BootCommandKeys(node.KSUrl)); err != nil {
+			return fmt.Errorf("type boot command: %w", err)
 		}
 	}
 

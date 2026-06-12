@@ -125,6 +125,47 @@ func (p *Proxmox) UploadISO(ctx context.Context, localPath string) (string, erro
 	return fmt.Sprintf("%s:iso/%s", p.cfg.isoStorage(), name), nil
 }
 
+// FindISO looks for an ISO by filename in the ISO storage and returns its
+// volume reference, or "" when absent.
+func (p *Proxmox) FindISO(ctx context.Context, name string) (string, error) {
+	n, err := p.node(ctx)
+	if err != nil {
+		return "", err
+	}
+	store, err := n.Storage(ctx, p.cfg.isoStorage())
+	if err != nil {
+		return "", fmt.Errorf("proxmox: get storage %q: %w", p.cfg.isoStorage(), err)
+	}
+	content, err := store.GetContent(ctx)
+	if err != nil {
+		return "", fmt.Errorf("proxmox: list storage content: %w", err)
+	}
+	want := fmt.Sprintf("%s:iso/%s", p.cfg.isoStorage(), name)
+	for _, c := range content {
+		if c.Volid == want {
+			return want, nil
+		}
+	}
+	return "", nil
+}
+
+// SendKeys types QEMU key names on the VM console, one PUT /sendkey per key
+// with a small inter-key delay so GRUB keeps up.
+func (p *Proxmox) SendKeys(ctx context.Context, vm VMRef, keys []string) error {
+	path := fmt.Sprintf("/nodes/%s/qemu/%s/sendkey", p.cfg.Node, vm.ID)
+	for _, k := range keys {
+		if err := p.client.Put(ctx, path, map[string]string{"key": k}, nil); err != nil {
+			return fmt.Errorf("proxmox: sendkey %q to VM %s: %w", k, vm.ID, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(60 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
 // CreateVM provisions a powered-off VM shell with a SCSI disk and one NIC.
 func (p *Proxmox) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 	n, err := p.node(ctx)

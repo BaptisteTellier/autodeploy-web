@@ -46,6 +46,17 @@ type Hypervisor interface {
 	// returns a provider-native reference (e.g. "local:iso/foo.iso").
 	UploadISO(ctx context.Context, localPath string) (isoRef string, err error)
 
+	// FindISO returns the provider-native reference of an ISO already present
+	// in the hypervisor's library ("" if absent). Used by the remote-kickstart
+	// flow to avoid re-uploading the original Veeam ISOs.
+	FindISO(ctx context.Context, name string) (isoRef string, err error)
+
+	// SendKeys types a sequence of keys on the VM console (QEMU sendkey names:
+	// "c", "spc", "slash", "shift-semicolon", "ret", …). This is the
+	// Packer-style mechanism used to edit GRUB at boot for remote kickstart;
+	// vSphere (PutUsbScanCodes) and Hyper-V (Msvm_Keyboard) offer equivalents.
+	SendKeys(ctx context.Context, vm VMRef, keys []string) error
+
 	// CreateVM provisions a powered-off VM shell per spec.
 	CreateVM(ctx context.Context, spec VMSpec) (VMRef, error)
 
