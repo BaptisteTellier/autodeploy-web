@@ -59,6 +59,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /deploy/{id}/stream", s.handleDeployStream)
 	mux.HandleFunc("POST /deploy/{id}/stop", s.handleDeployStop)
 	mux.HandleFunc("POST /deploy/{id}/remove", s.handleDeployRemove)
+	mux.HandleFunc("POST /deploy/{id}/retry", s.handleDeployRetry)
 
 	mux.HandleFunc("GET /", s.handleIndex)
 

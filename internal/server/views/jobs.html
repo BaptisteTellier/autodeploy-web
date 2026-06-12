@@ -1,6 +1,7 @@
 {{define "views/jobs.html"}}{{template "layout.html" .}}{{end}}
 
 {{define "content"}}
+<div class="space-y-4">
 <div class="bg-white rounded shadow p-4">
   <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "jobs.all"}}</h2>
   {{if .Jobs}}
@@ -38,5 +39,42 @@
   {{else}}
   <p class="text-slate-500 text-sm">{{t "jobs.none"}} <a href="/" class="text-blue-600 hover:underline">{{t "jobs.create_one"}}</a>.</p>
   {{end}}
+</div>
+
+<!-- Deployments (multi-VM topology deployments) -->
+<div class="bg-white rounded shadow p-4">
+  <h2 class="text-lg font-semibold border-b pb-2 mb-3 flex items-center gap-2">{{t "jobs.deployments"}}
+    <a href="/deploy" class="ml-auto text-blue-600 hover:underline text-xs font-normal">{{t "deploy.title"}} →</a>
+  </h2>
+  {{if .Deployments}}
+  <table class="w-full text-sm">
+    <thead><tr class="text-left text-slate-500">
+      <th>{{t "th.id"}}</th><th>{{t "deploy.topology"}}</th><th>{{t "deploy.nodes"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Deployments}}
+    <tr class="border-t hover:bg-slate-50">
+      <td class="font-mono text-xs"><a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline">{{slice .ID 0 8}}</a></td>
+      <td class="font-mono">{{.Kind}}</td>
+      <td>{{len .Nodes}}</td>
+      <td>
+        <span class="px-2 py-0.5 rounded text-xs
+          {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-800{{end}}
+          {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
+          {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-800{{end}}
+          {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
+          {{if or (eq (printf "%s" .State) "canceled") (eq (printf "%s" .State) "removed")}}bg-slate-200 text-slate-700{{end}}
+        ">{{.State}}</span>
+      </td>
+      <td class="text-xs">{{if not .CreatedAt.IsZero}}{{.CreatedAt.Format "15:04:05"}}{{end}}</td>
+      <td class="text-right"><a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="text-slate-500 text-sm">{{t "deploy.none"}} <a href="/deploy" class="text-blue-600 hover:underline">{{t "deploy.launch"}}</a>.</p>
+  {{end}}
+</div>
 </div>
 {{end}}

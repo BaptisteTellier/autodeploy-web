@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
+	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 )
 
 // --- Index --------------------------------------------------------------
@@ -39,15 +40,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ?import=jobID pre-fills the form from the job's stored config JSON.
+	// ?import=jobID pre-fills the form from the job's stored config JSON. We try
+	// the output snapshot first (output/<id>/job-config.json) and fall back to
+	// the job's own persisted config — the snapshot only exists after a job
+	// finishes and may have been deleted from the media page, which used to make
+	// import silently load defaults.
 	if importID := r.URL.Query().Get("import"); importID != "" {
 		importID = filepath.Base(importID) // prevent path traversal via the query param
-		cfgPath := filepath.Join(s.deps.DataDir, "output", importID, "job-config.json")
-		if raw, err := os.ReadFile(cfgPath); err == nil {
-			var imported config.Config
-			if json.Unmarshal(raw, &imported) == nil {
-				cfg = imported
-			}
+		if imported, ok := s.importJobConfig(importID); ok {
+			cfg = imported
 		}
 	}
 
@@ -65,6 +66,28 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"Jobs":            s.deps.JobManager.List(),
 	}
 	s.render(w, r, "views/form.html", data)
+}
+
+// importJobConfig loads a job's config for the "Import into new job" feature.
+// It prefers the output snapshot (output/<id>/job-config.json) and falls back
+// to the in-memory job's persisted config file, so import keeps working even
+// when the output folder was deleted.
+func (s *Server) importJobConfig(id string) (config.Config, bool) {
+	paths := []string{filepath.Join(s.deps.DataDir, "output", id, jobConfigName)}
+	if j, ok := s.deps.JobManager.Get(id); ok && j.ConfigPath != "" {
+		paths = append(paths, j.ConfigPath)
+	}
+	for _, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var c config.Config
+		if json.Unmarshal(raw, &c) == nil {
+			return c, true
+		}
+	}
+	return config.Config{}, false
 }
 
 // --- Jobs ---------------------------------------------------------------
@@ -110,8 +133,13 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.deps.JobManager.List())
 		return
 	}
+	var deployments []deploy.View
+	if s.deps.DeployManager != nil {
+		deployments = s.deps.DeployManager.List()
+	}
 	s.render(w, r, "views/jobs.html", map[string]any{
-		"Jobs": s.deps.JobManager.List(),
+		"Jobs":        s.deps.JobManager.List(),
+		"Deployments": deployments,
 	})
 }
 

@@ -12,6 +12,7 @@
       {{if eq (printf "%s" .Deployment.State) "failed"}}bg-red-100 text-red-800{{end}}
       {{if eq (printf "%s" .Deployment.State) "pending"}}bg-slate-100 text-slate-800{{end}}
       {{if eq (printf "%s" .Deployment.State) "canceled"}}bg-slate-200 text-slate-700{{end}}
+      {{if eq (printf "%s" .Deployment.State) "removed"}}bg-slate-200 text-slate-700{{end}}
     ">{{.Deployment.State}}</span>
   </div>
 
@@ -24,8 +25,17 @@
       </form>
       {{end}}
     </span>
+    {{if or (eq (printf "%s" .Deployment.State) "done") (eq (printf "%s" .Deployment.State) "failed") (eq (printf "%s" .Deployment.State) "canceled") (eq (printf "%s" .Deployment.State) "removed")}}
+    <form method="POST" action="/deploy/{{.Deployment.ID}}/retry">
+      <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors">↻ {{t "deploy.retry"}}</button>
+    </form>
+    <a href="/deploy?kind={{.Deployment.Kind}}"
+       class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">⧉ {{t "deploy.copy_to_deploy"}}</a>
+    {{end}}
+    {{if ne (printf "%s" .Deployment.State) "removed"}}
     <button type="button" @click="showRemove=true; confirmed=false"
             class="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">🗑 {{t "deploy.remove"}}</button>
+    {{end}}
 
     <!-- Confirmation modal -->
     <div x-show="showRemove" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showRemove=false" @keydown.escape.window="showRemove=false">
@@ -70,7 +80,7 @@
         <td class="px-4 py-3">{{$n.Role}}</td>
         <td class="px-4 py-3">
           <span class="text-xs px-2 py-0.5 rounded-full
-            {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created") (eq $n.Step "canceled"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
+            {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created") (eq $n.Step "canceled") (eq $n.Step "removed"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
           <!-- ISO upload progress bar — revealed live by the "progress" SSE event -->
           <div class="deploy-progress mt-1 flex items-center gap-2 {{if not (and (eq $n.Step "uploading") (gt $n.Progress 0))}}hidden{{end}}" data-node="{{$i}}">
             <div class="w-32 bg-slate-200 rounded-full h-1.5 overflow-hidden">
@@ -100,7 +110,7 @@
   (function () {
     const log = document.getElementById('log');
     const stateEl = document.getElementById('dep-state');
-    const finals = new Set(['done', 'failed', 'canceled']);
+    const finals = new Set(['done', 'failed', 'canceled', 'removed']);
     if (finals.has(stateEl.textContent.trim())) return;
 
     const es = new EventSource("/deploy/{{.Deployment.ID}}/stream");

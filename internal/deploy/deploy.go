@@ -30,6 +30,7 @@ const (
 	StateDone     State = "done"
 	StateFailed   State = "failed"
 	StateCanceled State = "canceled"
+	StateRemoved  State = "removed" // VMs destroyed; record kept so it can be retried
 )
 
 const maxBufferedLines = 5000
@@ -131,6 +132,7 @@ type Deployment struct {
 	subs     []chan string
 	done     chan struct{}
 	hv       hypervisor.Hypervisor // retained so Remove can destroy the created VMs
+	spec     Spec                  // retained so a removed deployment can be retried
 	cancel   context.CancelFunc    // cancels the run goroutine (set once running)
 	canceled bool                  // true when a STOP was requested (vs. a real failure)
 }
@@ -332,6 +334,7 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 		CreatedAt: time.Now(),
 		done:      make(chan struct{}),
 		hv:        spec.HV,
+		spec:      spec,
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {
@@ -545,12 +548,14 @@ func (m *Manager) Cancel(id string) bool {
 	return true
 }
 
-// Remove stops the deployment (if still running), destroys every VM it created
-// on the target hypervisor (Destroy powers the VM off first), and drops it from
-// the registry. It returns the number of VMs destroyed. The work is bounded by
-// ctx. The deployment is removed from the registry even if some VMs fail to
-// destroy, so a partially-failed removal can be retried manually on the
-// hypervisor.
+// Remove stops the deployment (if still running) and destroys every VM it
+// created on the target hypervisor (Destroy powers the VM off first). It returns
+// the number of VMs destroyed. The work is bounded by ctx.
+//
+// The deployment record is KEPT (state → "removed", VM ids cleared) rather than
+// dropped, so it can be retried (Retry) or copied back into the deploy form. A
+// partially-failed destroy still marks the record removed; leftover VMs can be
+// cleaned up manually on the hypervisor.
 func (m *Manager) Remove(ctx context.Context, id string) (int, error) {
 	d, ok := m.Get(id)
 	if !ok {
@@ -582,14 +587,38 @@ func (m *Manager) Remove(ctx context.Context, id string) (int, error) {
 		}
 	}
 
-	m.mu.Lock()
-	delete(m.deployments, id)
-	m.mu.Unlock()
+	// Keep the record so it stays listed and can be retried.
+	d.mu.Lock()
+	d.State = StateRemoved
+	for i := range d.Nodes {
+		d.Nodes[i].Step = "removed"
+		d.Nodes[i].VMID = ""
+	}
+	d.mu.Unlock()
+	d.AppendLine(fmt.Sprintf("Removed deployment: destroyed %d VM(s).", removed))
 
 	if len(errs) > 0 {
 		return removed, fmt.Errorf("destroyed %d VM(s); errors: %s", removed, strings.Join(errs, "; "))
 	}
 	return removed, nil
+}
+
+// Retry re-launches a finished/removed deployment with the same spec, returning
+// the new deployment. The original record is left untouched. The stored spec
+// reuses the same hypervisor client (its credentials live in memory), so no
+// re-entry of connection details is needed.
+func (m *Manager) Retry(id string) (*Deployment, error) {
+	d, ok := m.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("deploy: deployment %q not found", id)
+	}
+	d.mu.Lock()
+	spec := d.spec
+	d.mu.Unlock()
+	if spec.HV == nil || len(spec.Nodes) == 0 {
+		return nil, fmt.Errorf("deploy: deployment %q cannot be retried (no stored spec)", id)
+	}
+	return m.Start(spec)
 }
 
 // List returns snapshots of all deployments, newest first is not guaranteed.

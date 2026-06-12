@@ -361,7 +361,23 @@ func (s *Server) handleDeployRemove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, translate(lang, "deploy.err_remove")+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/deploy", http.StatusSeeOther)
+	// The record is kept (state "removed") so the user can retry it.
+	http.Redirect(w, r, "/deploy/"+id, http.StatusSeeOther)
+}
+
+// handleDeployRetry re-launches a finished/removed deployment with the same spec.
+func (s *Server) handleDeployRetry(w http.ResponseWriter, r *http.Request) {
+	lang := langFromRequest(r)
+	if s.deps.DeployManager == nil {
+		http.NotFound(w, r)
+		return
+	}
+	d, err := s.deps.DeployManager.Retry(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, translate(lang, "deploy.err_retry")+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	http.Redirect(w, r, "/deploy/"+d.ID, http.StatusSeeOther)
 }
 
 // handleDeployStart maps the chosen output folders onto the topology slots and

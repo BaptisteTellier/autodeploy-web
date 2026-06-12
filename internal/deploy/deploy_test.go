@@ -288,9 +288,41 @@ func TestRemoveDestroysCreatedVMs(t *testing.T) {
 	if !strings.Contains(joined, "destroy:101") || !strings.Contains(joined, "destroy:102") {
 		t.Errorf("expected destroy of both VMs, got %v", hv.calls)
 	}
-	// Deployment is dropped from the registry.
-	if _, ok := m.Get(d.ID); ok {
-		t.Error("deployment should be gone after Remove")
+	// The record is KEPT (so it can be retried), marked removed with VM ids cleared.
+	got, ok := m.Get(d.ID)
+	if !ok {
+		t.Fatal("deployment should be kept after Remove")
+	}
+	v := got.View()
+	if v.State != StateRemoved {
+		t.Errorf("state = %q, want removed", v.State)
+	}
+	for _, n := range v.Nodes {
+		if n.VMID != "" || n.Step != "removed" {
+			t.Errorf("node %s = %+v, want removed with empty VMID", n.Hostname, n)
+		}
+	}
+}
+
+func TestRetryRelaunchesSameSpec(t *testing.T) {
+	hv := &mockHV{}
+	m := NewManager()
+	d, err := m.Start(Spec{Label: "vsa+proxy", Nodes: twoNodes(), HV: hv, VM: hypervisor.VMSpec{Bridge: "vmbr0"}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitDone(t, d)
+
+	d2, err := m.Retry(d.ID)
+	if err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	if d2.ID == d.ID {
+		t.Error("retry should create a new deployment")
+	}
+	waitDone(t, d2)
+	if d2.View().State != StateDone {
+		t.Errorf("retried deployment state = %q, want done", d2.View().State)
 	}
 }
 

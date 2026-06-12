@@ -28,6 +28,7 @@
   </script>
 
   <form method="POST" action="/deploy" class="space-y-6"
+        x-init="const k=new URLSearchParams(location.search).get('kind'); if(k && DEPLOY_CATALOG[k]) kind=k"
         x-data="{ kind:'', sel:{}, ks:false, wire:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{},
                   get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
                   get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },

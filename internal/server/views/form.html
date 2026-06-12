@@ -16,11 +16,15 @@
 <div class="bg-white rounded shadow p-4 flex flex-wrap gap-3 items-end">
   <div>
     <label class="block text-xs font-semibold uppercase text-slate-500">{{t "form.load_preset"}}</label>
-    <select class="border rounded px-2 py-1"
-            onchange="if (this.value) { document.getElementById('preset_name').value=this.value; location.href='/?preset='+encodeURIComponent(this.value); }">
-      <option value="">{{t "form.select_dash"}}</option>
-      {{range .Presets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
-    </select>
+    <div class="flex gap-1">
+      <select id="preset_select" class="border rounded px-2 py-1"
+              onchange="if (this.value) { document.getElementById('preset_name').value=this.value; location.href='/?preset='+encodeURIComponent(this.value); }">
+        <option value="">{{t "form.select_dash"}}</option>
+        {{range .Presets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <button type="button" title="{{t "form.delete_preset"}}"
+              class="bg-red-100 text-red-700 hover:bg-red-200 rounded px-2 py-1 text-sm" @click="deletePreset()">🗑</button>
+    </div>
   </div>
   <div>
     <label class="block text-xs font-semibold uppercase text-slate-500">{{t "form.save_as_preset"}}</label>

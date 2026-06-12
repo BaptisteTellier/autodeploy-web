@@ -101,6 +101,7 @@ var translations = map[string]map[string]string{
 		// --- form.html ---
 		"form.errors_title":         "Validation errors:",
 		"form.load_preset":          "Load preset",
+		"form.delete_preset":        "Delete selected preset",
 		"form.select_dash":          "— select —",
 		"form.save_as_preset":       "Save current as preset",
 		"form.preset_name_ph":       "preset name",
@@ -177,11 +178,12 @@ var translations = map[string]map[string]string{
 		"form.open_arrow":           "open →",
 
 		// --- jobs.html ---
-		"jobs.all":        "All jobs",
-		"jobs.open_job":   "open job",
-		"jobs.output":     "📂 output",
-		"jobs.none":       "No jobs yet.",
-		"jobs.create_one": "Create one",
+		"jobs.all":         "All jobs",
+		"jobs.deployments": "Deployments",
+		"jobs.open_job":    "open job",
+		"jobs.output":      "📂 output",
+		"jobs.none":        "No jobs yet.",
+		"jobs.create_one":  "Create one",
 
 		// --- job.html ---
 		"job.job":           "Job",
@@ -423,6 +425,9 @@ var translations = map[string]map[string]string{
 		"deploy.remove_button":      "Stop & destroy VMs",
 		"deploy.cancel":             "Cancel",
 		"deploy.err_remove":         "Could not remove deployment: ",
+		"deploy.err_retry":          "Could not retry deployment: ",
+		"deploy.retry":              "Retry",
+		"deploy.copy_to_deploy":     "Copy to deploy",
 	},
 
 	"fr": {
@@ -472,6 +477,7 @@ var translations = map[string]map[string]string{
 		// --- form.html ---
 		"form.errors_title":         "Erreurs de validation :",
 		"form.load_preset":          "Charger un preset",
+		"form.delete_preset":        "Supprimer le preset sélectionné",
 		"form.select_dash":          "— sélectionner —",
 		"form.save_as_preset":       "Enregistrer comme preset",
 		"form.preset_name_ph":       "nom du preset",
@@ -548,11 +554,12 @@ var translations = map[string]map[string]string{
 		"form.open_arrow":           "ouvrir →",
 
 		// --- jobs.html ---
-		"jobs.all":        "Tous les jobs",
-		"jobs.open_job":   "ouvrir le job",
-		"jobs.output":     "📂 sortie",
-		"jobs.none":       "Aucun job pour l'instant.",
-		"jobs.create_one": "En créer un",
+		"jobs.all":         "Tous les jobs",
+		"jobs.deployments": "Déploiements",
+		"jobs.open_job":    "ouvrir le job",
+		"jobs.output":      "📂 sortie",
+		"jobs.none":        "Aucun job pour l'instant.",
+		"jobs.create_one":  "En créer un",
 
 		// --- job.html ---
 		"job.job":           "Job",
@@ -794,5 +801,8 @@ var translations = map[string]map[string]string{
 		"deploy.remove_button":      "Arrêter et détruire les VMs",
 		"deploy.cancel":             "Annuler",
 		"deploy.err_remove":         "Impossible de supprimer le déploiement : ",
+		"deploy.err_retry":          "Impossible de relancer le déploiement : ",
+		"deploy.retry":              "Relancer",
+		"deploy.copy_to_deploy":     "Copier vers déploiement",
 	},
 }

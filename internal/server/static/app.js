@@ -32,6 +32,19 @@ function formApp() {
       }
     },
 
+    async deletePreset() {
+      const sel = document.getElementById('preset_select');
+      const name = sel ? sel.value : '';
+      if (!name) { alert('Select a preset to delete first.'); return; }
+      if (!confirm('Delete preset "' + name + '"? This cannot be undone.')) return;
+      const res = await fetch('/configs/' + encodeURIComponent(name), { method: 'DELETE' });
+      if (res.ok) {
+        location.href = '/'; // reload without the deleted ?preset=
+      } else {
+        alert('Delete failed: ' + (await res.text()));
+      }
+    },
+
     exportJSON() {
       const form = document.getElementById('config-form');
       const fd = new FormData(form);
