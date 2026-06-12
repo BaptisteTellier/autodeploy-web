@@ -120,12 +120,29 @@ func (p *Proxmox) vm(ctx context.Context, ref VMRef) (*proxmox.VirtualMachine, e
 	return v, nil
 }
 
-// waitTask blocks until a Proxmox task completes (or ctx/timeout fires).
+// waitTask blocks until a Proxmox task completes (or ctx/timeout fires) and then
+// verifies it actually SUCCEEDED. go-proxmox's Task.Wait returns as soon as the
+// task stops running — it does NOT inspect the exit status — so a failed upload
+// (e.g. the ISO storage filling up) would otherwise look like success. We
+// re-check the exit status and surface a real error.
 func waitTask(ctx context.Context, t *proxmox.Task, max time.Duration) error {
 	if t == nil {
 		return nil
 	}
-	return t.Wait(ctx, 2*time.Second, max)
+	if err := t.Wait(ctx, 2*time.Second, max); err != nil {
+		return err
+	}
+	if err := t.Ping(ctx); err != nil {
+		return err
+	}
+	if t.IsFailed || (t.ExitStatus != "" && t.ExitStatus != "OK") {
+		status := t.ExitStatus
+		if status == "" {
+			status = "failed"
+		}
+		return fmt.Errorf("proxmox task %s: %s", t.Type, status)
+	}
+	return nil
 }
 
 // UploadISO uploads a local ISO to the ISO storage and returns its volume
@@ -172,10 +189,27 @@ func (p *Proxmox) UploadISO(ctx context.Context, localPath string, progress Prog
 	if err := waitTask(ctx, proxmox.NewTask(upid, p.client), 2*time.Hour); err != nil {
 		return "", fmt.Errorf("proxmox: upload ISO %q: %w", name, err)
 	}
+
+	// Confirm the ISO is really in the library before we hand back a reference to
+	// attach. This catches a silently-failed import (e.g. the storage ran out of
+	// space) so we never create a VM with a dangling CD-ROM.
+	ref := fmt.Sprintf("%s:iso/%s", p.cfg.isoStorage(), name)
+	if content, err := store.GetContent(ctx); err == nil {
+		present := false
+		for _, c := range content {
+			if c.Volid == ref {
+				present = true
+				break
+			}
+		}
+		if !present {
+			return "", fmt.Errorf("proxmox: ISO %q not found in storage %q after upload — the import likely failed (out of space?)", name, p.cfg.isoStorage())
+		}
+	}
 	if progress != nil {
 		progress(size, size) // ensure the bar lands on 100%
 	}
-	return fmt.Sprintf("%s:iso/%s", p.cfg.isoStorage(), name), nil
+	return ref, nil
 }
 
 // FindISO looks for an ISO by filename in the ISO storage and returns its

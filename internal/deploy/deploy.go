@@ -183,6 +183,22 @@ func (d *Deployment) AppendLine(line string) {
 	}
 }
 
+// emit fans a line out to live subscribers WITHOUT buffering it. Used for
+// ephemeral progress events: they drive the live upload bar but must not enter
+// the replayable log (otherwise the static render on page reload dumps the raw
+// sentinel lines into the log view).
+func (d *Deployment) emit(line string) {
+	d.mu.Lock()
+	subs := append([]chan string(nil), d.subs...)
+	d.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- line:
+		default:
+		}
+	}
+}
+
 // Snapshot returns a copy of the buffered log lines.
 func (d *Deployment) Snapshot() []string {
 	d.mu.Lock()
@@ -262,7 +278,7 @@ func (d *Deployment) uploadProgress(i int, host string) hypervisor.ProgressFunc 
 		}
 		lastPct = pct
 		d.setNode(i, func(ns *NodeStatus) { ns.Progress = pct })
-		d.AppendLine(ProgressLine(i, pct))
+		d.emit(ProgressLine(i, pct)) // ephemeral: live bar only, never buffered
 		if m := pct / 25; m > lastMilestone {
 			lastMilestone = m
 			d.AppendLine(fmt.Sprintf("[%s] uploading… %d%% (%s / %s)", host, pct, humanGiB(done), humanGiB(total)))
