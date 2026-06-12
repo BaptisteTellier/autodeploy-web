@@ -96,10 +96,15 @@
             {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
           </select>
         </label>
-        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.ks_base_url"}}
+        <label class="text-sm text-slate-600">{{t "deploy.ks_base_url"}}
           <input name="ks_base_url" value="{{.KSBaseURL}}"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           <span class="text-xs text-slate-400">{{t "deploy.ks_base_url_hint"}}</span>
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.boot_wait"}}
+          <input name="boot_wait" type="number" min="3" value="10"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <span class="text-xs text-slate-400">{{t "deploy.boot_wait_hint"}}</span>
         </label>
       </div>
     </div>

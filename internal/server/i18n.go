@@ -410,6 +410,8 @@ var translations = map[string]map[string]string{
 		"deploy.base_iso_via":       "Original VIA ISO",
 		"deploy.ks_base_url":        "Kickstart base URL",
 		"deploy.ks_base_url_hint":   "This server's URL as reachable FROM the appliances (LAN).",
+		"deploy.boot_wait":          "Boot wait before keystrokes (s)",
+		"deploy.boot_wait_hint":     "Seconds to wait for the GRUB menu before typing the boot command. Raise if the firmware/OVMF POST is slow.",
 	},
 
 	"fr": {
@@ -768,5 +770,7 @@ var translations = map[string]map[string]string{
 		"deploy.base_iso_via":       "ISO VIA original",
 		"deploy.ks_base_url":        "URL de base du kickstart",
 		"deploy.ks_base_url_hint":   "L'URL de ce serveur telle que joignable DEPUIS les appliances (LAN).",
+		"deploy.boot_wait":          "Délai avant frappes (s)",
+		"deploy.boot_wait_hint":     "Secondes d'attente du menu GRUB avant de taper la commande de boot. À augmenter si le POST firmware/OVMF est lent.",
 	},
 }

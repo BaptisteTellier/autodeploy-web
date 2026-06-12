@@ -33,7 +33,7 @@ type Config struct {
 	Username   string
 	Password   string
 	Insecure   bool   // skip TLS verification (VSA ships a self-signed cert)
-	APIVersion string // x-api-version header; default "1.2-rev0" (VBR 13). "" = don't send.
+	APIVersion string // x-api-version header; defaults to "1.3-rev2" (swagger default). Override to pin a different revision.
 }
 
 // Client talks to one VBR REST endpoint.
@@ -43,10 +43,14 @@ type Client struct {
 	token string
 }
 
-// New builds a client. No network call happens until Authenticate. APIVersion
-// is left empty by default so the VSA picks its own latest x-api-version (the
-// vbr-ha-cluster reference sends no version header); set it only to pin one.
+// New builds a client. No network call happens until Authenticate. If
+// cfg.APIVersion is empty it is set to the version advertised by the swagger
+// spec (1.3-rev2). The x-api-version header is required on every VBR REST
+// call; override it only to target a different API revision.
 func New(cfg Config) *Client {
+	if cfg.APIVersion == "" {
+		cfg.APIVersion = "1.3-rev2"
+	}
 	hc := &http.Client{Timeout: 60 * time.Second}
 	if cfg.Insecure {
 		hc.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec — self-signed VSA cert, opt-in
@@ -153,28 +157,31 @@ type idResponse struct {
 // --- sessions ----------------------------------------------------------------
 
 // WaitSession polls an async session to completion. It mirrors VBR's dual model:
-// backup/restore sessions finish on result.status ∈ {Success,Warning,Failed};
-// infrastructure sessions finish on state == "Stopped" (treated as success when
-// no result.status is set). Returns an error on Failed or timeout.
+// backup/restore sessions finish on result.result ∈ {Success,Warning,Failed}
+// (ESessionResult); infrastructure sessions finish on state == "Stopped"
+// (treated as success when no result is set). Returns an error on Failed or
+// timeout.
 func (c *Client) WaitSession(ctx context.Context, sessionID string, poll, timeout time.Duration) error {
 	if poll <= 0 {
 		poll = 10 * time.Second
 	}
 	deadline := time.Now().Add(timeout)
 	for {
+		// SessionModel: state (ESessionState) + result (SessionResultModel).
+		// SessionResultModel.result is ESessionResult, JSON key "result".
 		var s struct {
 			State  string `json:"state"`
 			Result struct {
-				Status string `json:"status"`
+				Result string `json:"result"`
 			} `json:"result"`
 		}
 		if err := c.do(ctx, http.MethodGet, "/api/v1/sessions/"+url.PathEscape(sessionID), nil, &s); err != nil {
 			return err
 		}
 		switch {
-		case s.Result.Status == "Failed":
+		case s.Result.Result == "Failed":
 			return fmt.Errorf("veeam: session %s failed", sessionID)
-		case s.Result.Status == "Success" || s.Result.Status == "Warning":
+		case s.Result.Result == "Success" || s.Result.Result == "Warning":
 			return nil
 		case s.State == "Stopped":
 			return nil
@@ -400,17 +407,21 @@ func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, 
 // server (the REST equivalent of Add-VBRViLinuxProxy). Returns the async
 // session id.
 //
-// NOTE: the reference (Install-VeeamInfra.ps1) uses the Add-VBRViLinuxProxy
-// cmdlet — there is no REST payload to copy — so this schema follows the VBR
-// REST "ViProxy" model and should be confirmed against your VBR version.
+// Schema: ViProxySpec (discriminator type="ViProxy") extends ProxySpec which
+// requires "description" and "type". ViProxySpec additionally requires "server"
+// (ProxyServerSettingsModel) with required field "hostId". maxTaskCount lives
+// inside the server object — there is no top-level maxTaskCount on ViProxySpec.
 func (c *Client) AddVmwareProxy(ctx context.Context, hostID string, maxTasks int) (string, error) {
 	if maxTasks <= 0 {
 		maxTasks = 4
 	}
 	body := map[string]any{
-		"type":         "ViProxy",
-		"server":       map[string]any{"hostId": hostID, "maxTaskCount": maxTasks},
-		"maxTaskCount": maxTasks,
+		"type":        "ViProxy",
+		"description": "",
+		"server": map[string]any{
+			"hostId":       hostID,
+			"maxTaskCount": maxTasks,
+		},
 	}
 	var out idResponse
 	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/proxies", body, &out); err != nil {

@@ -51,11 +51,20 @@ func decode(t *testing.T, r *http.Request) map[string]any {
 	return m
 }
 
+func TestAPIVersionDefault(t *testing.T) {
+	// New() must set APIVersion to "1.3-rev2" when not provided.
+	c := New(Config{BaseURL: "http://localhost", Username: "u", Password: "p"})
+	if c.cfg.APIVersion != "1.3-rev2" {
+		t.Errorf("default APIVersion = %q, want 1.3-rev2", c.cfg.APIVersion)
+	}
+}
+
 func TestAuthenticateAndBearer(t *testing.T) {
 	mux := baseMux()
-	var gotAuth string
+	var gotAuth, gotAPIVersion string
 	mux.HandleFunc("/api/v1/credentials", func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		gotAPIVersion = r.Header.Get("x-api-version")
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "cred-1"})
 	})
 	c, _ := newTestClient(t, mux)
@@ -69,6 +78,10 @@ func TestAuthenticateAndBearer(t *testing.T) {
 	}
 	if gotAuth != "Bearer tok-123" {
 		t.Errorf("Authorization = %q, want Bearer tok-123", gotAuth)
+	}
+	// x-api-version must default to the swagger spec value.
+	if gotAPIVersion != "1.3-rev2" {
+		t.Errorf("x-api-version = %q, want 1.3-rev2", gotAPIVersion)
 	}
 }
 
@@ -155,6 +168,45 @@ func TestAddHardenedRepositoryPayload(t *testing.T) {
 	}
 }
 
+func TestAddVmwareProxyPayload(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/proxies", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		// ViProxySpec: type + description (required by ProxySpec) + server (required by ViProxySpec).
+		if body["type"] != "ViProxy" {
+			t.Errorf("proxy type = %v, want ViProxy", body["type"])
+		}
+		if _, ok := body["description"]; !ok {
+			t.Errorf("proxy payload missing required 'description' field")
+		}
+		// top-level maxTaskCount must NOT be present (not part of ViProxySpec).
+		if _, ok := body["maxTaskCount"]; ok {
+			t.Errorf("proxy payload must not contain top-level maxTaskCount")
+		}
+		// maxTaskCount lives inside server (ProxyServerSettingsModel).
+		server, _ := body["server"].(map[string]any)
+		if server == nil {
+			t.Fatalf("proxy payload missing 'server' object")
+		}
+		if server["hostId"] != "host-proxy-1" {
+			t.Errorf("server.hostId = %v, want host-proxy-1", server["hostId"])
+		}
+		if server["maxTaskCount"].(float64) != 4 {
+			t.Errorf("server.maxTaskCount = %v, want 4", server["maxTaskCount"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-proxy"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	sess, err := c.AddVmwareProxy(context.Background(), "host-proxy-1", 4)
+	if err != nil {
+		t.Fatalf("AddVmwareProxy: %v", err)
+	}
+	if sess != "sess-proxy" {
+		t.Errorf("session = %q, want sess-proxy", sess)
+	}
+}
+
 func TestCreateHAClusterPayload(t *testing.T) {
 	mux := baseMux()
 	mux.HandleFunc("/api/v1/highAvailabilityCluster", func(w http.ResponseWriter, r *http.Request) {
@@ -201,10 +253,10 @@ func TestWaitSessionDualModel(t *testing.T) {
 			} else {
 				resp = map[string]any{"state": "Stopped"}
 			}
-		case "result": // result.status Success
-			resp = map[string]any{"state": "Running", "result": map[string]any{"status": "Success"}}
+		case "result": // SessionResultModel.result == "Success" (ESessionResult, JSON key "result")
+			resp = map[string]any{"state": "Running", "result": map[string]any{"result": "Success"}}
 		case "fail":
-			resp = map[string]any{"state": "Running", "result": map[string]any{"status": "Failed"}}
+			resp = map[string]any{"state": "Running", "result": map[string]any{"result": "Failed"}}
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})

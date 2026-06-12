@@ -398,13 +398,20 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 			return ctx.Err()
 		case <-time.After(bootWait):
 		}
-		if err := spec.HV.SendKeys(ctx, vm, BootCommandKeys(node.KSUrl)); err != nil {
+		if err := spec.HV.SendKeys(ctx, vm, BootCommandKeys(node.Role, node.KSUrl)); err != nil {
 			return fmt.Errorf("type boot command: %w", err)
 		}
 	}
 
-	d.setNode(i, func(ns *NodeStatus) { ns.Step = "ready" })
-	d.AppendLine(fmt.Sprintf("[%s] ready (VM %s).", host, vm.ID))
+	// Honest final state: a powered-on node is still INSTALLING (the unattended
+	// install runs after boot); only a node left off is merely "created". We
+	// never claim "ready" here — readiness is what the wiring step waits for.
+	final, msg := "created", "created (powered off)"
+	if spec.PowerOn || node.kickstart() {
+		final, msg = "installing", "booted — OS installing"
+	}
+	d.setNode(i, func(ns *NodeStatus) { ns.Step = final })
+	d.AppendLine(fmt.Sprintf("[%s] %s (VM %s).", host, msg, vm.ID))
 	return nil
 }
 

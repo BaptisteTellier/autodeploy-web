@@ -404,6 +404,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		PowerOn:     powerOn,
 		Wirer:       wirer,
 		WireTimeout: time.Duration(atoiMin(r.FormValue("wire_timeout"), 45, 5)) * time.Minute,
+		BootWait:    time.Duration(atoiMin(r.FormValue("boot_wait"), 10, 3)) * time.Second,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

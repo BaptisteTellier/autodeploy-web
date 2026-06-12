@@ -2,28 +2,45 @@ package deploy
 
 import "strings"
 
-// Remote-kickstart boot command. At the appliance ISO's GRUB menu we open the
-// GRUB console ("c") and type the three proven lines (the same ones used
-// manually and documented in the README "Kickstart live" section):
+// Remote-kickstart boot command, typed at the appliance ISO's GRUB menu. The
+// command is ROLE-SPECIFIC — the VSA and the VIA/JeOS installers use different
+// stage2 volume labels and kernel args (the VSA additionally needs fips=1):
 //
-//	linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<URL> ip=dhcp quiet inst.assumeyes
-//	initrdefi /images/pxeboot/initrd.img
-//	boot
+//	VSA : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<URL> ip=dhcp quiet inst.assumeyes
+//	VIA : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS  inst.ks=<URL> ip=dhcp quiet inst.assumeyes
+//	(both) initrdefi /images/pxeboot/initrd.img
+//	(both) boot
 //
-// ip=dhcp brings the network up early so Anaconda can fetch the kickstart over
-// HTTP; the static identity from the kickstart applies afterwards.
-const stage2Label = "VeeamJeOS"
+// We always serve the kickstart over HTTP (inst.ks=<URL>) + ip=dhcp so the
+// per-node customised .cfg is fetched from autodeploy-web; only the stage2
+// label and the fips flag vary by role. Values come from the user's validated
+// manual boot commands.
+const (
+	labelVSA = "VeeamSA"
+	labelVIA = "VeeamJeOS"
+)
+
+// linuxLine builds the role-specific `linuxefi …` GRUB line.
+func linuxLine(role, ksURL string) string {
+	if strings.HasPrefix(role, "VSA") {
+		return "linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=" + labelVSA +
+			" fips=1 inst.ks=" + ksURL + " ip=dhcp quiet inst.assumeyes"
+	}
+	return "linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=" + labelVIA +
+		" inst.ks=" + ksURL + " ip=dhcp quiet inst.assumeyes"
+}
 
 // BootCommandKeys returns the QEMU sendkey sequence that types the remote
-// kickstart boot command at the GRUB menu.
-func BootCommandKeys(ksURL string) []string {
+// kickstart boot command at the GRUB menu for the given role. It opens the GRUB
+// console ("c", which also halts the menu countdown), types the three lines and
+// presses Enter after each.
+func BootCommandKeys(role, ksURL string) []string {
 	lines := []string{
-		"linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=" + stage2Label +
-			" inst.ks=" + ksURL + " ip=dhcp quiet inst.assumeyes",
+		linuxLine(role, ksURL),
 		"initrdefi /images/pxeboot/initrd.img",
 		"boot",
 	}
-	keys := []string{"c"} // open the GRUB console (also stops the menu countdown)
+	keys := []string{"c"} // open the GRUB console (also stops the autoboot countdown)
 	for _, l := range lines {
 		keys = append(keys, KeysForText(l)...)
 		keys = append(keys, "ret")

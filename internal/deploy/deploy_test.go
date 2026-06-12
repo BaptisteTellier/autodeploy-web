@@ -117,8 +117,9 @@ func TestDeploySequenceHappyPath(t *testing.T) {
 		t.Fatalf("state = %q, want done (err=%q)", v.State, v.Error)
 	}
 	for _, n := range v.Nodes {
-		if n.Step != "ready" || n.VMID == "" {
-			t.Errorf("node %s = %+v, want ready with VMID", n.Hostname, n)
+		// PowerOn=false → nodes are provisioned but left off ("created").
+		if n.Step != "created" || n.VMID == "" {
+			t.Errorf("node %s = %+v, want created with VMID", n.Hostname, n)
 		}
 	}
 	want := []string{
@@ -263,7 +264,7 @@ func TestKickstartFlow(t *testing.T) {
 }
 
 func TestBootCommandKeys(t *testing.T) {
-	keys := BootCommandKeys("http://10.0.0.1:8080/x.cfg/content")
+	keys := BootCommandKeys("VIA-Proxy", "http://10.0.0.1:8080/x.cfg/content")
 	if keys[0] != "c" {
 		t.Errorf("first key = %q, want c (open GRUB console)", keys[0])
 	}
@@ -281,5 +282,17 @@ func TestBootCommandKeys(t *testing.T) {
 		if !strings.Contains(joined, frag) {
 			t.Errorf("keys missing %q (URL char mapping)", frag)
 		}
+	}
+}
+
+func TestBootCommandRoleSpecific(t *testing.T) {
+	// VSA uses LABEL=VeeamSA + fips=1; VIA uses LABEL=VeeamJeOS, no fips.
+	vsa := linuxLine("VSA", "http://h/k")
+	if !strings.Contains(vsa, "LABEL=VeeamSA") || !strings.Contains(vsa, "fips=1") {
+		t.Errorf("VSA line wrong: %s", vsa)
+	}
+	via := linuxLine("VIA-HR", "http://h/k")
+	if !strings.Contains(via, "LABEL=VeeamJeOS") || strings.Contains(via, "fips=1") {
+		t.Errorf("VIA line wrong: %s", via)
 	}
 }
