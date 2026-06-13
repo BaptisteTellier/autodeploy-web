@@ -160,7 +160,10 @@ func (s *Server) listOutputs() []outputSummary {
 	return out
 }
 
-// handleDeployPage renders the launch form + recent deployments.
+// handleDeployPage renders the launch form + recent deployments. When the
+// ?copy=<id> query parameter is present and resolves to a known deployment,
+// the form's prefill JSON is injected so the JS can restore all non-secret
+// field values.
 func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	var deployments []deploy.View
 	if s.deps.DeployManager != nil {
@@ -168,6 +171,19 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	}
 	outputs := s.listOutputs()
 	outputsJSON, _ := json.Marshal(outputs)
+
+	// Build the prefill payload when ?copy=<id> is set and resolvable.
+	prefillJSON := template.JS("null") //nolint:gosec
+	if s.deps.DeployManager != nil {
+		if copyID := r.URL.Query().Get("copy"); copyID != "" {
+			if d, ok := s.deps.DeployManager.Get(copyID); ok {
+				if b, err := json.Marshal(d.View().Form); err == nil {
+					prefillJSON = template.JS(b) //nolint:gosec — JSON of our own struct, rendered in a <script> JSON context
+				}
+			}
+		}
+	}
+
 	s.render(w, r, "views/deploy.html", map[string]any{
 		"Kinds":         catalogViews(),
 		"Outputs":       outputs,
@@ -175,6 +191,7 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 		"Deployments":   deployments,
 		"WorkspaceISOs": originalISOs(filepath.Join(s.deps.DataDir, "iso")),
 		"KSBaseURL":     "http://" + r.Host,
+		"PrefillJSON":   prefillJSON,
 	})
 }
 
@@ -332,6 +349,74 @@ func originalISOs(dir string) []string {
 	return out
 }
 
+// buildHypervisor constructs the Hypervisor implementation for the selected
+// provider, reading that provider's connection fields from the form. Each
+// provider namespaces its inputs (pve_*, vs_*, hv_*, nx_*, xen_*) so the form
+// can carry all field sets and submit only the active one.
+func buildHypervisor(provider hypervisor.Provider, r *http.Request) (hypervisor.Hypervisor, error) {
+	get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+	switch provider {
+	case hypervisor.ProviderVSphere:
+		return hypervisor.NewVSphere(hypervisor.VSphereConfig{
+			URL:          get("vs_url"),
+			Username:     get("vs_user"),
+			Password:     r.FormValue("vs_password"),
+			Insecure:     r.FormValue("vs_insecure") != "",
+			Datacenter:   get("vs_datacenter"),
+			Cluster:      get("vs_cluster"),
+			ResourcePool: get("vs_resource_pool"),
+			Datastore:    get("vs_datastore"),
+			Network:      get("vs_network"),
+			Folder:       get("vs_folder"),
+		})
+	case hypervisor.ProviderHyperV:
+		return hypervisor.NewHyperV(hypervisor.HyperVConfig{
+			Host:       get("hv_host"),
+			Port:       atoiDefault(r.FormValue("hv_port"), 0),
+			Username:   get("hv_user"),
+			Password:   r.FormValue("hv_password"),
+			HTTPS:      r.FormValue("hv_https") != "",
+			Insecure:   r.FormValue("hv_insecure") != "",
+			SwitchName: get("hv_switch"),
+			VMPath:     get("hv_vm_path"),
+			ISOPath:    get("hv_iso_path"),
+		})
+	case hypervisor.ProviderNutanix:
+		return hypervisor.NewNutanix(hypervisor.NutanixConfig{
+			Endpoint:         get("nx_endpoint"),
+			Port:             atoiDefault(r.FormValue("nx_port"), 9440),
+			Username:         get("nx_user"),
+			Password:         r.FormValue("nx_password"),
+			Insecure:         r.FormValue("nx_insecure") != "",
+			Cluster:          get("nx_cluster"),
+			StorageContainer: get("nx_storage"),
+			Subnet:           get("nx_subnet"),
+		})
+	case hypervisor.ProviderXCPng:
+		return hypervisor.NewXCPng(hypervisor.XCPngConfig{
+			Host:     get("xen_host"),
+			Username: get("xen_user"),
+			Password: r.FormValue("xen_password"),
+			Insecure: r.FormValue("xen_insecure") != "",
+			SR:       get("xen_sr"),
+			ISOSR:    get("xen_iso_sr"),
+			Network:  get("xen_network"),
+		})
+	default: // Proxmox
+		return hypervisor.NewProxmox(hypervisor.ProxmoxConfig{
+			BaseURL:     get("pve_url"),
+			Node:        get("pve_node"),
+			Storage:     get("pve_storage"),
+			ISOStorage:  get("pve_iso_storage"),
+			Username:    get("pve_user"),
+			Password:    r.FormValue("pve_password"),
+			TokenID:     get("pve_token_id"),
+			TokenSecret: get("pve_token_secret"),
+			Insecure:    r.FormValue("pve_insecure") != "",
+		})
+	}
+}
+
 // handleDeployStop cancels a running deployment (leaves the VMs in place).
 func (s *Server) handleDeployStop(w http.ResponseWriter, r *http.Request) {
 	if s.deps.DeployManager == nil {
@@ -380,6 +465,66 @@ func (s *Server) handleDeployRetry(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/deploy/"+d.ID, http.StatusSeeOther)
 }
 
+// deployFormSnapshot builds a FormSnapshot from the submitted form values so
+// the deployment can later be copied back into the deploy form. Passwords and
+// token secrets are deliberately excluded.
+func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
+	text := map[string]string{}
+	setIfNonEmpty := func(keys ...string) {
+		for _, k := range keys {
+			if v := strings.TrimSpace(r.FormValue(k)); v != "" {
+				text[k] = v
+			}
+		}
+	}
+	setIfNonEmpty(
+		// kickstart / boot
+		"ks_base_url", "boot_wait", "vsa_base_iso", "via_base_iso",
+		// sizing
+		"vm_cpus", "vm_memory", "vm_bridge", "vm_vlan", "vsa_disk", "via_disk",
+		// wiring
+		"wire_timeout", "cluster_dns",
+		// Proxmox
+		"pve_url", "pve_node", "pve_storage", "pve_iso_storage", "pve_user", "pve_token_id",
+		// vSphere
+		"vs_url", "vs_user", "vs_datacenter", "vs_cluster", "vs_resource_pool", "vs_datastore", "vs_network", "vs_folder",
+		// Hyper-V
+		"hv_host", "hv_port", "hv_user", "hv_switch", "hv_vm_path", "hv_iso_path",
+		// Nutanix
+		"nx_endpoint", "nx_port", "nx_user", "nx_cluster", "nx_storage", "nx_subnet",
+		// XCP-ng
+		"xen_host", "xen_user", "xen_sr", "xen_iso_sr", "xen_network",
+	)
+
+	checks := map[string]bool{
+		"pve_insecure": r.FormValue("pve_insecure") != "",
+		"vs_insecure":  r.FormValue("vs_insecure") != "",
+		"hv_insecure":  r.FormValue("hv_insecure") != "",
+		"hv_https":     r.FormValue("hv_https") != "",
+		"nx_insecure":  r.FormValue("nx_insecure") != "",
+		"xen_insecure": r.FormValue("xen_insecure") != "",
+	}
+
+	nodeOutputs := make([]string, n)
+	nodeBoots := make([]string, n)
+	for i := 0; i < n; i++ {
+		nodeOutputs[i] = strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
+		nodeBoots[i] = r.FormValue(fmt.Sprintf("node_%d_bootcmd", i))
+	}
+
+	return deploy.FormSnapshot{
+		Kind:        r.FormValue("kind"),
+		Provider:    strings.TrimSpace(r.FormValue("provider")),
+		RemoteKS:    r.FormValue("remote_ks") != "",
+		Wire:        r.FormValue("wire") != "",
+		PowerOn:     r.FormValue("power_on") != "",
+		NodeOutputs: nodeOutputs,
+		NodeBoots:   nodeBoots,
+		Text:        text,
+		Checks:      checks,
+	}
+}
+
 // handleDeployStart maps the chosen output folders onto the topology slots and
 // launches the deployment.
 func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
@@ -400,6 +545,12 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	provider := hypervisor.Provider(strDefault(strings.TrimSpace(r.FormValue("provider")), string(hypervisor.ProviderProxmox)))
+	if !hypervisor.KnownProvider(provider) {
+		http.Error(w, translate(lang, "deploy.err_provider"), http.StatusBadRequest)
+		return
+	}
+
 	vsaSize := atoiMin(r.FormValue("vsa_disk"), minVSADiskGiB, minVSADiskGiB)
 	viaSize := atoiMin(r.FormValue("via_disk"), minVIADiskGiB, minVIADiskGiB)
 
@@ -408,6 +559,12 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		baseURL: strDefault(strings.TrimSpace(r.FormValue("ks_base_url")), "http://"+r.Host),
 		vsaISO:  strings.TrimSpace(r.FormValue("vsa_base_iso")),
 		viaISO:  strings.TrimSpace(r.FormValue("via_base_iso")),
+	}
+	// Remote kickstart types the GRUB command at the console; reject it up front
+	// for providers with no keystroke-injection API (Nutanix AHV, XCP-ng).
+	if ks.enabled && !hypervisor.SupportsKickstart(provider) {
+		http.Error(w, translate(lang, "deploy.err_ks_unsupported"), http.StatusUnprocessableEntity)
+		return
 	}
 
 	nodes := make([]deploy.NodeDeploy, len(specs))
@@ -430,17 +587,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		nodes[i] = n
 	}
 
-	hv, err := hypervisor.NewProxmox(hypervisor.ProxmoxConfig{
-		BaseURL:     strings.TrimSpace(r.FormValue("pve_url")),
-		Node:        strings.TrimSpace(r.FormValue("pve_node")),
-		Storage:     strings.TrimSpace(r.FormValue("pve_storage")),
-		ISOStorage:  strings.TrimSpace(r.FormValue("pve_iso_storage")),
-		Username:    strings.TrimSpace(r.FormValue("pve_user")),
-		Password:    r.FormValue("pve_password"),
-		TokenID:     strings.TrimSpace(r.FormValue("pve_token_id")),
-		TokenSecret: strings.TrimSpace(r.FormValue("pve_token_secret")),
-		Insecure:    r.FormValue("pve_insecure") != "",
-	})
+	hv, err := buildHypervisor(provider, r)
 	if err != nil {
 		http.Error(w, translate(lang, "deploy.err_destination")+err.Error(), http.StatusBadRequest)
 		return
@@ -475,6 +622,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	snap := deployFormSnapshot(r, len(specs))
 	d, err := s.deps.DeployManager.Start(deploy.Spec{
 		Label:       string(kind),
 		Nodes:       nodes,
@@ -484,6 +632,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		Wirer:       wirer,
 		WireTimeout: time.Duration(atoiMin(r.FormValue("wire_timeout"), 45, 5)) * time.Minute,
 		BootWait:    time.Duration(atoiMin(r.FormValue("boot_wait"), 10, 3)) * time.Second,
+		Form:        snap,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

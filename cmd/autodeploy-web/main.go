@@ -59,12 +59,19 @@ func main() {
 	// registry (their config snapshots are pruned with them).
 	const keepCompletedJobs = 50
 
+	jobStore, err := job.OpenStore(filepath.Join(dataDir, "jobs.db"))
+	if err != nil {
+		log.Fatalf("job store: %v", err)
+	}
+	defer jobStore.Close()
+
 	mgr := job.NewManager(job.Options{
 		DataDir:       dataDir,
 		AutodeployDir: autodeployDir,
 		PSScript:      psScript,
 		MaxConcurrent: concurrency,
 		KeepCompleted: keepCompletedJobs,
+		Store:         jobStore,
 	})
 
 	deployMgr := deploy.NewManager()

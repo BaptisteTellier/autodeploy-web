@@ -93,6 +93,21 @@ func ParseProgressLine(line string) (node, pct int, ok bool) {
 	return node, pct, true
 }
 
+// FormSnapshot captures the non-secret deploy-form inputs so a finished
+// deployment can be copied back into the form ("Copy to deploy"). Passwords and
+// token secrets are deliberately NOT captured.
+type FormSnapshot struct {
+	Kind        string            `json:"kind"`
+	Provider    string            `json:"provider"`
+	RemoteKS    bool              `json:"remote_ks"`
+	Wire        bool              `json:"wire"`
+	PowerOn     bool              `json:"power_on"`
+	NodeOutputs []string          `json:"node_outputs"`         // per slot: chosen output job id
+	NodeBoots   []string          `json:"node_boots,omitempty"` // per slot: edited GRUB bootcmd ("" if default)
+	Text        map[string]string `json:"text"`                 // text/number/select inputs by form name
+	Checks      map[string]bool   `json:"checks"`               // checkbox inputs by form name (e.g. *_insecure, hv_https)
+}
+
 // Spec is everything needed to run one deployment.
 type Spec struct {
 	Label   string       // topology label, for display (e.g. "vsa+proxy")
@@ -109,6 +124,10 @@ type Spec struct {
 	// BootWait is how long to wait after power-on before typing the GRUB boot
 	// command (kickstart mode). 0 = DefaultBootWait.
 	BootWait time.Duration
+
+	// Form is the form snapshot captured at submission time; stored on the
+	// Deployment so a finished run can be copied back into the deploy form.
+	Form FormSnapshot
 }
 
 // DefaultWireTimeout caps the wiring step so it never waits forever.
@@ -133,6 +152,7 @@ type Deployment struct {
 	done     chan struct{}
 	hv       hypervisor.Hypervisor // retained so Remove can destroy the created VMs
 	spec     Spec                  // retained so a removed deployment can be retried
+	form     FormSnapshot          // non-secret form snapshot for "Copy to deploy"
 	cancel   context.CancelFunc    // cancels the run goroutine (set once running)
 	canceled bool                  // true when a STOP was requested (vs. a real failure)
 }
@@ -146,6 +166,7 @@ type View struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	FinishedAt time.Time    `json:"finished_at,omitempty"`
 	Error      string       `json:"error,omitempty"`
+	Form       FormSnapshot `json:"form"` // non-secret form snapshot for "Copy to deploy"
 }
 
 // View returns a snapshot safe to hand to HTTP handlers / templates.
@@ -162,6 +183,7 @@ func (d *Deployment) View() View {
 		CreatedAt:  d.CreatedAt,
 		FinishedAt: d.FinishedAt,
 		Error:      d.Error,
+		Form:       d.form,
 	}
 }
 
@@ -335,6 +357,7 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 		done:      make(chan struct{}),
 		hv:        spec.HV,
 		spec:      spec,
+		form:      spec.Form,
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {

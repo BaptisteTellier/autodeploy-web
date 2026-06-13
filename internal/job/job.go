@@ -53,6 +53,31 @@ func newJob(id, hostname, appliance, src, out, cfgPath string) *Job {
 	}
 }
 
+// newPersistedJob reconstructs a finished, inert Job from a PersistedJob
+// loaded out of the database. The done channel is already closed so Done()
+// and Subscribe() behave correctly. No goroutine is started.
+func newPersistedJob(p PersistedJob) *Job {
+	done := make(chan struct{})
+	close(done)
+	return &Job{
+		ID:           p.View.ID,
+		State:        p.View.State,
+		Hostname:     p.View.Hostname,
+		Appliance:    p.View.Appliance,
+		SourceISO:    p.View.SourceISO,
+		OutputISO:    p.View.OutputISO,
+		ConfigPath:   p.ConfigPath,
+		CreatedAt:    p.View.CreatedAt,
+		StartedAt:    p.View.StartedAt,
+		FinishedAt:   p.View.FinishedAt,
+		ExitCode:     p.View.ExitCode,
+		ErrorMessage: p.View.ErrorMessage,
+		lines:        make([]string, 0),
+		subs:         nil,
+		done:         done,
+	}
+}
+
 // AppendLine stores one log line and fans it out to live subscribers.
 func (j *Job) AppendLine(line string) {
 	j.mu.Lock()

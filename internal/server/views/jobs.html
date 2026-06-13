@@ -1,6 +1,14 @@
 {{define "views/jobs.html"}}{{template "layout.html" .}}{{end}}
 
 {{define "content"}}
+<script>
+async function deleteJob(id) {
+  if (!confirm('{{t "jobs.delete"}} ' + id.slice(0, 8) + '…?')) return;
+  const res = await fetch('/jobs/' + id, { method: 'DELETE' });
+  if (res.ok) { location.reload(); }
+  else { alert('Delete failed: ' + (await res.text())); }
+}
+</script>
 <div class="space-y-4">
 <div class="bg-white rounded shadow p-4">
   <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "jobs.all"}}</h2>
@@ -30,6 +38,10 @@
         <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
         {{if eq (printf "%s" .State) "done"}}
           <a href="/media/output/{{.ID}}" class="text-emerald-600 hover:underline text-xs ml-2">{{t "jobs.output"}}</a>
+        {{end}}
+        {{$st := printf "%s" .State}}
+        {{if or (eq $st "done") (eq $st "failed") (eq $st "canceled")}}
+          <button onclick="deleteJob('{{.ID}}')" class="text-red-500 hover:text-red-700 text-xs ml-2" title="{{t "jobs.delete"}}">🗑</button>
         {{end}}
       </td>
     </tr>

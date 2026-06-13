@@ -286,9 +286,24 @@ You pick a topology, point it at a Proxmox host, choose where each VM's customis
 output came from, and click deploy. It is **Go-native** — no Terraform, no Packer.
 
 > [!NOTE]
-> **Proxmox VE is the MVP target.** The hypervisor layer is an interface
-> (`internal/hypervisor`); vSphere and Hyper-V back-ends are planned but not yet
-> implemented. Everything below describes the Proxmox path.
+> **Proxmox VE is the only production-validated target.** The hypervisor layer is an
+> interface (`internal/hypervisor`) with five back-ends. A **Hypervisor** dropdown on
+> the Deploy page selects between them:
+>
+> | Back-end | Status | Remote kickstart |
+> |---|---|---|
+> | **Proxmox VE** | ✅ validated | ✅ QEMU `sendkey` |
+> | **VMware vSphere / vCenter** | 🧪 experimental (untested on live infra) | ✅ USB scan codes |
+> | **Microsoft Hyper-V** (WinRM) | 🧪 experimental (untested on live infra) | ✅ `Msvm_Keyboard` |
+> | **Nutanix AHV** | 🧪 experimental (untested on live infra) | ❌ no key-injection API |
+> | **XCP-ng** | 🧪 experimental (untested on live infra) | ❌ no key-injection API |
+>
+> The experimental back-ends compile and implement the full lifecycle but have **not**
+> been run against real infrastructure — treat them as beta. On **Nutanix AHV** and
+> **XCP-ng**, remote kickstart is unavailable (their APIs expose no console
+> key-injection), so deploy a **pre-customised ISO** (classic mode) there. Most of the
+> walkthrough below describes the Proxmox path; the other back-ends follow the same flow
+> with their own connection fields.
 
 ### 1. Pick a topology
 
@@ -339,8 +354,9 @@ card** lets you verify the whole plan before launch.
 - **Remote kickstart (Packer-like).** Tick *Remote kickstart* and pick an **original**
   VSA/VIA ISO from the hypervisor library (it is uploaded automatically if missing).
   At boot, autodeploy-web injects the **role-aware GRUB command** through the
-  hypervisor console (QEMU `sendkey` on Proxmox) so the appliance fetches its
-  kickstart over HTTP from autodeploy-web:
+  hypervisor console (QEMU `sendkey` on Proxmox, USB scan codes on vSphere,
+  `Msvm_Keyboard` on Hyper-V — **not available on Nutanix AHV / XCP-ng**) so the
+  appliance fetches its kickstart over HTTP from autodeploy-web:
   - VSA → `inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<HTTP> ip=dhcp …`
   - VIA → `inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<HTTP> ip=dhcp …`
 
@@ -377,8 +393,9 @@ VM is.
 ## Limitations
 
 - 🚫 **No authentication** — designed for LAN use. Add a reverse proxy (Caddy, Traefik) for public exposure.
-- 🚫 **No job persistence** — restart clears in-memory jobs (and deployments). Presets and ISOs on disk survive.
-- 🚧 **Auto-Deploy is Proxmox-only (MVP).** vSphere and Hyper-V back-ends are planned but not yet implemented.
+- 💾 **Jobs are persisted** in a SQLite database (`DATA_DIR/jobs.db`) and survive restarts; they can be deleted from the Jobs tab. **Deployments are still in-memory** and cleared on restart.
+- 🧪 **Auto-Deploy: only Proxmox VE is production-validated.** vSphere, Hyper-V, Nutanix AHV and XCP-ng back-ends are implemented but **experimental / untested on live infrastructure** (see the Auto-Deploy note above). On AHV and XCP-ng, remote kickstart is unavailable — use a pre-customised ISO.
+- ⚠️ **Hyper-V ISO upload over WinRM is slow** for 15–20 GB ISOs (base64 streaming) — **pre-stage** the ISO in the host's ISO path so `FindISO` skips the upload.
 - ⚠️ **Remote-kickstart keystroke injection is best-effort** — there is no clean screenshot/console feedback over the Proxmox API, so the classic customised-ISO boot mode remains the most reliable.
 - The PS1 hard-coded behaviours (NTP failure aborts build, etc.) apply unchanged.
 

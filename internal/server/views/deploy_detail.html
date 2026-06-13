@@ -29,7 +29,7 @@
     <form method="POST" action="/deploy/{{.Deployment.ID}}/retry">
       <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors">↻ {{t "deploy.retry"}}</button>
     </form>
-    <a href="/deploy?kind={{.Deployment.Kind}}"
+    <a href="/deploy?copy={{.Deployment.ID}}"
        class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">⧉ {{t "deploy.copy_to_deploy"}}</a>
     {{end}}
     {{if ne (printf "%s" .Deployment.State) "removed"}}

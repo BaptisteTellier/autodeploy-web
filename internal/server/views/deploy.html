@@ -25,11 +25,36 @@
     };
     const OUTPUTS = {{.OutputsJSON}};
     const OUTPUTS_BY_ID = Object.fromEntries(OUTPUTS.map(o => [o.job_id, o]));
+    const DEPLOY_PREFILL = {{.PrefillJSON}};
   </script>
 
   <form method="POST" action="/deploy" class="space-y-6"
-        x-init="const k=new URLSearchParams(location.search).get('kind'); if(k && DEPLOY_CATALOG[k]) kind=k"
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{},
+        x-init="
+          if (DEPLOY_PREFILL) {
+            const p = DEPLOY_PREFILL;
+            if (p.kind && DEPLOY_CATALOG[p.kind]) kind = p.kind;
+            if (p.provider) provider = p.provider;
+            ks   = !!p.remote_ks;
+            wire = !!p.wire;
+            if (p.text && p.text.ks_base_url) ksbase = p.text.ks_base_url;
+            if (Array.isArray(p.node_outputs)) {
+              p.node_outputs.forEach(function(v,i){ if(v) sel[i]=v; });
+            }
+            if (Array.isArray(p.node_boots)) {
+              p.node_boots.forEach(function(v,i){ if(v){ adv[i]=true; edited[i]=true; bootcmd[i]=v; } });
+            }
+            $nextTick(function(){
+              if (p.power_on) { const el=document.querySelector('[name=\"power_on\"]'); if(el) el.checked=true; }
+              if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.querySelector('[name=\"'+k+'\"]'); if(el) el.value=v; });
+              if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.querySelector('[name=\"'+k+'\"]'); if(el) el.checked=!!v; });
+            });
+          } else {
+            const k=new URLSearchParams(location.search).get('kind');
+            if(k && DEPLOY_CATALOG[k]) kind=k;
+          }
+        "
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox',
+                  get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
                   get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
                   get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
                   get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
@@ -99,8 +124,13 @@
       </div>
     </div>
 
+    <!-- Remote kickstart unavailable on this provider (Nutanix AHV / XCP-ng) -->
+    <div x-show="roles.length && !ksCapable" x-cloak class="bg-slate-50 border border-slate-200 text-slate-600 text-xs rounded-lg px-4 py-3">
+      {{t "deploy.ks_unsupported_note"}}
+    </div>
+
     <!-- Remote kickstart (boot the ORIGINAL ISO + inject inst.ks= via GRUB) -->
-    <div x-show="roles.length" x-cloak class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+    <div x-show="roles.length && ksCapable" x-cloak class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
       <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
         <input type="checkbox" name="remote_ks" x-model="ks" class="rounded border-slate-300">
         {{t "deploy.kickstart"}}
@@ -137,36 +167,211 @@
     <!-- Destination -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
       <h2 class="font-semibold text-slate-800">{{t "deploy.destination"}}</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_url"}}
-          <input name="pve_url" required value="https://192.168.1.181:8006/api2/json"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.pve_node"}}
-          <input name="pve_node" required value="proxmox"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.pve_storage"}}
-          <input name="pve_storage" required value="local-lvm"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
-          <input name="pve_iso_storage" value="local"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.pve_user"}}
-          <input name="pve_user" value="root@pam"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.pve_password"}}
-          <input name="pve_password" type="password"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+
+      <label class="text-sm text-slate-600">{{t "deploy.provider"}}
+        <select name="provider" x-model="provider" @change="if(!ksCapable) ks=false"
+                class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <option value="proxmox">Proxmox VE</option>
+          <option value="vsphere">VMware vSphere / vCenter (experimental)</option>
+          <option value="hyperv">Microsoft Hyper-V (experimental)</option>
+          <option value="nutanix">Nutanix AHV (experimental)</option>
+          <option value="xcpng">XCP-ng (experimental)</option>
+        </select>
+      </label>
+
+      <!-- Proxmox -->
+      <div x-show="provider==='proxmox'" x-cloak class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_url"}}
+            <input name="pve_url" :required="provider==='proxmox'" value="https://192.168.1.181:8006/api2/json"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.pve_node"}}
+            <input name="pve_node" :required="provider==='proxmox'" value="proxmox"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.pve_storage"}}
+            <input name="pve_storage" value="local-lvm"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
+            <input name="pve_iso_storage" value="local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.pve_user"}}
+            <input name="pve_user" value="root@pam"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.pve_password"}}
+            <input name="pve_password" type="password"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="pve_insecure" checked class="rounded border-slate-300">
+          {{t "deploy.pve_insecure"}}
         </label>
       </div>
-      <label class="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" name="pve_insecure" checked class="rounded border-slate-300">
-        {{t "deploy.pve_insecure"}}
-      </label>
+
+      <!-- vSphere / vCenter -->
+      <div x-show="provider==='vsphere'" x-cloak class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.vs_url"}}
+            <input name="vs_url" :required="provider==='vsphere'" placeholder="https://vc.lab.local/sdk"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
+            <input name="vs_user" placeholder="administrator@vsphere.local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
+            <input name="vs_password" type="password"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vs_datacenter"}}
+            <input name="vs_datacenter"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vs_cluster"}}
+            <input name="vs_cluster"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vs_datastore"}}
+            <input name="vs_datastore"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vs_network"}}
+            <input name="vs_network" placeholder="VM Network"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vs_resource_pool"}}
+            <input name="vs_resource_pool"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vs_folder"}}
+            <input name="vs_folder"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="vs_insecure" checked class="rounded border-slate-300">
+          {{t "deploy.f_insecure"}}
+        </label>
+      </div>
+
+      <!-- Hyper-V (WinRM) -->
+      <div x-show="provider==='hyperv'" x-cloak class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="text-sm text-slate-600">{{t "deploy.hv_host"}}
+            <input name="hv_host" :required="provider==='hyperv'" placeholder="hyperv01.lab.local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.hv_port"}}
+            <input name="hv_port" type="number" placeholder="5985"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
+            <input name="hv_user" placeholder="administrator"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
+            <input name="hv_password" type="password"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.hv_switch"}}
+            <input name="hv_switch" placeholder="External"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.hv_vm_path"}}
+            <input name="hv_vm_path" placeholder="C:\\ProgramData\\autodeploy"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.hv_iso_path"}}
+            <input name="hv_iso_path" placeholder="C:\\ISOs"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="hv_https" class="rounded border-slate-300">
+          {{t "deploy.hv_https"}}
+        </label>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="hv_insecure" checked class="rounded border-slate-300">
+          {{t "deploy.f_insecure"}}
+        </label>
+      </div>
+
+      <!-- Nutanix AHV -->
+      <div x-show="provider==='nutanix'" x-cloak class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="text-sm text-slate-600">{{t "deploy.nx_endpoint"}}
+            <input name="nx_endpoint" :required="provider==='nutanix'" placeholder="10.0.0.10"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.nx_port"}}
+            <input name="nx_port" type="number" value="9440"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
+            <input name="nx_user" placeholder="admin"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
+            <input name="nx_password" type="password"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.nx_cluster"}}
+            <input name="nx_cluster"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.nx_storage"}}
+            <input name="nx_storage"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.nx_subnet"}}
+            <input name="nx_subnet"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="nx_insecure" checked class="rounded border-slate-300">
+          {{t "deploy.f_insecure"}}
+        </label>
+      </div>
+
+      <!-- XCP-ng -->
+      <div x-show="provider==='xcpng'" x-cloak class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.xen_host"}}
+            <input name="xen_host" :required="provider==='xcpng'" placeholder="https://xcp.lab.local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
+            <input name="xen_user" value="root"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
+            <input name="xen_password" type="password"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.xen_sr"}}
+            <input name="xen_sr"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.xen_iso_sr"}}
+            <input name="xen_iso_sr"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.xen_network"}}
+            <input name="xen_network"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="xen_insecure" checked class="rounded border-slate-300">
+          {{t "deploy.f_insecure"}}
+        </label>
+      </div>
     </div>
 
     <!-- VM sizing (disks are derived per role: VSA 2×256, VIA 2×128, VIA single 1×128) -->

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,11 +22,13 @@ type Options struct {
 	PSScript      string // autodeploy.ps1
 	MaxConcurrent int
 	KeepCompleted int
+	Store         *Store // optional; nil disables persistence
 }
 
 // Manager owns the in-memory job registry and the worker pool.
 type Manager struct {
-	opts Options
+	opts  Options
+	store *Store // nil when persistence is disabled
 
 	mu   sync.RWMutex
 	jobs map[string]*Job
@@ -42,11 +45,53 @@ func NewManager(opts Options) *Manager {
 	if opts.KeepCompleted <= 0 {
 		opts.KeepCompleted = 50
 	}
-	return &Manager{
+	m := &Manager{
 		opts:   opts,
+		store:  opts.Store,
 		jobs:   make(map[string]*Job),
 		sem:    make(chan struct{}, opts.MaxConcurrent),
 		stopCh: make(chan struct{}),
+	}
+	if m.store != nil {
+		m.loadFromStore()
+	}
+	return m
+}
+
+// loadFromStore hydrates the in-memory job registry from persisted records.
+// Running or pending states from a previous crash are normalised to failed.
+func (m *Manager) loadFromStore() {
+	records, err := m.store.LoadJobs()
+	if err != nil {
+		log.Printf("job store: load failed: %v", err)
+		return
+	}
+	for _, p := range records {
+		st := p.View.State
+		if st == StateRunning || st == StatePending {
+			// Worker is gone — mark as failed and re-persist the normalised record.
+			p.View.State = StateFailed
+			if p.View.FinishedAt.IsZero() {
+				p.View.FinishedAt = time.Now()
+			}
+			p.View.ErrorMessage = "interrupted by restart"
+			if serr := m.store.SaveJob(p.View, p.ConfigPath); serr != nil {
+				log.Printf("job store: normalise %s: %v", p.View.ID, serr)
+			}
+		}
+		m.jobs[p.View.ID] = newPersistedJob(p)
+	}
+	log.Printf("job store: loaded %d job(s)", len(records))
+}
+
+// persist saves the current snapshot of j to the store, logging on error.
+// It is a no-op when the store is nil.
+func (m *Manager) persist(j *Job) {
+	if m.store == nil {
+		return
+	}
+	if err := m.store.SaveJob(j.View(), j.ConfigPath); err != nil {
+		log.Printf("job store: save %s: %v", j.ID, err)
 	}
 }
 
@@ -94,6 +139,9 @@ func (m *Manager) Submit(c config.Config) (*Job, error) {
 	m.pruneLocked()
 	m.mu.Unlock()
 
+	// Persist the new job record immediately (state=pending).
+	m.persist(j)
+
 	m.wg.Add(1)
 	go m.runWorker(j)
 
@@ -121,8 +169,14 @@ func (m *Manager) pruneLocked() {
 	sort.Slice(finished, func(i, k int) bool { return finished[i].finishedAt.Before(finished[k].finishedAt) })
 	drop := len(finished) - m.opts.KeepCompleted
 	for i := 0; i < drop; i++ {
-		delete(m.jobs, finished[i].job.ID)
-		_ = os.Remove(finished[i].job.ConfigPath)
+		pruned := finished[i].job
+		delete(m.jobs, pruned.ID)
+		_ = os.Remove(pruned.ConfigPath)
+		if m.store != nil {
+			if err := m.store.DeleteJob(pruned.ID); err != nil {
+				log.Printf("job store: prune delete %s: %v", pruned.ID, err)
+			}
+		}
 	}
 }
 
@@ -140,6 +194,7 @@ func (m *Manager) runWorker(j *Job) {
 	defer func() { <-m.sem }()
 
 	j.markRunning()
+	m.persist(j) // state=running
 
 	r := Runner{
 		AutodeployDir:  m.opts.AutodeployDir,
@@ -172,6 +227,7 @@ func (m *Manager) runWorker(j *Job) {
 		finalState = StateDone
 	}
 	j.markResult(finalState, exit, errMsg)
+	m.persist(j) // state=done/failed
 
 	// Snapshot the job config JSON into the output folder so it can be
 	// reimported from the "Import config into new job" button and used to
@@ -223,6 +279,11 @@ func (m *Manager) Delete(id string) error {
 	}
 	delete(m.jobs, id)
 	_ = os.Remove(j.ConfigPath)
+	if m.store != nil {
+		if err := m.store.DeleteJob(id); err != nil {
+			log.Printf("job store: delete %s: %v", id, err)
+		}
+	}
 	return nil
 }
 

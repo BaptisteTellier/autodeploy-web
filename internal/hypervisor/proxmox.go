@@ -279,6 +279,8 @@ func (p *Proxmox) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 		{Name: "ostype", Value: "l26"},
 		{Name: "scsihw", Value: "virtio-scsi-single"},
 		{Name: "net0", Value: net0},
+		{Name: "cpu", Value: "x86-64-v2-AES"},
+		{Name: "vga", Value: "virtio"},
 	}
 	if spec.UEFI {
 		// OVMF needs q35 + a dedicated EFI vars disk (Proxmox docs). Secure Boot
