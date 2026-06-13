@@ -43,13 +43,17 @@ type NodeDeploy struct {
 	SingleDisk  bool   // VIA only: adds inst.vsingledisk to the generated GRUB boot line
 	ISOPath     string // absolute path to the already-built customised ISO ("" in kickstart mode)
 	Disks       []int  // disk sizes in GiB (role/config-derived)
-	IP          string // static IP baked into the ISO (used by the wiring step)
+	IP          string // static IP baked into the ISO; "" = DHCP (wiring resolves it via GetVMIP)
 	PairingCode string // appliance pairing/handshake code (default "000000")
 
 	// Remote kickstart (both set => kickstart mode for this node):
 	KSUrl       string // kickstart URL (…/media/output/<job>/<file>.cfg/content)
 	BaseISOPath string // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
 	BootCommand string // optional override of the GRUB boot command (one line per row); "" = role default
+
+	// Ref is populated by the orchestrator after VM creation. Used by the
+	// DHCP IP-resolution step to query the hypervisor guest agent.
+	Ref hypervisor.VMRef
 }
 
 // kickstart reports whether this node deploys via remote kickstart.
@@ -400,7 +404,8 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 	}()
 
 	for i, node := range spec.Nodes {
-		if err := m.deployNode(ctx, d, i, node, spec); err != nil {
+		ref, err := m.deployNode(ctx, d, i, node, spec)
+		if err != nil {
 			if d.isCanceled() {
 				d.setNode(i, func(ns *NodeStatus) { ns.Step = "canceled" })
 				d.AppendLine("Deployment stopped by user.")
@@ -415,8 +420,33 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 			d.setState(StateFailed)
 			return
 		}
+		spec.Nodes[i].Ref = ref
 	}
 	d.AppendLine("All nodes deployed.")
+
+	// DHCP IP resolution: if wiring is requested and any node has no static IP,
+	// poll the hypervisor guest agent until all IPs are known. Bounded by
+	// WireTimeout so it can never wait forever.
+	if spec.Wirer != nil && spec.PowerOn {
+		for i := range spec.Nodes {
+			if spec.Nodes[i].IP == "" && spec.Nodes[i].Ref.ID != "" {
+				d.AppendLine(fmt.Sprintf("[%s] DHCP — polling hypervisor for IP…", spec.Nodes[i].Name))
+			}
+		}
+		if err := m.resolveNodeIPs(ctx, d, spec); err != nil {
+			if d.isCanceled() {
+				d.AppendLine("Deployment stopped by user.")
+				d.setState(StateCanceled)
+				return
+			}
+			d.AppendLine(fmt.Sprintf("IP RESOLUTION FAILED: %v", err))
+			d.mu.Lock()
+			d.Error = "ip resolution: " + err.Error()
+			d.mu.Unlock()
+			d.setState(StateFailed)
+			return
+		}
+	}
 
 	// Optional wiring step: register the booted appliances into the VSA. Only
 	// meaningful once the VMs are actually powered on. Bounded by WireTimeout
@@ -450,26 +480,29 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 // deployNode runs the per-node sequence: resolve/upload the ISO → create VM →
 // attach ISO → set boot order → (optionally) power on → (kickstart mode) type
 // the GRUB boot command pointing at the node's kickstart URL.
-func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node NodeDeploy, spec Spec) error {
+// It returns the VMRef of the created VM so the caller can store it for later
+// DHCP IP resolution via GetVMIP.
+func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node NodeDeploy, spec Spec) (hypervisor.VMRef, error) {
 	host := node.Name
 
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading"; ns.Progress = 0 })
 	onProgress := d.uploadProgress(i, host)
 	var isoRef string
 	var err error
+	var zero hypervisor.VMRef
 	if node.kickstart() {
 		// Original Veeam ISO: reuse the library copy when present, upload once
 		// otherwise (shared by every node of the same role).
 		name := filepath.Base(node.BaseISOPath)
 		isoRef, err = spec.HV.FindISO(ctx, name)
 		if err != nil {
-			return fmt.Errorf("find base ISO: %w", err)
+			return zero, fmt.Errorf("find base ISO: %w", err)
 		}
 		if isoRef == "" {
 			d.AppendLine(fmt.Sprintf("[%s] base ISO %s not in library — uploading…", host, name))
 			isoRef, err = spec.HV.UploadISO(ctx, node.BaseISOPath, onProgress)
 			if err != nil {
-				return fmt.Errorf("upload base ISO: %w", err)
+				return zero, fmt.Errorf("upload base ISO: %w", err)
 			}
 		} else {
 			d.AppendLine(fmt.Sprintf("[%s] base ISO already in library: %s", host, isoRef))
@@ -478,7 +511,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		d.AppendLine(fmt.Sprintf("[%s] uploading ISO %s…", host, node.ISOPath))
 		isoRef, err = spec.HV.UploadISO(ctx, node.ISOPath, onProgress)
 		if err != nil {
-			return fmt.Errorf("upload ISO: %w", err)
+			return zero, fmt.Errorf("upload ISO: %w", err)
 		}
 	}
 
@@ -489,24 +522,24 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 	vmSpec.Disks = node.Disks
 	vm, err := spec.HV.CreateVM(ctx, vmSpec)
 	if err != nil {
-		return fmt.Errorf("create VM: %w", err)
+		return zero, fmt.Errorf("create VM: %w", err)
 	}
 	d.setNode(i, func(ns *NodeStatus) { ns.VMID = vm.ID })
 
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = "attaching" })
 	d.AppendLine(fmt.Sprintf("[%s] attaching ISO %s to VM %s…", host, isoRef, vm.ID))
 	if err := spec.HV.AttachISO(ctx, vm, isoRef); err != nil {
-		return fmt.Errorf("attach ISO: %w", err)
+		return zero, fmt.Errorf("attach ISO: %w", err)
 	}
 	if err := spec.HV.SetBootFromCD(ctx, vm); err != nil {
-		return fmt.Errorf("set boot order: %w", err)
+		return zero, fmt.Errorf("set boot order: %w", err)
 	}
 
 	if spec.PowerOn || node.kickstart() {
 		d.setNode(i, func(ns *NodeStatus) { ns.Step = "booting" })
 		d.AppendLine(fmt.Sprintf("[%s] powering on VM %s…", host, vm.ID))
 		if err := spec.HV.PowerOn(ctx, vm); err != nil {
-			return fmt.Errorf("power on: %w", err)
+			return zero, fmt.Errorf("power on: %w", err)
 		}
 	}
 
@@ -519,7 +552,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		d.AppendLine(fmt.Sprintf("[%s] waiting %s for GRUB, then typing the boot command (inst.ks=%s)…", host, bootWait, node.KSUrl))
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return zero, ctx.Err()
 		case <-time.After(bootWait):
 		}
 		keys := BootCommandKeys(node.Role, node.KSUrl, node.SingleDisk)
@@ -527,7 +560,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 			keys = BootCommandKeysFromText(node.BootCommand) // user-edited override
 		}
 		if err := spec.HV.SendKeys(ctx, vm, keys); err != nil {
-			return fmt.Errorf("type boot command: %w", err)
+			return zero, fmt.Errorf("type boot command: %w", err)
 		}
 	}
 
@@ -540,6 +573,75 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 	}
 	d.setNode(i, func(ns *NodeStatus) { ns.Step = final })
 	d.AppendLine(fmt.Sprintf("[%s] %s (VM %s).", host, msg, vm.ID))
+	return vm, nil
+}
+
+// resolveNodeIPs resolves DHCP IPs for every node in spec whose IP is "".
+// It polls spec.HV.GetVMIP in parallel (one goroutine per node) until all IPs
+// are known or ctx is done. On success the IPs are written back into spec.Nodes.
+func (m *Manager) resolveNodeIPs(ctx context.Context, d *Deployment, spec Spec) error {
+	type result struct {
+		idx int
+		ip  string
+	}
+	// Collect nodes that need resolution.
+	var pending []int
+	for i, n := range spec.Nodes {
+		if n.IP == "" && n.Ref.ID != "" {
+			pending = append(pending, i)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	resultCh := make(chan result, len(pending))
+	errCh := make(chan error, 1)
+
+	for _, idx := range pending {
+		idx := idx
+		node := spec.Nodes[idx]
+		go func() {
+			for {
+				ip, err := spec.HV.GetVMIP(ctx, node.Ref)
+				if err != nil {
+					select {
+					case errCh <- fmt.Errorf("node %s: GetVMIP: %w", node.Name, err):
+					default:
+					}
+					return
+				}
+				if ip != "" {
+					resultCh <- result{idx: idx, ip: ip}
+					return
+				}
+				select {
+				case <-ctx.Done():
+					select {
+					case errCh <- fmt.Errorf("node %s: waiting for IP: %w", node.Name, ctx.Err()):
+					default:
+					}
+					return
+				case <-time.After(15 * time.Second):
+					d.AppendLine(fmt.Sprintf("[%s] waiting for guest agent to report IP…", node.Name))
+				}
+			}
+		}()
+	}
+
+	resolved := 0
+	for resolved < len(pending) {
+		select {
+		case r := <-resultCh:
+			spec.Nodes[r.idx].IP = r.ip
+			d.AppendLine(fmt.Sprintf("[%s] guest IP resolved: %s", spec.Nodes[r.idx].Name, r.ip))
+			resolved++
+		case err := <-errCh:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	return nil
 }
 

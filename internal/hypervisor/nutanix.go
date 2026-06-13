@@ -688,6 +688,31 @@ func (nx *Nutanix) Status(ctx context.Context, vm VMRef) (PowerState, error) {
 	}
 }
 
+// GetVMIP returns the first IPv4 address from the VM's NIC list as reported
+// by the Nutanix Prism API (populated by the ACPI/guest tools).
+// Returns ("", nil) when no IP has been assigned yet.
+func (nx *Nutanix) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
+	current, err := nx.getVM(ctx, vm)
+	if err != nil {
+		return "", fmt.Errorf("nutanix: GetVMIP %s: %w", vm.ID, err)
+	}
+	if current.Status == nil || current.Status.Resources == nil {
+		return "", nil
+	}
+	for _, nic := range current.Status.Resources.NicList {
+		if nic == nil {
+			continue
+		}
+		for _, ep := range nic.IPEndpointList {
+			if ep == nil || ep.IP == nil || *ep.IP == "" {
+				continue
+			}
+			return *ep.IP, nil
+		}
+	}
+	return "", nil
+}
+
 // Destroy powers off (if needed) and deletes the VM and its disks.
 func (nx *Nutanix) Destroy(ctx context.Context, vm VMRef) error {
 	svc, err := nx.client()

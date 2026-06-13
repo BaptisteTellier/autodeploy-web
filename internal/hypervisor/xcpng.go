@@ -695,6 +695,38 @@ func (x *XCPng) Destroy(ctx context.Context, vm VMRef) error {
 	return nil
 }
 
+// GetVMIP reads the XenServer/XCP-ng guest metrics and returns the first
+// IPv4 address found in the Networks map (keys like "0/ip", "1/ip").
+// Returns ("", nil) when the guest agent has not reported any address yet.
+func (x *XCPng) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
+	c, sess, err := x.ensureSession()
+	if err != nil {
+		return "", err
+	}
+	vmRef, err := x.resolveVM(c, sess, vm.ID)
+	if err != nil {
+		return "", err
+	}
+	metricsRef, err := c.VM.GetGuestMetrics(sess, vmRef)
+	if err != nil || metricsRef == "OpaqueRef:NULL" {
+		// Guest agent not running yet.
+		return "", nil
+	}
+	networks, err := c.VMGuestMetrics.GetNetworks(sess, metricsRef)
+	if err != nil {
+		return "", nil
+	}
+	// Keys are of the form "N/ip" for IPv4 and "N/ipv6/M" for IPv6.
+	// Iterate in a stable order by checking index 0 first, then 1, …
+	for i := 0; i < 16; i++ {
+		key := fmt.Sprintf("%d/ip", i)
+		if ip, ok := networks[key]; ok && ip != "" {
+			return ip, nil
+		}
+	}
+	return "", nil
+}
+
 // destroyVMBestEffort is used for rollback during CreateVM. It hard-shuts (if
 // needed), then destroys the VM and all associated RW VDIs. Errors are ignored.
 func (x *XCPng) destroyVMBestEffort(c *xenapi.Client, sess xenapi.SessionRef, vmRef xenapi.VMRef) {

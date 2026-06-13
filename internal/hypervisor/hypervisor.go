@@ -91,4 +91,9 @@ type Hypervisor interface {
 
 	// Destroy removes the VM and its disks (used for cleanup / rollback).
 	Destroy(ctx context.Context, vm VMRef) error
+
+	// GetVMIP returns the first non-loopback, non-link-local IPv4 address
+	// reported by the guest agent / VMware tools / guest metrics for the VM.
+	// Returns ("", nil) when the agent is not yet ready or no IP is known.
+	GetVMIP(ctx context.Context, vm VMRef) (string, error)
 }

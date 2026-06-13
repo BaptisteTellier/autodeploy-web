@@ -84,6 +84,9 @@ func (h *mockHV) Destroy(_ context.Context, vm hypervisor.VMRef) error {
 	h.log("destroy:" + vm.ID)
 	return nil
 }
+func (h *mockHV) GetVMIP(_ context.Context, _ hypervisor.VMRef) (string, error) {
+	return "", nil
+}
 
 func waitDone(t *testing.T, d *Deployment) {
 	t.Helper()
@@ -96,8 +99,8 @@ func waitDone(t *testing.T, d *Deployment) {
 
 func twoNodes() []NodeDeploy {
 	return []NodeDeploy{
-		{Name: "vsa-01", Role: "VSA", ISOPath: "/out/a/vsa.iso", Disks: []int{256, 256}},
-		{Name: "proxy-01", Role: "VIA-Proxy", ISOPath: "/out/b/via.iso", Disks: []int{128, 128}},
+		{Name: "vsa-01", Role: "VSA", ISOPath: "/out/a/vsa.iso", Disks: []int{256, 256}, IP: "10.0.0.1"},
+		{Name: "proxy-01", Role: "VIA-Proxy", ISOPath: "/out/b/via.iso", Disks: []int{128, 128}, IP: "10.0.0.2"},
 	}
 }
 

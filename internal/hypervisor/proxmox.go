@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -388,6 +389,37 @@ func (p *Proxmox) Status(ctx context.Context, vm VMRef) (PowerState, error) {
 	default:
 		return PowerUnknown, nil
 	}
+}
+
+// GetVMIP queries the QEMU Guest Agent for the VM's network interfaces and
+// returns the first non-loopback, non-link-local IPv4 address found.
+// Returns ("", nil) when the agent is not yet running.
+func (p *Proxmox) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
+	v, err := p.vm(ctx, vm)
+	if err != nil {
+		return "", err
+	}
+	ifaces, err := v.AgentGetNetworkIFaces(ctx)
+	if err != nil {
+		// Agent not ready yet — not an error; caller will retry.
+		return "", nil
+	}
+	for _, iface := range ifaces {
+		if iface.Name == "lo" {
+			continue
+		}
+		for _, addr := range iface.IPAddresses {
+			if addr.IPAddressType != "ipv4" {
+				continue
+			}
+			ip := net.ParseIP(addr.IPAddress)
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			return addr.IPAddress, nil
+		}
+	}
+	return "", nil
 }
 
 // Destroy stops (if needed) and deletes the VM and its disks.

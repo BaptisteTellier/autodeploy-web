@@ -13,6 +13,7 @@ import (
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/progress"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
@@ -767,4 +768,21 @@ func (v *VSphere) SendKeys(ctx context.Context, vm VMRef, keys []string) error {
 		return fmt.Errorf("vsphere: send keys to VM %s: %w", vm.ID, err)
 	}
 	return nil
+}
+
+// GetVMIP returns the primary guest IP address reported by VMware Tools.
+// Returns ("", nil) when tools are not running or no IP is assigned yet.
+func (v *VSphere) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
+	vmObj, err := v.vmObject(ctx, vm)
+	if err != nil {
+		return "", err
+	}
+	var mobj mo.VirtualMachine
+	if err := vmObj.Properties(ctx, vmObj.Reference(), []string{"guest"}, &mobj); err != nil {
+		return "", fmt.Errorf("vsphere: get guest properties VM %s: %w", vm.ID, err)
+	}
+	if mobj.Guest == nil || mobj.Guest.IpAddress == "" {
+		return "", nil
+	}
+	return mobj.Guest.IpAddress, nil
 }
