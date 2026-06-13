@@ -117,8 +117,13 @@ func loadOutputConfig(dir string) (cfg config.Config, isoFile, cfgFile string, o
 				isoFile = e.Name()
 			}
 		case ".cfg":
-			if cfgFile == "" {
-				cfgFile = e.Name()
+			lower := strings.ToLower(e.Name())
+			if strings.HasPrefix(lower, "grub") {
+				continue // skip grub.cfg / grub2.cfg — not a kickstart file
+			}
+			isKS := strings.Contains(lower, "-ks")
+			if cfgFile == "" || (isKS && !strings.Contains(strings.ToLower(cfgFile), "-ks")) {
+				cfgFile = e.Name() // prefer *-ks.cfg over generic .cfg
 			}
 		}
 	}
