@@ -44,9 +44,9 @@
               p.node_boots.forEach(function(v,i){ if(v){ adv[i]=true; edited[i]=true; bootcmd[i]=v; } });
             }
             $nextTick(function(){
-              if (p.power_on) { const el=document.querySelector('[name=\"power_on\"]'); if(el) el.checked=true; }
-              if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.querySelector('[name=\"'+k+'\"]'); if(el) el.value=v; });
-              if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.querySelector('[name=\"'+k+'\"]'); if(el) el.checked=!!v; });
+              if (p.power_on) { const el=document.getElementsByName('power_on')[0]; if(el) el.checked=true; }
+              if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
+              if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.checked=!!v; });
             });
           } else {
             const k=new URLSearchParams(location.search).get('kind');
