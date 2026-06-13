@@ -107,6 +107,8 @@ func loadOutputConfig(dir string) (cfg config.Config, isoFile, cfgFile string, o
 	if err != nil {
 		return config.Config{}, "", "", false
 	}
+	// VSA kickstart is always vbr-ks.cfg; VIA is always proxy-ks.cfg.
+	wantCfg := map[string]string{"VSA": "vbr-ks.cfg", "VIA": "proxy-ks.cfg"}[cfg.ApplianceType]
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -117,13 +119,13 @@ func loadOutputConfig(dir string) (cfg config.Config, isoFile, cfgFile string, o
 				isoFile = e.Name()
 			}
 		case ".cfg":
-			lower := strings.ToLower(e.Name())
-			if strings.HasPrefix(lower, "grub") {
-				continue // skip grub.cfg / grub2.cfg — not a kickstart file
-			}
-			isKS := strings.Contains(lower, "-ks")
-			if cfgFile == "" || (isKS && !strings.Contains(strings.ToLower(cfgFile), "-ks")) {
-				cfgFile = e.Name() // prefer *-ks.cfg over generic .cfg
+			name := e.Name()
+			if wantCfg != "" {
+				if strings.EqualFold(name, wantCfg) {
+					cfgFile = name // exact match — stop looking
+				}
+			} else if cfgFile == "" && !strings.HasPrefix(strings.ToLower(name), "grub") {
+				cfgFile = name // fallback for unknown appliance types
 			}
 		}
 	}
