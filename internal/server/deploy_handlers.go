@@ -108,8 +108,13 @@ func loadOutputConfig(dir string) (cfg config.Config, isoFile, cfgFile string, o
 	if err != nil {
 		return config.Config{}, "", "", false
 	}
-	// VSA kickstart is always vbr-ks.cfg; VIA is always proxy-ks.cfg.
-	wantCfg := map[string]string{"VSA": "vbr-ks.cfg", "VIA": "proxy-ks.cfg"}[cfg.ApplianceType]
+	// VSA kickstart is always vbr-ks.cfg; all VIA variants (VIA/VIAHR/VIAiscsi) use proxy-ks.cfg.
+	wantCfg := map[string]string{
+		"VSA":      "vbr-ks.cfg",
+		"VIA":      "proxy-ks.cfg",
+		"VIAHR":    "proxy-ks.cfg",
+		"VIAiscsi": "proxy-ks.cfg",
+	}[cfg.ApplianceType]
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
