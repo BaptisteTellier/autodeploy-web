@@ -62,7 +62,9 @@
                   summ(i){ return OUTPUTS_BY_ID[this.sel[i]] || null; },
                   ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/media/output/'+this.sel[i]+'/'+o.cfg_file+'/content'; },
                   defaultBoot(i){ const vsa=(this.roles[i]||'').indexOf('VSA')===0;
-                    const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+' ip=dhcp quiet inst.assumeyes';
+                    const o=this.summ(i);
+                    const sd=!vsa && o && o.single_disk;
+                    const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+(sd?' inst.vsingledisk':'')+' ip=dhcp quiet inst.assumeyes';
                     return lx+'\ninitrdefi /images/pxeboot/initrd.img\nboot'; },
                   revealBoot(i){ if(!this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
                   refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); } }">

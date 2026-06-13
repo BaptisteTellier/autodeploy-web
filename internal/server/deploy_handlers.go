@@ -48,17 +48,18 @@ func catalogViews() []kindView {
 
 // outputSummary describes a built output folder for the picker + summary card.
 type outputSummary struct {
-	JobID     string `json:"job_id"`
-	Name      string `json:"name"`
-	ISOFile   string `json:"iso_file"`
-	CfgFile   string `json:"cfg_file"`
-	Appliance string `json:"appliance"`
-	Hostname  string `json:"hostname"`
-	Network   string `json:"network"`
-	MFAAdmin  bool   `json:"mfa_admin"`
-	SOEnabled bool   `json:"so_enabled"`
-	HA        bool   `json:"ha"`
-	Disks     string `json:"disks"`
+	JobID      string `json:"job_id"`
+	Name       string `json:"name"`
+	ISOFile    string `json:"iso_file"`
+	CfgFile    string `json:"cfg_file"`
+	Appliance  string `json:"appliance"`
+	Hostname   string `json:"hostname"`
+	Network    string `json:"network"`
+	MFAAdmin   bool   `json:"mfa_admin"`
+	SOEnabled  bool   `json:"so_enabled"`
+	HA         bool   `json:"ha"`
+	Disks      string `json:"disks"`
+	SingleDisk bool   `json:"single_disk"`
 }
 
 // Minimum per-role disk sizes (GiB). The user may request larger, never smaller.
@@ -151,17 +152,18 @@ func (s *Server) listOutputs() []outputSummary {
 			net = c.StaticIP
 		}
 		out = append(out, outputSummary{
-			JobID:     e.Name(),
-			Name:      friendlyJobName(dir, e.Name()),
-			ISOFile:   iso,
-			CfgFile:   cfgFile,
-			Appliance: c.ApplianceType,
-			Hostname:  c.Hostname,
-			Network:   net,
-			MFAAdmin:  bool(c.VeeamAdminIsMfaEnabled),
-			SOEnabled: bool(c.VeeamSoIsEnabled),
-			HA:        c.HighAvailabilityEnabled,
-			Disks:     disksLabel(disksForConfig(c, minVSADiskGiB, minVIADiskGiB)),
+			JobID:      e.Name(),
+			Name:       friendlyJobName(dir, e.Name()),
+			ISOFile:    iso,
+			CfgFile:    cfgFile,
+			Appliance:  c.ApplianceType,
+			Hostname:   c.Hostname,
+			Network:    net,
+			MFAAdmin:   bool(c.VeeamAdminIsMfaEnabled),
+			SOEnabled:  bool(c.VeeamSoIsEnabled),
+			HA:         c.HighAvailabilityEnabled,
+			Disks:      disksLabel(disksForConfig(c, minVSADiskGiB, minVIADiskGiB)),
+			SingleDisk: c.VIASingleDisk,
 		})
 	}
 	return out
@@ -329,6 +331,7 @@ func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks 
 		}
 		node.KSUrl = strings.TrimRight(ks.baseURL, "/") + "/media/output/" + jobid + "/" + cfgFile + "/content"
 		node.BaseISOPath = filepath.Join(s.deps.DataDir, "iso", filepath.Base(baseISO))
+		node.SingleDisk = c.VIASingleDisk
 		node.BootCommand = strings.TrimSpace(bootCmd) // "" => role default typed at GRUB
 		return node, c, nil
 	}

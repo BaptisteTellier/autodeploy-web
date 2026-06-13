@@ -344,7 +344,7 @@ func TestBootCommandOverrideFromText(t *testing.T) {
 }
 
 func TestBootCommandKeys(t *testing.T) {
-	keys := BootCommandKeys("VIA-Proxy", "http://10.0.0.1:8080/x.cfg/content")
+	keys := BootCommandKeys("VIA-Proxy", "http://10.0.0.1:8080/x.cfg/content", false)
 	if keys[0] != "c" {
 		t.Errorf("first key = %q, want c (open GRUB console)", keys[0])
 	}
@@ -367,12 +367,21 @@ func TestBootCommandKeys(t *testing.T) {
 
 func TestBootCommandRoleSpecific(t *testing.T) {
 	// VSA uses LABEL=VeeamSA + fips=1; VIA uses LABEL=VeeamJeOS, no fips.
-	vsa := linuxLine("VSA", "http://h/k")
+	vsa := linuxLine("VSA", "http://h/k", false)
 	if !strings.Contains(vsa, "LABEL=VeeamSA") || !strings.Contains(vsa, "fips=1") {
 		t.Errorf("VSA line wrong: %s", vsa)
 	}
-	via := linuxLine("VIA-HR", "http://h/k")
+	via := linuxLine("VIA-HR", "http://h/k", false)
 	if !strings.Contains(via, "LABEL=VeeamJeOS") || strings.Contains(via, "fips=1") {
 		t.Errorf("VIA line wrong: %s", via)
+	}
+	// VIA single-disk must include inst.vsingledisk; VSA must not even when singleDisk=true.
+	viaSD := linuxLine("VIA-HR", "http://h/k", true)
+	if !strings.Contains(viaSD, "inst.vsingledisk") {
+		t.Errorf("VIA single-disk line missing inst.vsingledisk: %s", viaSD)
+	}
+	vsaSD := linuxLine("VSA", "http://h/k", true)
+	if strings.Contains(vsaSD, "inst.vsingledisk") {
+		t.Errorf("VSA line must not contain inst.vsingledisk: %s", vsaSD)
 	}
 }

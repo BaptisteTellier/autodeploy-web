@@ -40,6 +40,7 @@ const maxBufferedLines = 5000
 type NodeDeploy struct {
 	Name        string // VM name (the appliance hostname baked into the ISO/cfg)
 	Role        string // display label (VSA / VIA-Proxy / VIA-HR)
+	SingleDisk  bool   // VIA only: adds inst.vsingledisk to the generated GRUB boot line
 	ISOPath     string // absolute path to the already-built customised ISO ("" in kickstart mode)
 	Disks       []int  // disk sizes in GiB (role/config-derived)
 	IP          string // static IP baked into the ISO (used by the wiring step)
@@ -521,7 +522,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 			return ctx.Err()
 		case <-time.After(bootWait):
 		}
-		keys := BootCommandKeys(node.Role, node.KSUrl)
+		keys := BootCommandKeys(node.Role, node.KSUrl, node.SingleDisk)
 		if node.BootCommand != "" {
 			keys = BootCommandKeysFromText(node.BootCommand) // user-edited override
 		}
