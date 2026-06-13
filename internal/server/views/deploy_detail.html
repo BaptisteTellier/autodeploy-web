@@ -15,6 +15,13 @@
       {{if eq (printf "%s" .Deployment.State) "removed"}}bg-slate-200 text-slate-700{{end}}
     ">{{.Deployment.State}}</span>
   </div>
+  <div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-slate-400 tabular-nums">
+    <span>Started: <span class="text-slate-600">{{fmtTime .Deployment.CreatedAt}}</span></span>
+    {{if not .Deployment.FinishedAt.IsZero}}
+    <span>Finished: <span class="text-slate-600">{{fmtTime .Deployment.FinishedAt}}</span></span>
+    <span>Duration: <span class="text-slate-600">{{fmtDur .Deployment.CreatedAt .Deployment.FinishedAt}}</span></span>
+    {{end}}
+  </div>
 
   <!-- Actions: stop a running deployment, or remove it (destroying its VMs) -->
   <div x-data="{ showRemove:false, confirmed:false }" class="flex flex-wrap items-center gap-2">

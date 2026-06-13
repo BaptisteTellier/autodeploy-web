@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 //go:embed views/*.html
@@ -49,6 +50,33 @@ var baseFuncMap = template.FuncMap{
 			exp++
 		}
 		return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+	},
+	// fmtTime formats a time.Time as "2006-01-02 15:04:05"; returns "" for the zero value.
+	"fmtTime": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.Format("2006-01-02 15:04:05")
+	},
+	// fmtDur formats the elapsed time between two instants (e.g. "5m30s"); returns "" if either is zero.
+	"fmtDur": func(from, to time.Time) string {
+		if from.IsZero() || to.IsZero() {
+			return ""
+		}
+		d := to.Sub(from).Round(time.Second)
+		if d < 0 {
+			d = 0
+		}
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		s := int(d.Seconds()) % 60
+		if h > 0 {
+			return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
+		}
+		if m > 0 {
+			return fmt.Sprintf("%dm%02ds", m, s)
+		}
+		return fmt.Sprintf("%ds", s)
 	},
 	// jsonStr JSON-encodes a string for safe inline use in Alpine x-data attributes.
 	"jsonStr": func(s string) template.JS {

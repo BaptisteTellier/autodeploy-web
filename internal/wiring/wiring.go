@@ -271,6 +271,10 @@ func (w *Wirer) createHA(ctx context.Context, client *veeam.Client, primary, sec
 	if secondary.IP == "" {
 		return fmt.Errorf("secondary VSA %q has no IP", secondary.Name)
 	}
+	log(fmt.Sprintf("waiting for secondary VSA (%s) to come up…", secondary.IP))
+	if err := waitNodeUp(ctx, secondary.IP, log); err != nil {
+		return fmt.Errorf("secondary VSA not reachable: %w", err)
+	}
 	log(fmt.Sprintf("creating HA cluster (%s + %s)…", primary.IP, secondary.IP))
 
 	credID, err := client.CreateCredentials(ctx, w.cfg.Username, w.cfg.Password, "HA secondary node")

@@ -53,7 +53,7 @@
             if(k && DEPLOY_CATALOG[k]) kind=k;
           }
         "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox',
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox',
                   get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
                   get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
                   get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
@@ -67,7 +67,51 @@
                     const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+(sd?' inst.vsingledisk':'')+' ip=dhcp quiet inst.assumeyes';
                     return lx+'\ninitrdefi /images/pxeboot/initrd.img\nboot'; },
                   revealBoot(i){ if(!this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
-                  refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); } }">
+                  refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
+                  wirePreview(){
+                    const vsaIdxs=this.roles.map((r,i)=>r.startsWith('VSA')?i:-1).filter(i=>i>=0);
+                    const vsaIP=vsaIdxs.length>0?(this.summ(vsaIdxs[0])?.network||'<VSA-IP>'):'<VSA-IP>';
+                    const ep='https://'+vsaIP+':9419';
+                    const L=[];
+                    L.push('POST '+ep+'/api/oauth2/token');
+                    L.push('  body: { grant_type:password, username:veeamadmin, password:*** }');
+                    L.push('');
+                    this.roles.forEach(function(role,i){
+                      if(role.startsWith('VSA')) return;
+                      const ip=this.summ(i)?.network||'<node-IP>';
+                      L.push('# '+role+' ('+ip+') — wait for port 6160/443/22');
+                      L.push('GET  '+ep+'/api/v1/backupInfrastructure/managedServers');
+                      L.push('POST '+ep+'/api/v1/backupInfrastructure/managedServers  # if not already registered');
+                      L.push('  body: { name:'+ip+', type:LinuxHost, pairingCode:000000 }');
+                      if(role.includes('HR')){
+                        L.push('GET  '+ep+'/api/v1/backupInfrastructure/repositories');
+                        L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories/hardenedRepository  # if absent');
+                        L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/mnt/repository, immutabilityDays:7 }');
+                      } else if(role.includes('Proxy')){
+                        L.push('POST '+ep+'/api/v1/backupInfrastructure/vsphereProxies');
+                        L.push('  body: { hostId:<id>, maxTasksCount:4 }');
+                      }
+                      L.push('');
+                    }.bind(this));
+                    if(vsaIdxs.length>=2){
+                      const secIP=this.summ(vsaIdxs[1])?.network||'<secondary-IP>';
+                      const hasHR=this.roles.some(r=>r.includes('HR'));
+                      if(hasHR){
+                        L.push('# Redirect config backup before removing default repo');
+                        L.push('PUT  '+ep+'/api/v1/configBackup/target');
+                        L.push('  body: { repositoryId:<hardened-repo-id> }');
+                        L.push('DELETE '+ep+'/api/v1/backupInfrastructure/repositories/<default-repo-id>');
+                        L.push('');
+                      }
+                      L.push('# HA cluster');
+                      L.push('POST '+ep+'/api/v1/credentials');
+                      L.push('  body: { username:veeamadmin, password:*** }');
+                      L.push('POST '+ep+'/api/v1/connectionCertificate?host='+secIP);
+                      L.push('POST '+ep+'/api/v1/backupInfrastructure/haCluster');
+                      L.push('  body: { primaryNodeIp:'+vsaIP+', secondaryNodeIp:'+secIP+', clusterDnsName:<dns> }');
+                    }
+                    return L.join('\n');
+                  } }">
 
     <!-- Topology + per-slot output selection -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
@@ -420,6 +464,15 @@
           <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
+        <div class="sm:col-span-2 border-t border-slate-100 pt-2">
+          <label class="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" x-model="wireAdv" class="rounded border-slate-300">
+            {{t "deploy.wire_advanced"}}
+          </label>
+          <pre x-show="wireAdv" x-cloak
+               class="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 whitespace-pre overflow-x-auto"
+               x-text="wirePreview()"></pre>
+        </div>
       </div>
     </div>
 
@@ -443,8 +496,11 @@
     <ul class="divide-y divide-slate-100 text-sm">
       {{range .Deployments}}
       <li class="py-2 flex items-center justify-between gap-3">
-        <a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline font-mono">{{.Kind}} · {{slice .ID 0 8}}</a>
-        <span class="text-xs px-2 py-0.5 rounded-full
+        <div class="min-w-0">
+          <a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline font-mono">{{.Kind}} · {{slice .ID 0 8}}</a>
+          <span class="block text-xs text-slate-400 tabular-nums">{{fmtTime .CreatedAt}}{{if not .FinishedAt.IsZero}} · {{fmtDur .CreatedAt .FinishedAt}}{{end}}</span>
+        </div>
+        <span class="shrink-0 text-xs px-2 py-0.5 rounded-full
           {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-700{{end}}
           {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-700{{end}}
           {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-700{{end}}
