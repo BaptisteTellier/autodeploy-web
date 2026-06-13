@@ -25,8 +25,7 @@ function formApp() {
       fd.set('preset_name', name);
       const res = await fetch('/configs', { method: 'POST', body: fd });
       if (res.ok) {
-        alert('Preset saved: ' + name);
-        location.reload();
+        location.href = '/?preset=' + encodeURIComponent(name);
       } else {
         alert('Save failed: ' + (await res.text()));
       }
