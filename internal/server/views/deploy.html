@@ -99,7 +99,7 @@
                       if(role.includes('HR')){
                         L.push('GET  '+ep+'/api/v1/backupInfrastructure/repositories');
                         L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories/hardenedRepository  # if absent');
-                        L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/mnt/repository, immutabilityDays:7 }');
+                        L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/var/lib/veeam/backups, immutabilityDays:7 }');
                       } else if(role.includes('Proxy')){
                         L.push('POST '+ep+'/api/v1/backupInfrastructure/vsphereProxies');
                         L.push('  body: { hostId:<id>, maxTasksCount:4 }');

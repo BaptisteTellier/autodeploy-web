@@ -27,7 +27,7 @@ type Config struct {
 	Password       string        // VSA REST password
 	Insecure       bool          // skip TLS verification (self-signed VSA cert)
 	ClusterDNSName string        // HA cluster DNS name (HA topologies only)
-	RepoPath       string        // hardened-repo path (default /mnt/repository)
+	RepoPath       string        // hardened-repo path (default /var/lib/veeam/backups)
 	ImmutableDays  int           // hardened-repo immutability days (default 7)
 	SessionTimeout time.Duration // how long to wait per async infra session
 	LicensePath    string        // optional .lic file to install on the VSA via REST ("" = skip)
@@ -44,7 +44,7 @@ func New(cfg Config) *Wirer {
 		cfg.Username = "veeamadmin"
 	}
 	if cfg.RepoPath == "" {
-		cfg.RepoPath = "/mnt/repository"
+		cfg.RepoPath = "/var/lib/veeam/backups"
 	}
 	if cfg.ImmutableDays <= 0 {
 		cfg.ImmutableDays = 7
