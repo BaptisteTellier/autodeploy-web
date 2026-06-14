@@ -95,7 +95,7 @@
         <td class="px-4 py-3 font-mono">{{$n.Hostname}}</td>
         <td class="px-4 py-3">{{$n.Role}}</td>
         <td class="px-4 py-3">
-          <span class="text-xs px-2 py-0.5 rounded-full
+          <span data-step="{{$i}}" class="text-xs px-2 py-0.5 rounded-full
             {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created") (eq $n.Step "canceled") (eq $n.Step "removed"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
           <!-- ISO upload progress bar — revealed live by the "progress" SSE event -->
           <div class="deploy-progress mt-1 flex items-center gap-2 {{if not (and (eq $n.Step "uploading") (gt $n.Progress 0))}}hidden{{end}}" data-node="{{$i}}">
@@ -106,7 +106,7 @@
           </div>
           {{if $n.Error}}<div class="text-xs text-red-600 mt-1">{{$n.Error}}</div>{{end}}
         </td>
-        <td class="px-4 py-3 font-mono text-slate-600">{{$n.VMID}}</td>
+        <td data-vmid="{{$i}}" class="px-4 py-3 font-mono text-slate-600">{{$n.VMID}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -133,6 +133,30 @@
     es.addEventListener('log', e => {
       log.textContent += e.data + "\n";
       log.scrollTop = log.scrollHeight;
+    });
+    // Live per-node status: badge colour by step (mirrors the server template).
+    function depStepClass(step) {
+      if (step === 'ready')  return 'bg-emerald-100 text-emerald-700';
+      if (step === 'failed') return 'bg-red-100 text-red-700';
+      if (['queued','created','canceled','removed'].includes(step)) return 'bg-slate-100 text-slate-600';
+      return 'bg-blue-100 text-blue-700';
+    }
+    es.addEventListener('node', e => {
+      let d; try { d = JSON.parse(e.data); } catch (_) { return; }
+      const badge = document.querySelector('[data-step="' + d.i + '"]');
+      if (badge) {
+        badge.textContent = d.step;
+        badge.className = 'text-xs px-2 py-0.5 rounded-full ' + depStepClass(d.step);
+      }
+      if (d.vm_id) {
+        const vmCell = document.querySelector('[data-vmid="' + d.i + '"]');
+        if (vmCell) vmCell.textContent = d.vm_id;
+      }
+      // Once a node moves past "uploading", hide its upload progress bar.
+      if (d.step !== 'uploading') {
+        const box = document.querySelector('.deploy-progress[data-node="' + d.i + '"]');
+        if (box) box.classList.add('hidden');
+      }
     });
     // Live ISO-upload progress: data is "<nodeIndex>:<pct>".
     es.addEventListener('progress', e => {

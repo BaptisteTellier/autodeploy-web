@@ -11,6 +11,7 @@ package deploy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -49,10 +50,9 @@ type NodeDeploy struct {
 	PairingCode string // appliance pairing/handshake code (default "000000")
 
 	// Remote kickstart (both set => kickstart mode for this node):
-	KSUrl       string        // kickstart URL (…/media/output/<job>/<file>.cfg/content)
-	BaseISOPath string        // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
-	BootCommand string        // optional override of the GRUB boot command (one line per row); "" = role default
-	BootWait    time.Duration // per-node GRUB timer: wait before typing the boot command; 0 = use Spec.BootWait
+	KSUrl       string // kickstart URL (…/media/output/<job>/<file>.cfg/content)
+	BaseISOPath string // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
+	BootCommand string // optional override of the GRUB boot command (one line per row); "" = role default
 
 	// Ref is populated by the orchestrator after VM creation. Used by the
 	// DHCP IP-resolution step to query the hypervisor guest agent.
@@ -87,6 +87,33 @@ const progressPrefix = "\x00progress\x00"
 // ProgressLine formats a progress event for a node index and percent.
 func ProgressLine(node, pct int) string {
 	return fmt.Sprintf("%s%d %d", progressPrefix, node, pct)
+}
+
+// nodeStatusPrefix marks a log line as a structured per-node status change
+// (step / VM id / error) rather than human-readable text. The SSE handler
+// routes these to a "node" event so the detail page updates the step badge and
+// VM id live, without a full page reload. Like progress events, these ride the
+// log channel but are emitted ephemerally (never buffered).
+const nodeStatusPrefix = "\x00node\x00"
+
+// NodeStatusLine encodes a node's current status as a structured event line.
+func NodeStatusLine(idx int, ns NodeStatus) string {
+	b, _ := json.Marshal(struct {
+		Idx   int    `json:"i"`
+		Step  string `json:"step"`
+		VMID  string `json:"vm_id"`
+		Error string `json:"error,omitempty"`
+	}{idx, ns.Step, ns.VMID, ns.Error})
+	return nodeStatusPrefix + string(b)
+}
+
+// ParseNodeStatusLine reports whether line is a node-status event and, if so,
+// returns its JSON payload (forwarded verbatim as the SSE event data).
+func ParseNodeStatusLine(line string) (payload string, ok bool) {
+	if !strings.HasPrefix(line, nodeStatusPrefix) {
+		return "", false
+	}
+	return line[len(nodeStatusPrefix):], true
 }
 
 // ParseProgressLine reports whether line is a progress event and, if so, the
@@ -293,7 +320,11 @@ func (d *Deployment) isCanceled() bool {
 func (d *Deployment) setNode(i int, mutate func(*NodeStatus)) {
 	d.mu.Lock()
 	mutate(&d.Nodes[i])
+	ns := d.Nodes[i]
 	d.mu.Unlock()
+	// Stream the new status so the detail page updates the step badge / VM id
+	// live (ephemeral: the authoritative state is re-rendered on reload).
+	d.emit(NodeStatusLine(i, ns))
 }
 
 // uploadProgress returns a hypervisor.ProgressFunc that records the node's
@@ -573,9 +604,6 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 
 	if node.kickstart() {
 		bootWait := spec.BootWait
-		if node.BootWait > 0 {
-			bootWait = node.BootWait // per-node GRUB timer overrides the global default
-		}
 		if bootWait <= 0 {
 			bootWait = DefaultBootWait
 		}

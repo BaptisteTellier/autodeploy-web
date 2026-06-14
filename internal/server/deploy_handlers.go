@@ -48,18 +48,19 @@ func catalogViews() []kindView {
 
 // outputSummary describes a built output folder for the picker + summary card.
 type outputSummary struct {
-	JobID      string `json:"job_id"`
-	Name       string `json:"name"`
-	ISOFile    string `json:"iso_file"`
-	CfgFile    string `json:"cfg_file"`
-	Appliance  string `json:"appliance"`
-	Hostname   string `json:"hostname"`
-	Network    string `json:"network"`
-	MFAAdmin   bool   `json:"mfa_admin"`
-	SOEnabled  bool   `json:"so_enabled"`
-	HA         bool   `json:"ha"`
-	Disks      string `json:"disks"`
-	SingleDisk bool   `json:"single_disk"`
+	JobID       string `json:"job_id"`
+	Name        string `json:"name"`
+	ISOFile     string `json:"iso_file"`
+	CfgFile     string `json:"cfg_file"`
+	Appliance   string `json:"appliance"`
+	Hostname    string `json:"hostname"`
+	Network     string `json:"network"`
+	MFAAdmin    bool   `json:"mfa_admin"`
+	SOEnabled   bool   `json:"so_enabled"`
+	HA          bool   `json:"ha"`
+	Disks       string `json:"disks"`
+	SingleDisk  bool   `json:"single_disk"`
+	GrubTimeout int    `json:"grub_timeout"` // GRUB menu timeout (s) baked into the ISO/cfg at build time
 	// LicenseBaked is true when the output was built with a license baked into
 	// its config (LicenseVBRTune + LicenseFile). In remote-kickstart deploys the
 	// .lic cannot ride inside the ISO, so a baked-in license reference can break
@@ -177,6 +178,7 @@ func (s *Server) listOutputs() []outputSummary {
 			HA:           c.HighAvailabilityEnabled,
 			Disks:        disksLabel(buildNodeDisks(c, nil)),
 			SingleDisk:   c.VIASingleDisk,
+			GrubTimeout:  c.GrubTimeout,
 			LicenseBaked: c.LicenseVBRTune && c.LicenseFile != "",
 		})
 	}
@@ -294,6 +296,10 @@ func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request) {
 // "log" line. Progress events drive the per-node upload bar without cluttering
 // the text log.
 func writeDeployLine(w http.ResponseWriter, line string) {
+	if payload, ok := deploy.ParseNodeStatusLine(line); ok {
+		writeSSE(w, "node", payload)
+		return
+	}
 	if node, pct, ok := deploy.ParseProgressLine(line); ok {
 		writeSSE(w, "progress", fmt.Sprintf("%d:%d", node, pct))
 		return
@@ -562,7 +568,6 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 			fmt.Sprintf("node_%d_memory", i),
 			fmt.Sprintf("node_%d_disk_0", i),
 			fmt.Sprintf("node_%d_disk_1", i),
-			fmt.Sprintf("node_%d_boot_wait", i),
 		} {
 			if v := strings.TrimSpace(r.FormValue(k)); v != "" {
 				text[k] = v
@@ -649,11 +654,6 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		}
 		n.CPUs = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_cpus", i)), 4)
 		n.MemoryMiB = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_memory", i)), 8192)
-		// Per-node GRUB timer (kickstart only): wait before typing the boot
-		// command. 0 leaves it to the global boot_wait / DefaultBootWait.
-		if bw := atoiDefault(r.FormValue(fmt.Sprintf("node_%d_boot_wait", i)), 0); bw > 0 {
-			n.BootWait = time.Duration(bw) * time.Second
-		}
 		if i == 0 {
 			primaryCfg = c
 		}

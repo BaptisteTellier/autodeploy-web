@@ -45,31 +45,19 @@ services:
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
 
     volumes:
-      # ── Source Veeam ISOs (15–20 GB each) ─────────────────────────────────
-      # Drop VeeamSoftwareAppliance_*.iso or VeeamInfrastructureAppliance_*.iso here.
-      - ./data/iso:/data/iso
-
-      # ── Generated customised ISOs ──────────────────────────────────────────
-      # After a successful build the ISO appears here and is downloadable from
-      # the UI.
-      - ./data/output:/data/output
-
-      # ── Veeam licence files (.lic) ─────────────────────────────────────────
-      # Required only when LicenseVBRTune = true in your config.
-      - ./data/license:/data/license
-
-      # ── Unattended Configuration Restore files ─────────────────────────────
-      # Required only when RestoreConfig = true. Place these three files here:
-      #   • unattended.xml   (edit BACKUP_PASSWORD inside)
-      #   • veeam_addsoconfpw.sh
-      #   • conftoresto.bco  (your .bco renamed exactly like this)
-      - ./data/conf:/data/conf
-
-      # ── Named JSON configuration presets ──────────────────────────────────
-      # Presets saved from the UI are stored here and survive container restarts.
-      # You can also drop existing autodeploy.ps1-compatible JSON files here
-      # directly — they will appear in the "Load preset" dropdown.
-      - ./data/configs:/data/configs
+      # ── Persistent data root ──────────────────────────────────────────────
+      # Everything the app reads/writes lives under /data. Mounting the whole
+      # directory (instead of individual sub-folders) makes the SQLite job
+      # database (/data/jobs.db) and the autodeploy.ps1 override survive a
+      # container recreate / image rebuild — not just the ISOs and presets.
+      #
+      #   ./data/iso/      ← PUT YOUR VEEAM SOURCE ISOs HERE (15–20 GB each)
+      #   ./data/output/   ← generated customised ISOs (downloadable from the UI)
+      #   ./data/license/  ← Veeam .lic files (LicenseVBRTune / wiring install)
+      #   ./data/conf/     ← unattended config-restore files (RestoreConfig)
+      #   ./data/configs/  ← named JSON presets saved from the UI
+      #   ./data/jobs.db   ← SQLite job history (survives restarts)
+      - ./data:/data
 
 ###############################################################################
 # FOLDER STRUCTURE (created automatically by the init container below)

@@ -155,6 +155,7 @@
                 <span class="text-slate-500">MFA</span><span x-text="summ(i)?.mfa_admin ? '✓' : '✗'"></span>
                 <span class="text-slate-500">SO</span><span x-text="summ(i)?.so_enabled ? '✓' : '✗'"></span>
                 <span class="text-slate-500">{{t "deploy.disks"}}</span><span class="font-mono text-emerald-700" x-text="summ(i)?.disks"></span>
+                <span class="text-slate-500">{{t "form.grub_timeout"}}</span><span class="font-mono" x-text="(summ(i)?.grub_timeout ?? 0)+' s'"></span>
                 <span class="text-slate-500">ISO</span><span class="font-mono truncate" x-text="summ(i)?.iso_file"></span>
               </div>
               <p x-show="role.indexOf('VSA')===0 ? summ(i)?.appliance!=='VSA' : summ(i)?.appliance==='VSA'"
@@ -163,14 +164,8 @@
                  class="text-amber-600 mt-2">{{t "deploy.license_baked_warn"}}</p>
             </div>
 
-            <!-- Per-node GRUB timer + advanced boot command (kickstart only) -->
-            <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3 space-y-2">
-              <label class="text-xs text-slate-600 block max-w-[12rem]">
-                {{t "deploy.grub_timer"}}
-                <input :name="ks ? 'node_'+i+'_boot_wait' : null" type="number" min="3" placeholder="10"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <span class="block text-slate-400">{{t "deploy.grub_timer_hint"}}</span>
-              </label>
+            <!-- Advanced: show/edit the exact GRUB boot command typed for this VM (kickstart only) -->
+            <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3">
               <label class="flex items-center gap-2 text-xs text-slate-600">
                 <input type="checkbox" x-model="adv[i]" @change="if(adv[i]) revealBoot(i)" class="rounded border-slate-300">
                 {{t "deploy.show_bootcmd"}}

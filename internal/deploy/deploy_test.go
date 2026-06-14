@@ -392,3 +392,20 @@ func TestBootCommandRoleSpecific(t *testing.T) {
 		t.Errorf("VSA line must not contain inst.vsingledisk: %s", vsaSD)
 	}
 }
+
+func TestNodeStatusLineRoundTrip(t *testing.T) {
+	line := NodeStatusLine(2, NodeStatus{Step: "creating-vm", VMID: "101", Error: ""})
+	payload, ok := ParseNodeStatusLine(line)
+	if !ok {
+		t.Fatalf("ParseNodeStatusLine did not recognise its own output: %q", line)
+	}
+	for _, want := range []string{`"i":2`, `"step":"creating-vm"`, `"vm_id":"101"`} {
+		if !strings.Contains(payload, want) {
+			t.Errorf("payload %q missing %q", payload, want)
+		}
+	}
+	// A plain log line must not be misrouted as a node-status event.
+	if _, ok := ParseNodeStatusLine("just a log line"); ok {
+		t.Error("ParseNodeStatusLine matched a plain log line")
+	}
+}
