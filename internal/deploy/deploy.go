@@ -173,8 +173,8 @@ type View struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	FinishedAt time.Time    `json:"finished_at,omitempty"`
 	Error      string       `json:"error,omitempty"`
-	HasWirer   bool         `json:"has_wirer"`  // true when the deployment had wiring configured
-	Form       FormSnapshot `json:"form"`        // non-secret form snapshot for "Copy to deploy"
+	HasWirer   bool         `json:"has_wirer"` // true when the deployment had wiring configured
+	Form       FormSnapshot `json:"form"`      // non-secret form snapshot for "Copy to deploy"
 }
 
 // View returns a snapshot safe to hand to HTTP handlers / templates.
