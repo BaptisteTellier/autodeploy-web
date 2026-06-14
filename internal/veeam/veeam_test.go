@@ -86,9 +86,9 @@ func TestAuthenticateAndBearer(t *testing.T) {
 }
 
 func TestInstallLicense(t *testing.T) {
-	// A .lic file is already a base64 blob: its content must be forwarded
-	// verbatim, with only a leading BOM / surrounding whitespace stripped — NEVER
-	// re-encoded (that triggers VBR's "Data at the root level is invalid" error).
+	// An already-base64 .lic blob is normalised to canonical base64 (see
+	// encodeLicensePayload); a clean single-line blob round-trips to itself, with
+	// the leading BOM / surrounding whitespace stripped.
 	const want = "PD94bWwgdmVyc2lvbj0iMS4wIj8+"
 	raw := []byte("\xef\xbb\xbf  " + want + "\n") // BOM + padding the client must strip
 	mux := baseMux()
@@ -107,7 +107,7 @@ func TestInstallLicense(t *testing.T) {
 		t.Fatalf("InstallLicense: %v", err)
 	}
 	if got != want {
-		t.Errorf("license body = %q, want verbatim %q", got, want)
+		t.Errorf("license body = %q, want %q", got, want)
 	}
 	if lic.Status != "Valid" || lic.Edition != "EnterprisePlus" {
 		t.Errorf("license = %+v, want Valid/EnterprisePlus", lic)
@@ -116,6 +116,32 @@ func TestInstallLicense(t *testing.T) {
 	// Empty / whitespace-only content must error without hitting the network.
 	if _, err := c.InstallLicense(context.Background(), []byte("  \n")); err == nil {
 		t.Error("InstallLicense(blank) = nil error, want error")
+	}
+}
+
+func TestEncodeLicensePayload(t *testing.T) {
+	xml := `<?xml version="1.0"?><Licenses><License>x</License></Licenses>`
+	want := base64.StdEncoding.EncodeToString([]byte(xml))
+
+	cases := map[string][]byte{
+		"raw XML":                  []byte(xml),
+		"raw XML with BOM + space": []byte("\xef\xbb\xbf  " + xml + "\n"),
+		"canonical base64":         []byte(want),
+		"line-wrapped base64":      []byte(want[:8] + "\r\n" + want[8:16] + "\n" + want[16:] + "\n"),
+	}
+	for name, in := range cases {
+		got, err := encodeLicensePayload(in)
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", name, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: payload = %q, want %q", name, got, want)
+		}
+	}
+
+	if _, err := encodeLicensePayload([]byte("  \n")); err == nil {
+		t.Error("encodeLicensePayload(blank) = nil error, want error")
 	}
 }
 
