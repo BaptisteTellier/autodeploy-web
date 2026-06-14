@@ -86,13 +86,16 @@ func TestAuthenticateAndBearer(t *testing.T) {
 }
 
 func TestInstallLicense(t *testing.T) {
-	raw := []byte("fake-lic-file-bytes")
-	wantB64 := base64.StdEncoding.EncodeToString(raw)
+	// A .lic file is already a base64 blob: its content must be forwarded
+	// verbatim, with only a leading BOM / surrounding whitespace stripped — NEVER
+	// re-encoded (that triggers VBR's "Data at the root level is invalid" error).
+	const want = "PD94bWwgdmVyc2lvbj0iMS4wIj8+"
+	raw := []byte("\xef\xbb\xbf  " + want + "\n") // BOM + padding the client must strip
 	mux := baseMux()
-	var gotB64 string
+	var got string
 	mux.HandleFunc("/api/v1/license/install", func(w http.ResponseWriter, r *http.Request) {
 		m := decode(t, r)
-		gotB64, _ = m["license"].(string)
+		got, _ = m["license"].(string)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "Valid", "edition": "EnterprisePlus", "licensedTo": "ACME",
 		})
@@ -103,16 +106,16 @@ func TestInstallLicense(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InstallLicense: %v", err)
 	}
-	if gotB64 != wantB64 {
-		t.Errorf("license body = %q, want base64 %q", gotB64, wantB64)
+	if got != want {
+		t.Errorf("license body = %q, want verbatim %q", got, want)
 	}
 	if lic.Status != "Valid" || lic.Edition != "EnterprisePlus" {
 		t.Errorf("license = %+v, want Valid/EnterprisePlus", lic)
 	}
 
-	// Empty bytes must error without hitting the network.
-	if _, err := c.InstallLicense(context.Background(), nil); err == nil {
-		t.Error("InstallLicense(nil) = nil error, want error")
+	// Empty / whitespace-only content must error without hitting the network.
+	if _, err := c.InstallLicense(context.Background(), []byte("  \n")); err == nil {
+		t.Error("InstallLicense(blank) = nil error, want error")
 	}
 }
 

@@ -450,18 +450,22 @@ func (c *Client) GetLicense(ctx context.Context) (InstalledLicense, error) {
 	return out, nil
 }
 
-// InstallLicense installs a Veeam license on the VBR server from the raw .lic
-// file bytes. The REST API takes the file content base64-encoded inside a JSON
-// string field; this endpoint is reachable even when the server is unlicensed
-// (NoLicense role), which is exactly the freshly-kickstarted case. Returns the
-// resulting license status (e.g. "Valid").
+// InstallLicense installs a Veeam license on the VBR server. A Veeam .lic file
+// is ALREADY stored as a base64 text blob, so its raw content is exactly the
+// string the API expects — it must be sent verbatim, NOT re-encoded. Encoding it
+// again makes VBR base64-decode back to base64 text and fail to parse the result
+// as the license XML ("Data at the root level is invalid. Line 1, position 1.").
+// We only strip a leading UTF-8 BOM and surrounding whitespace, which would
+// otherwise shift the first character VBR's XML reader sees. This endpoint is
+// reachable even on an unlicensed server (NoLicense role), i.e. the
+// freshly-kickstarted case. Returns the resulting license status (e.g. "Valid").
 func (c *Client) InstallLicense(ctx context.Context, licenseBytes []byte) (InstalledLicense, error) {
-	if len(licenseBytes) == 0 {
+	const utf8BOM = "\xef\xbb\xbf"
+	content := strings.TrimSpace(strings.TrimPrefix(string(licenseBytes), utf8BOM))
+	if content == "" {
 		return InstalledLicense{}, fmt.Errorf("veeam: empty license file")
 	}
-	body := map[string]any{
-		"license": base64.StdEncoding.EncodeToString(licenseBytes),
-	}
+	body := map[string]any{"license": content}
 	var out InstalledLicense
 	if err := c.do(ctx, http.MethodPost, "/api/v1/license/install", body, &out); err != nil {
 		return InstalledLicense{}, err

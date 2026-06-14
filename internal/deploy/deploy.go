@@ -228,7 +228,13 @@ func (d *Deployment) View() View {
 func (d *Deployment) Done() <-chan struct{} { return d.done }
 
 // AppendLine records a log line and fans it out to live subscribers.
+// The timestamp is prepended here — at the single choke point shared by both
+// the buffered history (replayed on page reload) and the live SSE stream —
+// so every viewer always sees the same wall-clock prefix regardless of when
+// they (re)connect. Structured sentinel events (progress, node-status) travel
+// through emit, never through AppendLine, so they are never timestamped.
 func (d *Deployment) AppendLine(line string) {
+	line = time.Now().Format("15:04:05") + " " + line
 	d.mu.Lock()
 	if len(d.lines) >= maxBufferedLines {
 		d.lines = d.lines[1:]

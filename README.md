@@ -388,6 +388,57 @@ VM is.
 > the appliance admin password). Like the rest of autodeploy-web this has **no
 > authentication** — keep it on a trusted LAN only.
 
+### Hyper-V — enabling WinRM on the host
+
+The Hyper-V back-end drives the host over **WinRM**. By default it connects over
+**HTTP on port 5985 using Basic auth**, so the host needs three things enabled. Run
+in an **elevated PowerShell on the Hyper-V host**:
+
+```powershell
+# 1. Enable WinRM + its inbound firewall rule
+Enable-PSRemoting -Force
+
+# 2. Allow Basic auth + unencrypted HTTP — REQUIRED, the client uses Basic over 5985.
+#    Without these the deploy fails with: 401 - invalid content type
+winrm set winrm/config/service/auth '@{Basic="true"}'
+winrm set winrm/config/service '@{AllowUnencrypted="true"}'
+```
+
+If the connection **times out** instead, a NIC is likely on the **Public** profile —
+WinRM's firewall rule only opens on Domain/Private:
+
+```powershell
+Get-NetConnectionProfile                       # look for NetworkCategory : Public
+Set-NetConnectionProfile -InterfaceAlias "Ethernet" -NetworkCategory Private
+```
+
+**Restrict access to autodeploy-web.** The container's traffic is NAT-ed to the **LAN
+IP of the Docker host** (not the container's internal `172.x`), so scope the WinRM
+rule to that IP:
+
+```powershell
+Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -RemoteAddress 192.168.1.29  # your Docker host
+```
+
+Verify it works (the listener is up, and the Docker host can reach it):
+
+```powershell
+winrm enumerate winrm/config/listener          # Transport = HTTP, Port = 5985, Enabled = true
+Test-NetConnection <hyperv-host> -Port 5985    # run from the Docker host → TcpTestSucceeded : True
+```
+
+Use a **local administrator** account in the Deploy form's user/password fields.
+
+> [!WARNING]
+> `AllowUnencrypted="true"` sends the WinRM payload (including credentials) **in clear
+> text** over the LAN. It is acceptable on a trusted/isolated lab segment scoped to a
+> single source IP, but for anything else use **HTTPS (5986)** — tick *Use HTTPS* in the
+> form and configure an HTTPS WinRM listener with a certificate on the host.
+
+> [!NOTE]
+> WinRM streams the 15–20 GB ISO as base64, which is slow. **Pre-stage** the original
+> ISO in the host's ISO path so `FindISO` finds it and skips the upload.
+
 ---
 
 ## Limitations

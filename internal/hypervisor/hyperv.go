@@ -548,20 +548,56 @@ func buildScancodes(keys []string) []byte {
 	return codes
 }
 
+// maxScancodesPerCall bounds how many scancode bytes go into one TypeScancodes
+// call. runPS ships the script via `powershell -EncodedCommand`, which the winrm
+// library wraps in cmd.exe — and cmd.exe caps the command line at ~8 KB. Each
+// byte renders as "0xXX," (5 chars) and the whole script is then UTF-16LE+base64
+// encoded (~2.7x), so a full GRUB line in one call overflows the limit ("The
+// command line is too long."). 384 bytes → ~2 KB of array text → comfortably
+// under 8 KB after encoding.
+const maxScancodesPerCall = 384
+
 // SendKeys types a sequence of QEMU key tokens on the VM console via the
 // Hyper-V WMI provider (root\virtualization\v2 → Msvm_ComputerSystem →
 // Msvm_Keyboard.TypeScancodes). This mirrors the approach used by HashiCorp
 // Packer's hyperv-iso builder.
 //
-// The full scancode sequence is sent in a single WMI call to minimise WinRM
-// round trips. A brief pause after the call gives the guest firmware time to
-// process the injected scancodes.
+// The scancodes are sent in bounded chunks (see maxScancodesPerCall) to keep
+// each WinRM command line under cmd.exe's ~8 KB limit; chunks are injected in
+// order, so GRUB sees one continuous keystroke stream. A brief pause after the
+// last chunk gives the guest firmware time to process the injected scancodes.
 func (h *HyperV) SendKeys(ctx context.Context, vm VMRef, keys []string) error {
 	codes := buildScancodes(keys)
 	if len(codes) == 0 {
 		return nil
 	}
 
+	for start := 0; start < len(codes); start += maxScancodesPerCall {
+		end := start + maxScancodesPerCall
+		if end > len(codes) {
+			end = len(codes)
+		}
+		if err := h.sendScancodes(ctx, vm, codes[start:end]); err != nil {
+			return fmt.Errorf("hyperv: SendKeys VM %s: %w", vm.ID, err)
+		}
+	}
+
+	// Brief pause so the guest GRUB menu has time to process the scancodes.
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("hyperv: SendKeys VM %s: %w", vm.ID, ctx.Err())
+	case <-time.After(60 * time.Millisecond):
+	}
+	return nil
+}
+
+// sendScancodes injects one chunk of PS/2 scancodes via a single TypeScancodes
+// WMI call. The script:
+//  1. Finds the Msvm_ComputerSystem for the VM's GUID in the Hyper-V WMI
+//     namespace (Msvm_ComputerSystem.Name == the VM GUID without braces).
+//  2. Gets the associated Msvm_Keyboard instance.
+//  3. Calls TypeScancodes, which injects the chunk synchronously.
+func (h *HyperV) sendScancodes(ctx context.Context, vm VMRef, codes []byte) error {
 	// Render the scancode slice as a PowerShell byte-array literal.
 	var sb strings.Builder
 	sb.WriteString("[byte[]]@(")
@@ -574,13 +610,6 @@ func (h *HyperV) SendKeys(ctx context.Context, vm VMRef, keys []string) error {
 	sb.WriteByte(')')
 	scArray := sb.String()
 
-	// The script:
-	//  1. Finds the Msvm_ComputerSystem for the VM's GUID in the Hyper-V WMI
-	//     namespace.
-	//  2. Gets the associated Msvm_Keyboard instance.
-	//  3. Calls TypeScancodes, which injects all scancodes synchronously.
-	//
-	// Msvm_ComputerSystem.Name == the VM GUID (without braces) for VM instances.
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $ns     = 'root\virtualization\v2'
@@ -596,17 +625,8 @@ if ($ret.ReturnValue -ne 0) {
 }
 `, vm.ID, scArray)
 
-	if _, err := h.runPS(ctx, script); err != nil {
-		return fmt.Errorf("hyperv: SendKeys VM %s: %w", vm.ID, err)
-	}
-
-	// Brief pause so the guest GRUB menu has time to process the scancodes.
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("hyperv: SendKeys VM %s: %w", vm.ID, ctx.Err())
-	case <-time.After(60 * time.Millisecond):
-	}
-	return nil
+	_, err := h.runPS(ctx, script)
+	return err
 }
 
 // GetVMIP returns the first non-loopback, non-link-local IPv4 address of any
