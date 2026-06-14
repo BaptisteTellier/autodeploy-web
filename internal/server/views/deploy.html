@@ -30,12 +30,15 @@
 
   <form method="POST" action="/deploy" class="space-y-6"
         x-init="
+          $watch('wire', function(v){ if(v) powerOn=true; });
+          $watch('ks',   function(v){ if(v) powerOn=true; });
           if (DEPLOY_PREFILL) {
             const p = DEPLOY_PREFILL;
             if (p.kind && DEPLOY_CATALOG[p.kind]) kind = p.kind;
             if (p.provider) provider = p.provider;
             ks   = !!p.remote_ks;
             wire = !!p.wire;
+            if (p.power_on) powerOn = true;
             if (p.text && p.text.ks_base_url) ksbase = p.text.ks_base_url;
             if (Array.isArray(p.node_outputs)) {
               p.node_outputs.forEach(function(v,i){ if(v) sel[i]=v; });
@@ -44,7 +47,6 @@
               p.node_boots.forEach(function(v,i){ if(v){ adv[i]=true; edited[i]=true; bootcmd[i]=v; } });
             }
             $nextTick(function(){
-              if (p.power_on) { const el=document.getElementsByName('power_on')[0]; if(el) el.checked=true; }
               if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
               if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.checked=!!v; });
             });
@@ -53,13 +55,17 @@
             if(k && DEPLOY_CATALOG[k]) kind=k;
           }
         "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox',
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false,
                   get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
                   get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
                   get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
                   get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
                   get isHA(){ return this.kind.startsWith('vsa-ha'); },
+                  get effectivePowerOn(){ return this.powerOn || this.wire || this.ks; },
                   summ(i){ return OUTPUTS_BY_ID[this.sel[i]] || null; },
+                  diskCountFor(i){ const o=this.summ(i); return o&&o.single_disk?1:2; },
+                  diskMin(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
+                  diskDefault(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
                   ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/media/output/'+this.sel[i]+'/'+o.cfg_file+'/content'; },
                   defaultBoot(i){ const vsa=(this.roles[i]||'').indexOf('VSA')===0;
                     const o=this.summ(i);
@@ -164,6 +170,30 @@
                           class="text-xs text-blue-600 hover:underline">↻ {{t "deploy.reset_bootcmd"}}</button>
                 </div>
               </div>
+            </div>
+
+            <!-- Per-node VM sizing -->
+            <div class="border-t border-slate-100 pt-3 grid grid-cols-2 gap-2">
+              <label class="text-sm text-slate-600">{{t "deploy.vm_cpus"}}
+                <input :name="'node_'+i+'_cpus'" type="number" min="1" value="4"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              </label>
+              <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
+                <input :name="'node_'+i+'_memory'" type="number" min="512" value="8192"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              </label>
+              <label class="text-sm text-slate-600">
+                <span x-text="diskCountFor(i)===1?'Disk (GiB)':'Disk 1 (GiB)'"></span>
+                <span class="text-slate-400 text-xs" x-text="' ≥'+diskMin(i)"></span>
+                <input :name="'node_'+i+'_disk_0'" type="number" :min="diskMin(i)" :value="diskDefault(i)"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              </label>
+              <label class="text-sm text-slate-600" x-show="diskCountFor(i)>1">
+                Disk 2 (GiB)
+                <span class="text-slate-400 text-xs" x-text="'≥'+diskMin(i)"></span>
+                <input :name="'node_'+i+'_disk_1'" type="number" :min="diskMin(i)" :value="diskDefault(i)"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              </label>
             </div>
           </div>
         </template>
@@ -420,32 +450,16 @@
       </div>
     </div>
 
-    <!-- VM sizing (disks are derived per role: VSA 2×256, VIA 2×128, VIA single 1×128) -->
+    <!-- Network bridge (shared across all nodes on the same host) -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
       <h2 class="font-semibold text-slate-800">{{t "deploy.sizing"}}</h2>
-      <p class="text-xs text-slate-400">{{t "deploy.disks_hint"}}</p>
-      <div class="grid grid-cols-3 gap-3">
-        <label class="text-sm text-slate-600">{{t "deploy.vm_cpus"}}
-          <input name="vm_cpus" type="number" min="1" value="4"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
-          <input name="vm_memory" type="number" min="512" value="8192"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
+      <div class="max-w-xs">
         <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
           <input name="vm_bridge" value="vmbr0"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
-        <label class="text-sm text-slate-600">{{t "deploy.vsa_disk"}}
-          <input name="vsa_disk" type="number" min="256" value="256"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.via_disk"}}
-          <input name="via_disk" type="number" min="128" value="128"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
       </div>
+      <p class="text-xs text-slate-400">CPU, RAM and disk sizes are configured per VM in the node cards above.</p>
     </div>
 
     <!-- Wiring (register the topology into the VSA via Veeam REST) -->
@@ -477,15 +491,26 @@
     </div>
 
     <!-- Power on + launch -->
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <label class="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" name="power_on" class="rounded border-slate-300">
-        {{t "deploy.power_on"}}
-      </label>
-      <button type="submit"
-              class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors">
-        {{t "deploy.launch"}}
-      </button>
+    <div class="space-y-1">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="power_on"
+                 :checked="effectivePowerOn"
+                 :disabled="wire || ks"
+                 @change="powerOn = $event.target.checked"
+                 class="rounded border-slate-300">
+          {{t "deploy.power_on"}}
+        </label>
+        <button type="submit"
+                class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors">
+          {{t "deploy.launch"}}
+        </button>
+      </div>
+      <!-- Hidden input ensures power_on is submitted when the visible checkbox is disabled (wire/ks) -->
+      <template x-if="wire || ks">
+        <input type="hidden" name="power_on" value="on">
+      </template>
+      <p x-show="wire || ks" x-cloak class="text-xs text-blue-600">{{t "deploy.power_on_required"}}</p>
     </div>
   </form>
 

@@ -40,6 +40,8 @@ const maxBufferedLines = 5000
 type NodeDeploy struct {
 	Name        string // VM name (the appliance hostname baked into the ISO/cfg)
 	Role        string // display label (VSA / VIA-Proxy / VIA-HR)
+	CPUs        int    // per-node vCPU count; 0 = use Spec.VM.CPUs
+	MemoryMiB   int    // per-node RAM in MiB; 0 = use Spec.VM.MemoryMiB
 	SingleDisk  bool   // VIA only: adds inst.vsingledisk to the generated GRUB boot line
 	ISOPath     string // absolute path to the already-built customised ISO ("" in kickstart mode)
 	Disks       []int  // disk sizes in GiB (role/config-derived)
@@ -520,6 +522,12 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 	vmSpec := spec.VM
 	vmSpec.Name = host
 	vmSpec.Disks = node.Disks
+	if node.CPUs > 0 {
+		vmSpec.CPUs = node.CPUs
+	}
+	if node.MemoryMiB > 0 {
+		vmSpec.MemoryMiB = node.MemoryMiB
+	}
 	vm, err := spec.HV.CreateVM(ctx, vmSpec)
 	if err != nil {
 		return zero, fmt.Errorf("create VM: %w", err)
@@ -540,6 +548,16 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		d.AppendLine(fmt.Sprintf("[%s] powering on VM %s…", host, vm.ID))
 		if err := spec.HV.PowerOn(ctx, vm); err != nil {
 			return zero, fmt.Errorf("power on: %w", err)
+		}
+		// Switch boot order to disk immediately after power-on so the installer's
+		// terminal reboot lands on the installed OS instead of re-running the
+		// installer. This only modifies the hypervisor config (takes effect on
+		// next boot); the current boot from CD is not affected.
+		// DetachISO is intentionally NOT called here — QEMU reads the ISO on
+		// demand throughout the Anaconda installation; ejecting mid-install
+		// would abort the package installation.
+		if err := spec.HV.SetBootFromDisk(ctx, vm); err != nil {
+			d.AppendLine(fmt.Sprintf("[%s] warning: set boot from disk: %v", host, err))
 		}
 	}
 

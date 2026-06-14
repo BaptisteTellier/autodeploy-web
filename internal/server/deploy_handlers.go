@@ -68,23 +68,26 @@ const (
 	minVIADiskGiB = 128
 )
 
-// disksForConfig returns the per-role disk layout (sizes in GiB). Disk COUNT is
-// fixed by role — VSA 2 disks, VIA 2 disks, VIA single-disk 1 disk — while the
-// SIZE is the caller's choice, floored at the role minimum.
-func disksForConfig(c config.Config, vsaSize, viaSize int) []int {
+// buildNodeDisks assembles the per-node disk list. Disk COUNT is fixed by role
+// (VSA 2, VIA 2, VIA single-disk 1); SIZE comes from the caller's per-disk
+// values, floored at the role minimum.
+func buildNodeDisks(c config.Config, sizes []int) []int {
+	minSize := minVIADiskGiB
+	count := 2
 	if c.ApplianceType == "VSA" {
-		if vsaSize < minVSADiskGiB {
-			vsaSize = minVSADiskGiB
+		minSize = minVSADiskGiB
+	} else if c.VIASingleDisk {
+		count = 1
+	}
+	result := make([]int, count)
+	for i := range result {
+		s := minSize
+		if i < len(sizes) && sizes[i] > s {
+			s = sizes[i]
 		}
-		return []int{vsaSize, vsaSize}
+		result[i] = s
 	}
-	if viaSize < minVIADiskGiB {
-		viaSize = minVIADiskGiB
-	}
-	if c.VIASingleDisk {
-		return []int{viaSize}
-	}
-	return []int{viaSize, viaSize}
+	return result
 }
 
 func disksLabel(d []int) string {
@@ -167,7 +170,7 @@ func (s *Server) listOutputs() []outputSummary {
 			MFAAdmin:   bool(c.VeeamAdminIsMfaEnabled),
 			SOEnabled:  bool(c.VeeamSoIsEnabled),
 			HA:         c.HighAvailabilityEnabled,
-			Disks:      disksLabel(disksForConfig(c, minVSADiskGiB, minVIADiskGiB)),
+			Disks:      disksLabel(buildNodeDisks(c, nil)),
 			SingleDisk: c.VIASingleDisk,
 		})
 	}
@@ -302,9 +305,10 @@ type ksParams struct {
 // resolveOutputNode turns a chosen output folder (jobid) + slot role into a
 // deploy node. Classic mode points at the prebuilt customised ISO; kickstart
 // mode points at the output's .cfg (served over /content) plus the original
-// role ISO. The disk layout is derived from the output's own config, which is
-// also returned (the wiring step reads the VSA admin password from it).
-func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks ksParams, bootCmd string) (deploy.NodeDeploy, config.Config, error) {
+// role ISO. diskSizes holds per-disk GiB values requested by the user; count
+// and minimums are enforced by buildNodeDisks. The loaded config is also
+// returned (the wiring step reads the VSA admin password from it).
+func (s *Server) resolveOutputNode(jobid, role string, diskSizes []int, ks ksParams, bootCmd string) (deploy.NodeDeploy, config.Config, error) {
 	jobid = filepath.Base(jobid)
 	dir := filepath.Join(s.deps.DataDir, "output", jobid)
 	c, iso, cfgFile, ok := loadOutputConfig(dir)
@@ -318,7 +322,7 @@ func (s *Server) resolveOutputNode(jobid, role string, vsaSize, viaSize int, ks 
 	node := deploy.NodeDeploy{
 		Name:        name,
 		Role:        role,
-		Disks:       disksForConfig(c, vsaSize, viaSize),
+		Disks:       buildNodeDisks(c, diskSizes),
 		IP:          c.StaticIP,
 		PairingCode: wiring.DefaultPairingCode,
 	}
@@ -495,8 +499,8 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 	setIfNonEmpty(
 		// kickstart / boot
 		"ks_base_url", "boot_wait", "vsa_base_iso", "via_base_iso",
-		// sizing
-		"vm_cpus", "vm_memory", "vm_bridge", "vm_vlan", "vsa_disk", "via_disk",
+		// global network
+		"vm_bridge", "vm_vlan",
 		// wiring
 		"wire_timeout", "cluster_dns",
 		// Proxmox
@@ -525,6 +529,17 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 	for i := 0; i < n; i++ {
 		nodeOutputs[i] = strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
 		nodeBoots[i] = r.FormValue(fmt.Sprintf("node_%d_bootcmd", i))
+		// Per-node sizing fields
+		for _, k := range []string{
+			fmt.Sprintf("node_%d_cpus", i),
+			fmt.Sprintf("node_%d_memory", i),
+			fmt.Sprintf("node_%d_disk_0", i),
+			fmt.Sprintf("node_%d_disk_1", i),
+		} {
+			if v := strings.TrimSpace(r.FormValue(k)); v != "" {
+				text[k] = v
+			}
+		}
 	}
 
 	return deploy.FormSnapshot{
@@ -566,9 +581,6 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vsaSize := atoiMin(r.FormValue("vsa_disk"), minVSADiskGiB, minVSADiskGiB)
-	viaSize := atoiMin(r.FormValue("via_disk"), minVIADiskGiB, minVIADiskGiB)
-
 	ks := ksParams{
 		enabled: r.FormValue("remote_ks") != "",
 		baseURL: strDefault(strings.TrimSpace(r.FormValue("ks_base_url")), "http://"+r.Host),
@@ -591,11 +603,24 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		bootCmd := r.FormValue(fmt.Sprintf("node_%d_bootcmd", i))
-		n, c, err := s.resolveOutputNode(jobid, roleLabel(sp), vsaSize, viaSize, ks, bootCmd)
+
+		// Per-node disk sizing — up to 2 disks, each floored by buildNodeDisks.
+		minDisk := minVIADiskGiB
+		if sp.Role == topology.RoleVSA {
+			minDisk = minVSADiskGiB
+		}
+		diskSizes := []int{
+			atoiMin(r.FormValue(fmt.Sprintf("node_%d_disk_0", i)), minDisk, minDisk),
+			atoiMin(r.FormValue(fmt.Sprintf("node_%d_disk_1", i)), minDisk, minDisk),
+		}
+
+		n, c, err := s.resolveOutputNode(jobid, roleLabel(sp), diskSizes, ks, bootCmd)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		n.CPUs = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_cpus", i)), 4)
+		n.MemoryMiB = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_memory", i)), 8192)
 		if i == 0 {
 			primaryCfg = c
 		}
@@ -608,15 +633,15 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bridge and VLAN are shared across all nodes on the same host.
 	vmSpec := hypervisor.VMSpec{
-		CPUs:      atoiDefault(r.FormValue("vm_cpus"), 4),
-		MemoryMiB: atoiDefault(r.FormValue("vm_memory"), 8192),
-		Bridge:    strDefault(strings.TrimSpace(r.FormValue("vm_bridge")), "vmbr0"),
-		VLAN:      atoiDefault(r.FormValue("vm_vlan"), 0),
-		UEFI:      true, // Veeam VSA/VIA appliances boot via UEFI/OVMF
+		Bridge: strDefault(strings.TrimSpace(r.FormValue("vm_bridge")), "vmbr0"),
+		VLAN:   atoiDefault(r.FormValue("vm_vlan"), 0),
+		UEFI:   true, // Veeam VSA/VIA appliances boot via UEFI/OVMF
 	}
 
-	powerOn := r.FormValue("power_on") != ""
+	// Remote kickstart and wiring both require the VM to boot; force power-on.
+	powerOn := r.FormValue("power_on") != "" || ks.enabled
 
 	// Optional post-boot wiring (register VIA/HA into the VSA via Veeam REST).
 	// Wiring needs the VMs powered on; enabling it implies power-on. The VSA
