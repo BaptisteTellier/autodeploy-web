@@ -70,6 +70,70 @@ function formApp() {
   };
 }
 
+// --- Sortable tables ---------------------------------------------------------
+// Click-to-sort headers for any <table class="sortable">, project-wide. A header
+// cell is skipped when it is empty (e.g. a checkbox column) or carries
+// data-nosort (e.g. an actions column). A body cell may set data-sort-value to
+// override its sort key (e.g. a Unix epoch behind a "15:04:05" timestamp, or raw
+// bytes behind a human-readable size); otherwise the visible text is used.
+// A column sorts numerically when every value is a number, else alphabetically.
+function initSortableTables(root) {
+  (root || document).querySelectorAll('table.sortable').forEach(function (table) {
+    const head = table.tHead;
+    if (!head || !head.rows.length) return;
+    const headers = Array.from(head.rows[0].cells);
+
+    headers.forEach(function (th, col) {
+      if (th.hasAttribute('data-nosort') || th.textContent.trim() === '') return;
+      th.classList.add('cursor-pointer', 'select-none');
+      const arrow = document.createElement('span');
+      arrow.className = 'sort-arrow text-slate-300 ml-1';
+      arrow.textContent = '↕';
+      th.appendChild(arrow);
+
+      th.addEventListener('click', function () {
+        const body = table.tBodies[0];
+        if (!body) return;
+        const rows = Array.from(body.rows);
+        const asc = th.getAttribute('data-dir') !== 'asc';
+
+        // Reset the indicators on the other headers.
+        headers.forEach(function (other) {
+          if (other === th) return;
+          other.removeAttribute('data-dir');
+          const a = other.querySelector('.sort-arrow');
+          if (a) { a.textContent = '↕'; a.className = 'sort-arrow text-slate-300 ml-1'; }
+        });
+        th.setAttribute('data-dir', asc ? 'asc' : 'desc');
+        arrow.textContent = asc ? '▲' : '▼';
+        arrow.className = 'sort-arrow text-slate-500 ml-1';
+
+        const keyOf = function (row) {
+          const cell = row.cells[col];
+          if (!cell) return '';
+          const dv = cell.getAttribute('data-sort-value');
+          return (dv !== null ? dv : cell.textContent).trim();
+        };
+        const numeric = rows.every(function (r) {
+          const v = keyOf(r);
+          return v === '' || /^-?\d+(\.\d+)?$/.test(v);
+        });
+        rows.sort(function (a, b) {
+          const x = keyOf(a), y = keyOf(b);
+          if (numeric) {
+            const nx = parseFloat(x) || 0, ny = parseFloat(y) || 0;
+            return asc ? nx - ny : ny - nx;
+          }
+          return asc ? x.localeCompare(y) : y.localeCompare(x);
+        });
+        rows.forEach(function (r) { body.appendChild(r); });
+      });
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function () { initSortableTables(); });
+
 // --- Generators ----------------------------------------------------------
 
 // Veeam password: 16 chars, ensures at least 1 of each class and no 4-in-a-row

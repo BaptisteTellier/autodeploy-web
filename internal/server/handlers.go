@@ -469,27 +469,49 @@ type OutputJobInfo struct {
 	TotalSize    int64
 }
 
-// friendlyJobName builds a human-readable label for a job output folder.
-// It reads job-config.json inside jobDir; if Hostname is non-empty it returns
-// "ApplianceType-Hostname[-OutputISO]", otherwise the first 8 chars of jobID
-// followed by "…".
+// friendlyJobName builds a compact, human-readable label for a job output
+// folder: "Hostname · Type · Net · MM-DD HH:MM" — the hostname segment is
+// dropped when it merely repeats the appliance type (a common case), the
+// network is DHCP or the static IP, and the build date (the folder's mtime)
+// disambiguates repeated hostnames. Falls back to the short job id when the
+// config can't be read. The raw OutputISO filename is deliberately NOT included
+// (it was the main source of the old, redundant labels); the deploy summary
+// card shows the ISO separately.
 func friendlyJobName(jobDir, jobID string) string {
-	cfgPath := filepath.Join(jobDir, jobConfigName)
-	if raw, err := os.ReadFile(cfgPath); err == nil {
-		var meta struct {
-			ApplianceType string `json:"ApplianceType"`
-			Hostname      string `json:"Hostname"`
-			OutputISO     string `json:"OutputISO"`
-		}
-		if json.Unmarshal(raw, &meta) == nil && meta.Hostname != "" {
-			name := meta.ApplianceType + "-" + meta.Hostname
-			if meta.OutputISO != "" {
-				name += "-" + meta.OutputISO
-			}
-			return name
-		}
+	short := jobID[:min(8, len(jobID))] + "…"
+	raw, err := os.ReadFile(filepath.Join(jobDir, jobConfigName))
+	if err != nil {
+		return short
 	}
-	return jobID[:min(8, len(jobID))] + "…"
+	var meta struct {
+		ApplianceType string `json:"ApplianceType"`
+		Hostname      string `json:"Hostname"`
+		UseDHCP       bool   `json:"UseDHCP"`
+		StaticIP      string `json:"StaticIP"`
+	}
+	if json.Unmarshal(raw, &meta) != nil {
+		return short
+	}
+
+	var parts []string
+	if meta.Hostname != "" && !strings.EqualFold(meta.Hostname, meta.ApplianceType) {
+		parts = append(parts, meta.Hostname)
+	}
+	if meta.ApplianceType != "" {
+		parts = append(parts, meta.ApplianceType)
+	}
+	if meta.UseDHCP {
+		parts = append(parts, "DHCP")
+	} else if meta.StaticIP != "" {
+		parts = append(parts, meta.StaticIP)
+	}
+	if fi, err := os.Stat(jobDir); err == nil && !fi.ModTime().IsZero() {
+		parts = append(parts, fi.ModTime().Format("01-02 15:04"))
+	}
+	if len(parts) == 0 {
+		return short
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (s *Server) handleMediaOutput(w http.ResponseWriter, r *http.Request) {

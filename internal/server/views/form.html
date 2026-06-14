@@ -313,8 +313,8 @@
 {{if .Jobs}}
 <section class="bg-white rounded shadow p-4">
   <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "form.recent_jobs"}}</h2>
-  <table class="w-full text-sm">
-    <thead><tr class="text-left text-slate-500"><th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th></th></tr></thead>
+  <table class="w-full text-sm sortable">
+    <thead><tr class="text-left text-slate-500"><th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th data-nosort></th></tr></thead>
     <tbody>
     {{range .Jobs}}
     <tr class="border-t">
@@ -326,7 +326,7 @@
         {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-800{{end}}
         {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
       ">{{.State}}</span></td>
-      <td class="text-xs">{{.CreatedAt.Format "15:04:05"}}</td>
+      <td class="text-xs" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{.CreatedAt.Format "15:04:05"}}</td>
       <td><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "form.open_arrow"}}</a></td>
     </tr>
     {{end}}

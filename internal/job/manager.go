@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,12 +108,27 @@ func (m *Manager) Submit(c config.Config) (*Job, error) {
 	}
 	cfgPath := filepath.Join(jobsConfigDir, id+".json")
 
-	// Compute output ISO name (same logic as PS1: append _customized if empty).
+	// Compute output ISO name. When the user leaves it blank, derive a clean
+	// "<hostname>-<type>.iso" (deduped when the hostname already is the appliance
+	// type), falling back to "<source>_customized.iso" if neither is set.
 	out := c.OutputISO
 	if out == "" {
-		base := c.SourceISO
-		ext := filepath.Ext(base)
-		out = base[:len(base)-len(ext)] + "_customized" + ext
+		ext := filepath.Ext(c.SourceISO)
+		if ext == "" {
+			ext = ".iso"
+		}
+		name := strings.TrimSpace(c.Hostname)
+		switch {
+		case name != "" && c.ApplianceType != "" && !strings.EqualFold(name, c.ApplianceType):
+			name += "-" + c.ApplianceType
+		case name == "":
+			name = c.ApplianceType
+		}
+		if name == "" {
+			base := c.SourceISO
+			name = base[:len(base)-len(filepath.Ext(base))] + "_customized"
+		}
+		out = name + ext
 	}
 
 	// Override SourceISO/OutputISO paths to point to the container volumes,

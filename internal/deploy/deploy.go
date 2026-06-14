@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -940,7 +941,8 @@ func (m *Manager) runWireOnly(d *Deployment, spec Spec) {
 	d.setState(StateDone)
 }
 
-// List returns snapshots of all deployments, newest first is not guaranteed.
+// List returns snapshots of all deployments, sorted by creation time
+// (newest first).
 func (m *Manager) List() []View {
 	m.mu.RLock()
 	ds := make([]*Deployment, 0, len(m.deployments))
@@ -948,6 +950,7 @@ func (m *Manager) List() []View {
 		ds = append(ds, d)
 	}
 	m.mu.RUnlock()
+	sort.Slice(ds, func(i, j int) bool { return ds[i].CreatedAt.After(ds[j].CreatedAt) })
 	out := make([]View, len(ds))
 	for i, d := range ds {
 		out[i] = d.View()

@@ -46,10 +46,10 @@
       <a href="/" class="text-blue-600 hover:underline">{{t "out.none_link"}}</a>{{t "out.none_post"}}
     </p>
     {{else}}
-    <table class="w-full text-sm">
+    <table class="w-full text-sm sortable">
       <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
         <tr>
-          <th class="px-3 py-3 w-8">
+          <th class="px-3 py-3 w-8" data-nosort>
             <input type="checkbox" class="rounded"
                    :checked="allChecked" @change="toggleAll()">
           </th>
@@ -57,7 +57,7 @@
           <th class="px-4 py-3">{{t "th.date"}}</th>
           <th class="px-4 py-3">{{t "th.files"}}</th>
           <th class="px-4 py-3">{{t "th.total_size"}}</th>
-          <th class="px-4 py-3 text-right">{{t "common.actions"}}</th>
+          <th class="px-4 py-3 text-right" data-nosort>{{t "common.actions"}}</th>
         </tr>
       </thead>
       <tbody>
@@ -73,11 +73,11 @@
              class="font-semibold text-blue-700 hover:underline">{{.FriendlyName}}</a>
           <div class="text-xs text-slate-400 font-mono mt-0.5">{{slice .JobID 0 8}}…</div>
         </td>
-        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap" data-sort-value="{{.ModTime.Unix}}">
           {{.ModTime.Format "2006-01-02 15:04"}}
         </td>
-        <td class="px-4 py-3 text-slate-600">{{.FileCount}} {{t "common.files_word"}}</td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .TotalSize}}</td>
+        <td class="px-4 py-3 text-slate-600" data-sort-value="{{.FileCount}}">{{.FileCount}} {{t "common.files_word"}}</td>
+        <td class="px-4 py-3 text-slate-600 whitespace-nowrap" data-sort-value="{{.TotalSize}}">{{humanSize .TotalSize}}</td>
         <td class="px-4 py-3 text-right space-x-3 whitespace-nowrap">
           <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline text-xs">{{t "out.open"}}</a>
           <a href="/jobs/{{.JobID}}" class="text-slate-500 hover:underline text-xs">{{t "out.job"}}</a>

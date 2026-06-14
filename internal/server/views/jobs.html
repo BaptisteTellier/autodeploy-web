@@ -13,9 +13,9 @@ async function deleteJob(id) {
 <div class="bg-white rounded shadow p-4">
   <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "jobs.all"}}</h2>
   {{if .Jobs}}
-  <table class="w-full text-sm">
+  <table class="w-full text-sm sortable">
     <thead><tr class="text-left text-slate-500">
-      <th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.started"}}</th><th>{{t "th.finished"}}</th><th>{{t "th.exit"}}</th><th></th>
+      <th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.started"}}</th><th>{{t "th.finished"}}</th><th>{{t "th.exit"}}</th><th data-nosort></th>
     </tr></thead>
     <tbody>
     {{range .Jobs}}
@@ -31,8 +31,8 @@ async function deleteJob(id) {
           {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
         ">{{.State}}</span>
       </td>
-      <td class="text-xs">{{if not .StartedAt.IsZero}}{{.StartedAt.Format "15:04:05"}}{{end}}</td>
-      <td class="text-xs">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .StartedAt.IsZero}}{{.StartedAt.Unix}}{{else}}0{{end}}">{{if not .StartedAt.IsZero}}{{.StartedAt.Format "15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "15:04:05"}}{{end}}</td>
       <td class="text-xs font-mono">{{.ExitCode}}</td>
       <td class="text-right">
         <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
@@ -59,15 +59,16 @@ async function deleteJob(id) {
     <a href="/deploy" class="ml-auto text-blue-600 hover:underline text-xs font-normal">{{t "deploy.title"}} →</a>
   </h2>
   {{if .Deployments}}
-  <table class="w-full text-sm">
+  <table class="w-full text-sm sortable">
     <thead><tr class="text-left text-slate-500">
-      <th>{{t "th.id"}}</th><th>{{t "deploy.topology"}}</th><th>{{t "deploy.nodes"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th></th>
+      <th>{{t "th.id"}}</th><th>{{t "deploy.topology"}}</th><th>{{t "deploy.provider"}}</th><th>{{t "deploy.nodes"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th data-nosort></th>
     </tr></thead>
     <tbody>
     {{range .Deployments}}
     <tr class="border-t hover:bg-slate-50">
       <td class="font-mono text-xs"><a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline">{{slice .ID 0 8}}</a></td>
       <td class="font-mono">{{.Kind}}</td>
+      <td class="font-mono text-xs">{{if .Form.Provider}}{{.Form.Provider}}{{else}}—{{end}}</td>
       <td>{{len .Nodes}}</td>
       <td>
         <span class="px-2 py-0.5 rounded text-xs
@@ -78,7 +79,7 @@ async function deleteJob(id) {
           {{if or (eq (printf "%s" .State) "canceled") (eq (printf "%s" .State) "removed")}}bg-slate-200 text-slate-700{{end}}
         ">{{.State}}</span>
       </td>
-      <td class="text-xs">{{if not .CreatedAt.IsZero}}{{.CreatedAt.Format "15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{if not .CreatedAt.IsZero}}{{.CreatedAt.Format "15:04:05"}}{{end}}</td>
       <td class="text-right"><a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a></td>
     </tr>
     {{end}}

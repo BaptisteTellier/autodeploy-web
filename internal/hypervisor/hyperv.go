@@ -211,9 +211,15 @@ func (h *HyperV) FindISO(ctx context.Context, name string) (string, error) {
 }
 
 // CreateVM provisions a powered-off Generation 2 VM per spec and returns a
-// VMRef whose ID is the VM's stable GUID (survives rename). UEFI (Gen 2) is
-// always used; Secure Boot is disabled so the unsigned Veeam installer ISO
-// boots. One dynamic VHDX per Disks entry is created at cfg.VMPath.
+// VMRef whose ID is the VM's stable GUID (survives rename). The GUID is read
+// straight off the object New-VM returns — never re-queried by name, which would
+// match (and concatenate) multiple GUIDs when a same-named VM already exists.
+//
+// To avoid clashes with leftover VMs/files, a free name is chosen (a "-N" suffix
+// is appended while a VM or folder of that name exists) and every VM gets its
+// OWN folder under cfg.VMPath (config + VHDX files live there). UEFI (Gen 2) is
+// used with Secure Boot off (the Veeam installer ISO is unsigned) and a virtual
+// TPM is enabled. One dynamic VHDX per Disks entry is created in the VM folder.
 func (h *HyperV) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 	if len(spec.Disks) == 0 {
 		spec.Disks = []int{32} // safety default
@@ -221,33 +227,42 @@ func (h *HyperV) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 
 	memBytes := int64(spec.MemoryMiB) * 1024 * 1024
 
-	// Build the per-disk VHD creation + attachment fragment.
+	// Per-disk VHDX creation, inside the VM's own folder ($vmDir / $name resolved
+	// in PowerShell once a free name is found). Files: <vmname>_<i>.vhdx.
 	var diskPS strings.Builder
 	for i, gib := range spec.Disks {
 		sizeBytes := int64(gib) * 1024 * 1024 * 1024
-		vhdPath := fmt.Sprintf(`%s\%s_%d.vhdx`, h.cfg.VMPath, spec.Name, i)
 		fmt.Fprintf(&diskPS,
-			"\nNew-VHD -Path '%s' -SizeBytes %d -Dynamic | Out-Null\n"+
-				"Add-VMHardDiskDrive -VMName '%s' -Path '%s' -ControllerType SCSI\n",
-			vhdPath, sizeBytes, spec.Name, vhdPath,
+			"$vhd = Join-Path $vmDir ('{0}_%d.vhdx' -f $name)\n"+
+				"New-VHD -Path $vhd -SizeBytes %d -Dynamic | Out-Null\n"+
+				"Add-VMHardDiskDrive -VM $vm -Path $vhd -ControllerType SCSI\n",
+			i, sizeBytes,
 		)
 	}
 
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
-New-VM -Name '%s' -MemoryStartupBytes %d -Generation 2 -SwitchName '%s' -Path '%s' | Out-Null
-Set-VMProcessor      -VMName '%s' -Count %d
-Set-VM               -VMName '%s' -StaticMemory -AutomaticCheckpointsEnabled $false
-Set-VMFirmware       -VMName '%s' -EnableSecureBoot Off
+$req  = '%s'
+$base = '%s'
+# Pick a free name so a leftover VM or folder never clashes (this is what made
+# Get-VM -Name return two GUIDs, and New-VHD fail with "file exists").
+$name = $req
+$n = 2
+while ((Get-VM -Name $name -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $base $name))) {
+    $name = "$req-$n"; $n++
+}
+$vmDir = Join-Path $base $name
+New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
+$vm = New-VM -Name $name -MemoryStartupBytes %d -Generation 2 -SwitchName '%s' -Path $vmDir
+Set-VMProcessor -VM $vm -Count %d
+Set-VM          -VM $vm -StaticMemory -AutomaticCheckpointsEnabled $false
+Set-VMFirmware  -VM $vm -EnableSecureBoot Off
 %s
-(Get-VM -Name '%s').Id.Guid
-`, spec.Name, memBytes, h.cfg.SwitchName, h.cfg.VMPath,
-		spec.Name, spec.CPUs,
-		spec.Name,
-		spec.Name,
-		diskPS.String(),
-		spec.Name,
-	)
+# Enable a virtual TPM (local key protector works on standalone Hyper-V hosts).
+Set-VMKeyProtector -VM $vm -NewLocalKeyProtector
+Enable-VMTPM       -VM $vm
+$vm.Id.Guid
+`, spec.Name, h.cfg.VMPath, memBytes, h.cfg.SwitchName, spec.CPUs, diskPS.String())
 
 	out, err := h.runPS(ctx, script)
 	if err != nil {
@@ -358,14 +373,27 @@ Set-VMFirmware -VMName '%s' -FirstBootDevice $disk
 	return nil
 }
 
-// SetBootDiskThenCD places the hard disk first in the Gen 2 firmware boot
-// order. The DVD drive stays in the list so the fresh empty disk falls through
-// to the CD installer on first boot; after install the disk boots directly.
+// SetBootDiskThenCD sets the explicit Gen 2 firmware boot order: hard disk
+// first, DVD second, network adapter last. On a fresh empty disk the firmware
+// falls through to the CD installer; after install the disk boots directly, and
+// PXE is never attempted (NIC last).
 func (h *HyperV) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
-	// Hyper-V Gen2: Set-VMFirmware -FirstBootDevice promotes the device to the
-	// top of the boot order list; all other entries (including the DVD) remain
-	// in order behind it — this naturally achieves "disk first, CD fallback".
-	return h.SetBootFromDisk(ctx, vm)
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$vm = Get-VM -Id '%s'
+$order = @()
+$disk = Get-VMHardDiskDrive -VM $vm | Select-Object -First 1
+if ($disk) { $order += $disk }
+$dvd = Get-VMDvdDrive -VM $vm | Select-Object -First 1
+if ($dvd) { $order += $dvd }
+$net = Get-VMNetworkAdapter -VM $vm | Select-Object -First 1
+if ($net) { $order += $net }
+if ($order.Count -gt 0) { Set-VMFirmware -VM $vm -BootOrder $order }
+`, vm.ID)
+	if _, err := h.runPS(ctx, script); err != nil {
+		return fmt.Errorf("hyperv: SetBootDiskThenCD VM %s: %w", vm.ID, err)
+	}
+	return nil
 }
 
 // PowerOn starts the VM.
@@ -426,20 +454,28 @@ func (h *HyperV) Status(ctx context.Context, vm VMRef) (PowerState, error) {
 func (h *HyperV) Destroy(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
+$base = '%s'
 $vm = Get-VM -Id '%s' -ErrorAction SilentlyContinue
 if (-not $vm) { return }
-# Collect attached VHDX paths before destroying the VM object.
-$vhds = @(Get-VMHardDiskDrive -VMName $vm.Name | Select-Object -ExpandProperty Path)
+# Collect attached VHDX paths + the VM folder before destroying the VM object.
+$dir  = $vm.Path
+$vhds = @(Get-VMHardDiskDrive -VM $vm | Select-Object -ExpandProperty Path)
 # Hard-stop; ignore errors if already off.
 if ($vm.State -ne 'Off') {
-    Stop-VM -Name $vm.Name -TurnOff -Force -ErrorAction SilentlyContinue
+    Stop-VM -VM $vm -TurnOff -Force -ErrorAction SilentlyContinue
 }
-Remove-VM -Name $vm.Name -Force
+Remove-VM -VM $vm -Force
 # Delete the VHDX files.
 foreach ($v in $vhds) {
     if ($v -and (Test-Path $v)) { Remove-Item -Path $v -Force }
 }
-`, vm.ID)
+# Remove the VM's dedicated folder, but never the shared VMPath root (guards
+# older VMs that were created flat in VMPath before per-VM folders existed).
+$expected = Join-Path $base $vm.Name
+if ($dir -and $dir -eq $expected -and $dir -ne $base -and (Test-Path $dir)) {
+    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+`, h.cfg.VMPath, vm.ID)
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: Destroy VM %s: %w", vm.ID, err)
 	}
