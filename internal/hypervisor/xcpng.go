@@ -586,6 +586,27 @@ func (x *XCPng) SetBootFromDisk(ctx context.Context, vm VMRef) error {
 	return nil
 }
 
+// SetBootDiskThenCD sets the HVM boot order to disk first, CD-ROM second.
+//
+// XCP-ng / Xen HVM boot order letters: c = hard disk, d = CD-ROM / DVD.
+// "cd" means: try hard disk first, fall back to CD-ROM.
+// On a blank disk the firmware falls through to the CD installer; after
+// install the disk has an OS and boots directly with no runtime change needed.
+func (x *XCPng) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
+	c, sess, err := x.ensureSession()
+	if err != nil {
+		return err
+	}
+	vmRef, err := x.resolveVM(c, sess, vm.ID)
+	if err != nil {
+		return err
+	}
+	if err := c.VM.SetHVMBootParams(sess, vmRef, map[string]string{"order": "cd"}); err != nil {
+		return fmt.Errorf("xcpng: set boot order disk-then-cd on VM %s: %w", vm.ID, err)
+	}
+	return nil
+}
+
 // PowerOn starts the VM.
 func (x *XCPng) PowerOn(ctx context.Context, vm VMRef) error {
 	c, sess, err := x.ensureSession()

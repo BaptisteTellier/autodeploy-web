@@ -459,6 +459,9 @@ var translations = map[string]map[string]string{
 		"deploy.err_remove":          "Could not remove deployment: ",
 		"deploy.err_retry":           "Could not retry deployment: ",
 		"deploy.retry":               "Retry",
+		"deploy.rewire":              "Retry wiring",
+		"deploy.rewire_timeout":      "Wiring timeout (min)",
+		"deploy.err_rewire":          "Could not retry wiring: ",
 		"deploy.copy_to_deploy":      "Copy to deploy",
 	},
 
@@ -867,6 +870,9 @@ var translations = map[string]map[string]string{
 		"deploy.err_remove":          "Impossible de supprimer le déploiement : ",
 		"deploy.err_retry":           "Impossible de relancer le déploiement : ",
 		"deploy.retry":               "Relancer",
+		"deploy.rewire":              "Recâbler (wiring uniquement)",
+		"deploy.rewire_timeout":      "Timeout câblage (min)",
+		"deploy.err_rewire":          "Impossible de recâbler : ",
 		"deploy.copy_to_deploy":      "Copier vers déploiement",
 	},
 }

@@ -28,7 +28,6 @@ type Config struct {
 	ClusterDNSName string        // HA cluster DNS name (HA topologies only)
 	RepoPath       string        // hardened-repo path (default /mnt/repository)
 	ImmutableDays  int           // hardened-repo immutability days (default 7)
-	ReadyTimeout   time.Duration // how long to wait for the VSA REST to come up
 	SessionTimeout time.Duration // how long to wait per async infra session
 }
 
@@ -47,9 +46,6 @@ func New(cfg Config) *Wirer {
 	}
 	if cfg.ImmutableDays <= 0 {
 		cfg.ImmutableDays = 7
-	}
-	if cfg.ReadyTimeout <= 0 {
-		cfg.ReadyTimeout = 30 * time.Minute
 	}
 	if cfg.SessionTimeout <= 0 {
 		cfg.SessionTimeout = 15 * time.Minute
@@ -247,18 +243,15 @@ func waitNodeUp(ctx context.Context, ip string, log func(string)) error {
 }
 
 // waitReady polls the VSA OAuth endpoint until authentication succeeds.
+// It relies entirely on ctx for its deadline (set by the caller's WireTimeout).
 func (w *Wirer) waitReady(ctx context.Context, client *veeam.Client, log func(string)) error {
-	deadline := time.Now().Add(w.cfg.ReadyTimeout)
 	for {
 		if err := client.Authenticate(ctx); err == nil {
 			return nil
 		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("VSA REST not reachable within %s", w.cfg.ReadyTimeout)
-		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("VSA REST not reachable: %w", ctx.Err())
 		case <-time.After(20 * time.Second):
 			log("…still waiting for the VSA to finish installing / boot")
 		}

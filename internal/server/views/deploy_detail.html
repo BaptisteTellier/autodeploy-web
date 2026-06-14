@@ -36,6 +36,15 @@
     <form method="POST" action="/deploy/{{.Deployment.ID}}/retry">
       <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors">↻ {{t "deploy.retry"}}</button>
     </form>
+    {{if and .Deployment.HasWirer (eq (printf "%s" .Deployment.State) "failed")}}
+    <form method="POST" action="/deploy/{{.Deployment.ID}}/rewire" class="flex items-center gap-1">
+      <input name="wire_timeout" type="number" min="5" value="{{or (.Deployment.Form.Text.wire_timeout) "45"}}"
+             class="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+             title="{{t "deploy.rewire_timeout"}}">
+      <span class="text-xs text-slate-400">min</span>
+      <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">🔌 {{t "deploy.rewire"}}</button>
+    </form>
+    {{end}}
     <a href="/deploy?copy={{.Deployment.ID}}"
        class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">⧉ {{t "deploy.copy_to_deploy"}}</a>
     {{end}}

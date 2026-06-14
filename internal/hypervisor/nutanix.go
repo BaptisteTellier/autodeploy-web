@@ -629,6 +629,16 @@ func (nx *Nutanix) SetBootFromDisk(ctx context.Context, vm VMRef) error {
 	return nil
 }
 
+// SetBootDiskThenCD sets the boot order to disk first, CD-ROM second.
+// On a blank disk AHV falls through to the CD installer; after install
+// the disk has an OS and boots directly with no runtime change needed.
+func (nx *Nutanix) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
+	if err := nx.setBootOrder(ctx, vm, []string{"DISK", "CDROM"}); err != nil {
+		return fmt.Errorf("nutanix: set boot disk-then-cd on VM %s: %w", vm.ID, err)
+	}
+	return nil
+}
+
 // setPowerState sets the VM power_state field to the given value and waits
 // for the resulting async task.
 func (nx *Nutanix) setPowerState(ctx context.Context, vm VMRef, state string) error {

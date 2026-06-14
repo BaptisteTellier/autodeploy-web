@@ -358,6 +358,16 @@ Set-VMFirmware -VMName '%s' -FirstBootDevice $disk
 	return nil
 }
 
+// SetBootDiskThenCD places the hard disk first in the Gen 2 firmware boot
+// order. The DVD drive stays in the list so the fresh empty disk falls through
+// to the CD installer on first boot; after install the disk boots directly.
+func (h *HyperV) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
+	// Hyper-V Gen2: Set-VMFirmware -FirstBootDevice promotes the device to the
+	// top of the boot order list; all other entries (including the DVD) remain
+	// in order behind it — this naturally achieves "disk first, CD fallback".
+	return h.SetBootFromDisk(ctx, vm)
+}
+
 // PowerOn starts the VM.
 func (h *HyperV) PowerOn(ctx context.Context, vm VMRef) error {
 	name, err := h.vmName(ctx, vm)

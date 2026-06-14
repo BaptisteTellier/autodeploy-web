@@ -484,6 +484,26 @@ func (s *Server) handleDeployRetry(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/deploy/"+d.ID, http.StatusSeeOther)
 }
 
+// handleDeployRewire re-runs only the wiring step of a finished/failed deployment.
+func (s *Server) handleDeployRewire(w http.ResponseWriter, r *http.Request) {
+	lang := langFromRequest(r)
+	if s.deps.DeployManager == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	wireTimeout := time.Duration(atoiMin(r.FormValue("wire_timeout"), 45, 5)) * time.Minute
+	d, err := s.deps.DeployManager.RetryWire(r.PathValue("id"), wireTimeout)
+	if err != nil {
+		http.Error(w, translate(lang, "deploy.err_rewire")+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	http.Redirect(w, r, "/deploy/"+d.ID, http.StatusSeeOther)
+}
+
 // deployFormSnapshot builds a FormSnapshot from the submitted form values so
 // the deployment can later be copied back into the deploy form. Passwords and
 // token secrets are deliberately excluded.

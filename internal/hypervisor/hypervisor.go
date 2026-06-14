@@ -80,6 +80,12 @@ type Hypervisor interface {
 	// SetBootFromDisk makes the VM boot the disk first (after the install).
 	SetBootFromDisk(ctx context.Context, vm VMRef) error
 
+	// SetBootDiskThenCD sets the boot order to disk first, CD-ROM second.
+	// On a fresh VM the disk is empty so the firmware falls through to the CD;
+	// after the installer finishes the disk has an OS and boots directly.
+	// This avoids any runtime boot-order change after PowerOn.
+	SetBootDiskThenCD(ctx context.Context, vm VMRef) error
+
 	// PowerOn starts the VM.
 	PowerOn(ctx context.Context, vm VMRef) error
 

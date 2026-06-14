@@ -346,6 +346,13 @@ func (p *Proxmox) SetBootFromDisk(ctx context.Context, vm VMRef) error {
 	return p.configVM(ctx, vm, proxmox.VirtualMachineOption{Name: "boot", Value: "order=scsi0"})
 }
 
+// SetBootDiskThenCD sets the boot order to disk first, CD-ROM second.
+// The empty disk is skipped by the firmware on the first boot so the CD
+// installer runs; after install the disk has an OS and boots directly.
+func (p *Proxmox) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
+	return p.configVM(ctx, vm, proxmox.VirtualMachineOption{Name: "boot", Value: "order=scsi0;ide2"})
+}
+
 // PowerOn starts the VM.
 func (p *Proxmox) PowerOn(ctx context.Context, vm VMRef) error {
 	v, err := p.vm(ctx, vm)

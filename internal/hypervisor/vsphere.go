@@ -544,6 +544,42 @@ func (v *VSphere) SetBootFromDisk(ctx context.Context, vm VMRef) error {
 	return nil
 }
 
+// SetBootDiskThenCD configures the VM to boot disk first, CD-ROM second.
+// On a fresh VM the disk is empty so UEFI/BIOS falls through to the CD;
+// after install the disk has an OS and boots directly without any runtime change.
+func (v *VSphere) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
+	vmObj, err := v.vmObject(ctx, vm)
+	if err != nil {
+		return err
+	}
+	devices, err := vmObj.Device(ctx)
+	if err != nil {
+		return fmt.Errorf("vsphere: set boot disk-then-cd: get devices for VM %s: %w", vm.ID, err)
+	}
+	disks := devices.SelectByType((*types.VirtualDisk)(nil))
+	if len(disks) == 0 {
+		return fmt.Errorf("vsphere: set boot disk-then-cd: no disk found on VM %s", vm.ID)
+	}
+	spec := types.VirtualMachineConfigSpec{
+		BootOptions: &types.VirtualMachineBootOptions{
+			BootOrder: []types.BaseVirtualMachineBootOptionsBootableDevice{
+				&types.VirtualMachineBootOptionsBootableDiskDevice{
+					DeviceKey: disks[0].GetVirtualDevice().Key,
+				},
+				&types.VirtualMachineBootOptionsBootableCdromDevice{},
+			},
+		},
+	}
+	task, err := vmObj.Reconfigure(ctx, spec)
+	if err != nil {
+		return fmt.Errorf("vsphere: set boot disk-then-cd on VM %s: %w", vm.ID, err)
+	}
+	if err := vsWaitTask(ctx, task); err != nil {
+		return fmt.Errorf("vsphere: set boot disk-then-cd on VM %s: %w", vm.ID, err)
+	}
+	return nil
+}
+
 // --------------------------------------------------------------------------
 // PowerOn / PowerOff / Status
 // --------------------------------------------------------------------------

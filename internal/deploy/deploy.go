@@ -173,7 +173,8 @@ type View struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	FinishedAt time.Time    `json:"finished_at,omitempty"`
 	Error      string       `json:"error,omitempty"`
-	Form       FormSnapshot `json:"form"` // non-secret form snapshot for "Copy to deploy"
+	HasWirer   bool         `json:"has_wirer"`  // true when the deployment had wiring configured
+	Form       FormSnapshot `json:"form"`        // non-secret form snapshot for "Copy to deploy"
 }
 
 // View returns a snapshot safe to hand to HTTP handlers / templates.
@@ -190,6 +191,7 @@ func (d *Deployment) View() View {
 		CreatedAt:  d.CreatedAt,
 		FinishedAt: d.FinishedAt,
 		Error:      d.Error,
+		HasWirer:   d.spec.Wirer != nil,
 		Form:       d.form,
 	}
 }
@@ -423,6 +425,10 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 			return
 		}
 		spec.Nodes[i].Ref = ref
+		// Persist VMRef in d.spec so a wire-only retry can query GetVMIP.
+		d.mu.Lock()
+		d.spec.Nodes[i].Ref = ref
+		d.mu.Unlock()
 	}
 	d.AppendLine("All nodes deployed.")
 
@@ -448,6 +454,14 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 			d.setState(StateFailed)
 			return
 		}
+		// Persist resolved IPs in d.spec so a wire-only retry uses fresh values.
+		d.mu.Lock()
+		for i, n := range spec.Nodes {
+			if n.IP != "" {
+				d.spec.Nodes[i].IP = n.IP
+			}
+		}
+		d.mu.Unlock()
 	}
 
 	// Optional wiring step: register the booted appliances into the VSA. Only
@@ -539,7 +553,12 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 	if err := spec.HV.AttachISO(ctx, vm, isoRef); err != nil {
 		return zero, fmt.Errorf("attach ISO: %w", err)
 	}
-	if err := spec.HV.SetBootFromCD(ctx, vm); err != nil {
+	// Disk first, CD second: on a blank disk the firmware falls through to the
+	// CD installer automatically. After install the disk has an OS and boots
+	// directly — no runtime boot-order change is needed after PowerOn.
+	// DetachISO is intentionally NOT called — QEMU reads the ISO on demand
+	// throughout the Anaconda installation; ejecting mid-install aborts it.
+	if err := spec.HV.SetBootDiskThenCD(ctx, vm); err != nil {
 		return zero, fmt.Errorf("set boot order: %w", err)
 	}
 
@@ -548,16 +567,6 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 		d.AppendLine(fmt.Sprintf("[%s] powering on VM %s…", host, vm.ID))
 		if err := spec.HV.PowerOn(ctx, vm); err != nil {
 			return zero, fmt.Errorf("power on: %w", err)
-		}
-		// Switch boot order to disk immediately after power-on so the installer's
-		// terminal reboot lands on the installed OS instead of re-running the
-		// installer. This only modifies the hypervisor config (takes effect on
-		// next boot); the current boot from CD is not affected.
-		// DetachISO is intentionally NOT called here — QEMU reads the ISO on
-		// demand throughout the Anaconda installation; ejecting mid-install
-		// would abort the package installation.
-		if err := spec.HV.SetBootFromDisk(ctx, vm); err != nil {
-			d.AppendLine(fmt.Sprintf("[%s] warning: set boot from disk: %v", host, err))
 		}
 	}
 
@@ -763,6 +772,134 @@ func (m *Manager) Retry(id string) (*Deployment, error) {
 		return nil, fmt.Errorf("deploy: deployment %q cannot be retried (no stored spec)", id)
 	}
 	return m.Start(spec)
+}
+
+// RetryWire creates a new deployment that runs only the wiring step against the
+// VMs from an existing (failed) deployment. wireTimeout overrides the original
+// WireTimeout when > 0.
+func (m *Manager) RetryWire(id string, wireTimeout time.Duration) (*Deployment, error) {
+	orig, ok := m.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("deploy: deployment %q not found", id)
+	}
+	orig.mu.Lock()
+	if orig.State == StateRunning {
+		orig.mu.Unlock()
+		return nil, fmt.Errorf("deploy: deployment %q is still running", id)
+	}
+	spec := orig.spec
+	orig.mu.Unlock()
+
+	if spec.Wirer == nil {
+		return nil, fmt.Errorf("deploy: deployment %q has no wirer configured", id)
+	}
+	hasRefs := false
+	for _, n := range spec.Nodes {
+		if n.Ref.ID != "" {
+			hasRefs = true
+			break
+		}
+	}
+	if !hasRefs {
+		return nil, fmt.Errorf("deploy: no VMs were created in deployment %q — cannot retry wiring only", id)
+	}
+	if wireTimeout > 0 {
+		spec.WireTimeout = wireTimeout
+	} else if spec.WireTimeout <= 0 {
+		spec.WireTimeout = DefaultWireTimeout
+	}
+	return m.startWireOnly(spec)
+}
+
+// startWireOnly registers a wire-only deployment (no VM creation) and launches
+// its goroutine.
+func (m *Manager) startWireOnly(spec Spec) (*Deployment, error) {
+	d := &Deployment{
+		ID:        uuid.NewString(),
+		Kind:      spec.Label + " — wire retry",
+		State:     StatePending,
+		CreatedAt: time.Now(),
+		done:      make(chan struct{}),
+		hv:        spec.HV,
+		spec:      spec,
+		form:      spec.Form,
+	}
+	d.Nodes = make([]NodeStatus, len(spec.Nodes))
+	for i, n := range spec.Nodes {
+		d.Nodes[i] = NodeStatus{Hostname: n.Name, Role: n.Role, VMID: n.Ref.ID, Step: "ready"}
+	}
+
+	m.mu.Lock()
+	m.deployments[d.ID] = d
+	m.mu.Unlock()
+
+	m.wg.Add(1)
+	go m.runWireOnly(d, spec)
+	return d, nil
+}
+
+// runWireOnly resolves any outstanding DHCP IPs and runs the wiring step.
+func (m *Manager) runWireOnly(d *Deployment, spec Spec) {
+	defer m.wg.Done()
+	defer func() {
+		d.mu.Lock()
+		d.FinishedAt = time.Now()
+		d.mu.Unlock()
+		d.closeSubs()
+		close(d.done)
+	}()
+
+	d.setState(StateRunning)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
+	go func() {
+		select {
+		case <-m.stopCh:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	// Re-resolve IPs for any DHCP node (IP="" but Ref.ID set from the original run).
+	if err := m.resolveNodeIPs(ctx, d, spec); err != nil {
+		if d.isCanceled() {
+			d.AppendLine("Wiring retry stopped by user.")
+			d.setState(StateCanceled)
+			return
+		}
+		d.AppendLine(fmt.Sprintf("IP RESOLUTION FAILED: %v", err))
+		d.mu.Lock()
+		d.Error = "ip resolution: " + err.Error()
+		d.mu.Unlock()
+		d.setState(StateFailed)
+		return
+	}
+
+	wireTimeout := spec.WireTimeout
+	if wireTimeout <= 0 {
+		wireTimeout = DefaultWireTimeout
+	}
+	wctx, wcancel := context.WithTimeout(ctx, wireTimeout)
+	defer wcancel()
+	d.AppendLine(fmt.Sprintf("Wiring topology into the VSA (Veeam REST, timeout %s)…", wireTimeout))
+	if err := spec.Wirer.Wire(wctx, spec.Nodes, d.AppendLine); err != nil {
+		if d.isCanceled() {
+			d.AppendLine("Wiring retry stopped by user.")
+			d.setState(StateCanceled)
+			return
+		}
+		d.AppendLine(fmt.Sprintf("WIRING FAILED: %v", err))
+		d.mu.Lock()
+		d.Error = "wiring: " + err.Error()
+		d.mu.Unlock()
+		d.setState(StateFailed)
+		return
+	}
+	d.AppendLine("Topology wired.")
+	d.setState(StateDone)
 }
 
 // List returns snapshots of all deployments, newest first is not guaranteed.

@@ -69,6 +69,10 @@ func (h *mockHV) SetBootFromDisk(_ context.Context, vm hypervisor.VMRef) error {
 	h.log("bootdisk:" + vm.ID)
 	return nil
 }
+func (h *mockHV) SetBootDiskThenCD(_ context.Context, vm hypervisor.VMRef) error {
+	h.log("bootdiskthencd:" + vm.ID)
+	return nil
+}
 func (h *mockHV) PowerOn(_ context.Context, vm hypervisor.VMRef) error {
 	h.log("poweron:" + vm.ID)
 	return nil
@@ -130,8 +134,8 @@ func TestDeploySequenceHappyPath(t *testing.T) {
 		}
 	}
 	want := []string{
-		"upload:/out/a/vsa.iso", "create:vsa-01:disks=[256 256]", "attach:101:local:iso//out/a/vsa.iso", "bootcd:101",
-		"upload:/out/b/via.iso", "create:proxy-01:disks=[128 128]", "attach:102:local:iso//out/b/via.iso", "bootcd:102",
+		"upload:/out/a/vsa.iso", "create:vsa-01:disks=[256 256]", "attach:101:local:iso//out/a/vsa.iso", "bootdiskthencd:101",
+		"upload:/out/b/via.iso", "create:proxy-01:disks=[128 128]", "attach:102:local:iso//out/b/via.iso", "bootdiskthencd:102",
 	}
 	if len(hv.calls) != len(want) {
 		t.Fatalf("calls = %v\nwant %v", hv.calls, want)
