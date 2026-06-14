@@ -430,6 +430,45 @@ func (c *Client) AddVmwareProxy(ctx context.Context, hostID string, maxTasks int
 	return out.ID, nil
 }
 
+// --- license -----------------------------------------------------------------
+
+// InstalledLicense is the subset of InstalledLicenseModel we surface.
+type InstalledLicense struct {
+	Status     string `json:"status"`     // "Valid", "Invalid", "Expired", …
+	Type       string `json:"type"`       // "Subscription", "Perpetual", …
+	Edition    string `json:"edition"`    // "EnterprisePlus", …
+	LicensedTo string `json:"licensedTo"` // owner name
+}
+
+// GetLicense returns the currently installed license (accessible even on an
+// unlicensed server via the NoLicense role). status == "" means none/empty.
+func (c *Client) GetLicense(ctx context.Context) (InstalledLicense, error) {
+	var out InstalledLicense
+	if err := c.do(ctx, http.MethodGet, "/api/v1/license", nil, &out); err != nil {
+		return InstalledLicense{}, err
+	}
+	return out, nil
+}
+
+// InstallLicense installs a Veeam license on the VBR server from the raw .lic
+// file bytes. The REST API takes the file content base64-encoded inside a JSON
+// string field; this endpoint is reachable even when the server is unlicensed
+// (NoLicense role), which is exactly the freshly-kickstarted case. Returns the
+// resulting license status (e.g. "Valid").
+func (c *Client) InstallLicense(ctx context.Context, licenseBytes []byte) (InstalledLicense, error) {
+	if len(licenseBytes) == 0 {
+		return InstalledLicense{}, fmt.Errorf("veeam: empty license file")
+	}
+	body := map[string]any{
+		"license": base64.StdEncoding.EncodeToString(licenseBytes),
+	}
+	var out InstalledLicense
+	if err := c.do(ctx, http.MethodPost, "/api/v1/license/install", body, &out); err != nil {
+		return InstalledLicense{}, err
+	}
+	return out, nil
+}
+
 // --- HA cluster --------------------------------------------------------------
 
 // HASpec describes the 2-node HA cluster to create.

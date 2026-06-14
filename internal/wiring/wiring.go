@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ type Config struct {
 	RepoPath       string        // hardened-repo path (default /mnt/repository)
 	ImmutableDays  int           // hardened-repo immutability days (default 7)
 	SessionTimeout time.Duration // how long to wait per async infra session
+	LicensePath    string        // optional .lic file to install on the VSA via REST ("" = skip)
 }
 
 // Wirer registers a deployed topology into its VSA. It satisfies deploy.Wirer.
@@ -98,6 +100,15 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	}
 	log("VSA REST is up — authenticated.")
 	defer client.Logout(context.Background())
+
+	// Install the license first: a remote-kickstarted VSA cannot carry the .lic
+	// inside the ISO, so it boots unlicensed. Pushing it over REST (NoLicense
+	// role) before registering infrastructure makes the cluster fully licensed.
+	if w.cfg.LicensePath != "" {
+		if err := w.installLicense(ctx, client, log); err != nil {
+			return fmt.Errorf("install license: %w", err)
+		}
+	}
 
 	// Register each VIA node (proxy / hardened repo) once it answers on the
 	// network (its unattended install must be finished before pairing works).
@@ -186,6 +197,27 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 			return err
 		}
 	}
+	return nil
+}
+
+// installLicense reads the .lic file and pushes it to the VSA via REST. It is
+// idempotent enough to re-run: if a valid license is already present it skips
+// the install (re-wiring after a partial failure should not error).
+func (w *Wirer) installLicense(ctx context.Context, client *veeam.Client, log func(string)) error {
+	if cur, err := client.GetLicense(ctx); err == nil && strings.EqualFold(cur.Status, "Valid") {
+		log(fmt.Sprintf("license already installed (%s, %s) — skipping.", cur.Edition, cur.LicensedTo))
+		return nil
+	}
+	data, err := os.ReadFile(w.cfg.LicensePath)
+	if err != nil {
+		return fmt.Errorf("read license file %s: %w", w.cfg.LicensePath, err)
+	}
+	log(fmt.Sprintf("installing license (%s)…", w.cfg.LicensePath))
+	lic, err := client.InstallLicense(ctx, data)
+	if err != nil {
+		return err
+	}
+	log(fmt.Sprintf("license installed: status=%s edition=%s licensedTo=%q", lic.Status, lic.Edition, lic.LicensedTo))
 	return nil
 }
 

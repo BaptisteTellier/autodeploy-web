@@ -85,6 +85,37 @@ func TestAuthenticateAndBearer(t *testing.T) {
 	}
 }
 
+func TestInstallLicense(t *testing.T) {
+	raw := []byte("fake-lic-file-bytes")
+	wantB64 := base64.StdEncoding.EncodeToString(raw)
+	mux := baseMux()
+	var gotB64 string
+	mux.HandleFunc("/api/v1/license/install", func(w http.ResponseWriter, r *http.Request) {
+		m := decode(t, r)
+		gotB64, _ = m["license"].(string)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "Valid", "edition": "EnterprisePlus", "licensedTo": "ACME",
+		})
+	})
+	c, _ := newTestClient(t, mux)
+
+	lic, err := c.InstallLicense(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("InstallLicense: %v", err)
+	}
+	if gotB64 != wantB64 {
+		t.Errorf("license body = %q, want base64 %q", gotB64, wantB64)
+	}
+	if lic.Status != "Valid" || lic.Edition != "EnterprisePlus" {
+		t.Errorf("license = %+v, want Valid/EnterprisePlus", lic)
+	}
+
+	// Empty bytes must error without hitting the network.
+	if _, err := c.InstallLicense(context.Background(), nil); err == nil {
+		t.Error("InstallLicense(nil) = nil error, want error")
+	}
+}
+
 func TestConnectionCertificateFingerprint(t *testing.T) {
 	raw := []byte("fake-der-certificate-bytes")
 	certB64 := base64.StdEncoding.EncodeToString(raw)

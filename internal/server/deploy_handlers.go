@@ -60,6 +60,11 @@ type outputSummary struct {
 	HA         bool   `json:"ha"`
 	Disks      string `json:"disks"`
 	SingleDisk bool   `json:"single_disk"`
+	// LicenseBaked is true when the output was built with a license baked into
+	// its config (LicenseVBRTune + LicenseFile). In remote-kickstart deploys the
+	// .lic cannot ride inside the ISO, so a baked-in license reference can break
+	// the unattended install — surfaced as a warning in the deploy form.
+	LicenseBaked bool `json:"license_baked"`
 }
 
 // Minimum per-role disk sizes (GiB). The user may request larger, never smaller.
@@ -160,18 +165,19 @@ func (s *Server) listOutputs() []outputSummary {
 			net = c.StaticIP
 		}
 		out = append(out, outputSummary{
-			JobID:      e.Name(),
-			Name:       friendlyJobName(dir, e.Name()),
-			ISOFile:    iso,
-			CfgFile:    cfgFile,
-			Appliance:  c.ApplianceType,
-			Hostname:   c.Hostname,
-			Network:    net,
-			MFAAdmin:   bool(c.VeeamAdminIsMfaEnabled),
-			SOEnabled:  bool(c.VeeamSoIsEnabled),
-			HA:         c.HighAvailabilityEnabled,
-			Disks:      disksLabel(buildNodeDisks(c, nil)),
-			SingleDisk: c.VIASingleDisk,
+			JobID:        e.Name(),
+			Name:         friendlyJobName(dir, e.Name()),
+			ISOFile:      iso,
+			CfgFile:      cfgFile,
+			Appliance:    c.ApplianceType,
+			Hostname:     c.Hostname,
+			Network:      net,
+			MFAAdmin:     bool(c.VeeamAdminIsMfaEnabled),
+			SOEnabled:    bool(c.VeeamSoIsEnabled),
+			HA:           c.HighAvailabilityEnabled,
+			Disks:        disksLabel(buildNodeDisks(c, nil)),
+			SingleDisk:   c.VIASingleDisk,
+			LicenseBaked: c.LicenseVBRTune && c.LicenseFile != "",
 		})
 	}
 	return out
@@ -207,6 +213,7 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 		"OutputsJSON":   template.JS(outputsJSON), //nolint:gosec — JSON of our own structs, rendered in a <script> JSON context
 		"Deployments":   deployments,
 		"WorkspaceISOs": originalISOs(filepath.Join(s.deps.DataDir, "iso")),
+		"LicenseFiles":  listDir(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
 		"KSBaseURL":     "http://" + r.Host,
 		"PrefillJSON":   prefillJSON,
 	})
@@ -522,7 +529,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		// global network
 		"vm_bridge", "vm_vlan",
 		// wiring
-		"wire_timeout", "cluster_dns",
+		"wire_timeout", "cluster_dns", "wire_license",
 		// Proxmox
 		"pve_url", "pve_node", "pve_storage", "pve_iso_storage", "pve_user", "pve_token_id",
 		// vSphere
@@ -555,6 +562,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 			fmt.Sprintf("node_%d_memory", i),
 			fmt.Sprintf("node_%d_disk_0", i),
 			fmt.Sprintf("node_%d_disk_1", i),
+			fmt.Sprintf("node_%d_boot_wait", i),
 		} {
 			if v := strings.TrimSpace(r.FormValue(k)); v != "" {
 				text[k] = v
@@ -641,6 +649,11 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		}
 		n.CPUs = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_cpus", i)), 4)
 		n.MemoryMiB = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_memory", i)), 8192)
+		// Per-node GRUB timer (kickstart only): wait before typing the boot
+		// command. 0 leaves it to the global boot_wait / DefaultBootWait.
+		if bw := atoiDefault(r.FormValue(fmt.Sprintf("node_%d_boot_wait", i)), 0); bw > 0 {
+			n.BootWait = time.Duration(bw) * time.Second
+		}
 		if i == 0 {
 			primaryCfg = c
 		}
@@ -674,11 +687,19 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		powerOn = true
+		// Optional license install over REST: a remote-kickstarted VSA cannot
+		// carry the .lic inside the ISO, so it boots unlicensed. When a license
+		// is selected, the wiring step pushes it once the VSA REST is up.
+		licensePath := ""
+		if lf := strings.TrimSpace(r.FormValue("wire_license")); lf != "" {
+			licensePath = filepath.Join(s.deps.DataDir, "license", filepath.Base(lf))
+		}
 		wirer = wiring.New(wiring.Config{
 			Username:       "veeamadmin",
 			Password:       primaryCfg.VeeamAdminPassword,
 			Insecure:       true,
 			ClusterDNSName: strings.TrimSpace(r.FormValue("cluster_dns")),
+			LicensePath:    licensePath,
 		})
 	}
 

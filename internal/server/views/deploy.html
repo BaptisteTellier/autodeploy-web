@@ -55,7 +55,7 @@
             if(k && DEPLOY_CATALOG[k]) kind=k;
           }
         "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false,
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'',
                   get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
                   get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
                   get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
@@ -82,6 +82,13 @@
                     L.push('POST '+ep+'/api/oauth2/token');
                     L.push('  body: { grant_type:password, username:veeamadmin, password:*** }');
                     L.push('');
+                    if(this.licenseFile){
+                      L.push('# Install license (VSA boots unlicensed under remote kickstart)');
+                      L.push('GET  '+ep+'/api/v1/license  # skip if already Valid');
+                      L.push('POST '+ep+'/api/v1/license/install');
+                      L.push('  body: { license: <base64 of '+this.licenseFile+'> }');
+                      L.push('');
+                    }
                     this.roles.forEach(function(role,i){
                       if(role.startsWith('VSA')) return;
                       const ip=this.summ(i)?.network||'<node-IP>';
@@ -152,10 +159,18 @@
               </div>
               <p x-show="role.indexOf('VSA')===0 ? summ(i)?.appliance!=='VSA' : summ(i)?.appliance==='VSA'"
                  class="text-amber-600 mt-2">{{t "deploy.role_mismatch"}}</p>
+              <p x-show="ks && summ(i)?.license_baked" x-cloak
+                 class="text-amber-600 mt-2">{{t "deploy.license_baked_warn"}}</p>
             </div>
 
-            <!-- Advanced: show/edit the exact GRUB boot command typed for this VM (kickstart only) -->
-            <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3">
+            <!-- Per-node GRUB timer + advanced boot command (kickstart only) -->
+            <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3 space-y-2">
+              <label class="text-xs text-slate-600 block max-w-[12rem]">
+                {{t "deploy.grub_timer"}}
+                <input :name="ks ? 'node_'+i+'_boot_wait' : null" type="number" min="3" placeholder="10"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <span class="block text-slate-400">{{t "deploy.grub_timer_hint"}}</span>
+              </label>
               <label class="flex items-center gap-2 text-xs text-slate-600">
                 <input type="checkbox" x-model="adv[i]" @change="if(adv[i]) revealBoot(i)" class="rounded border-slate-300">
                 {{t "deploy.show_bootcmd"}}
@@ -272,6 +287,10 @@
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
             <input name="pve_iso_storage" value="local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
+            <input name="vm_bridge" value="vmbr0"
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.pve_user"}}
@@ -450,18 +469,6 @@
       </div>
     </div>
 
-    <!-- Network bridge (shared across all nodes on the same host) -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
-      <h2 class="font-semibold text-slate-800">{{t "deploy.sizing"}}</h2>
-      <div class="max-w-xs">
-        <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
-          <input name="vm_bridge" value="vmbr0"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-      </div>
-      <p class="text-xs text-slate-400">CPU, RAM and disk sizes are configured per VM in the node cards above.</p>
-    </div>
-
     <!-- Wiring (register the topology into the VSA via Veeam REST) -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
       <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -477,6 +484,16 @@
         <label x-show="isHA" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
           <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <!-- License install over REST: only meaningful with remote kickstart,
+             where the .lic cannot be baked into the booted ISO. -->
+        <label x-show="ks" x-cloak class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.wire_license"}}
+          <select name="wire_license" x-model="licenseFile"
+                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <option value="">{{t "form.none_dash"}}</option>
+            {{range .LicenseFiles}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+          <span class="text-xs text-slate-400">{{t "deploy.wire_license_hint"}}</span>
         </label>
         <div class="sm:col-span-2 border-t border-slate-100 pt-2">
           <label class="flex items-center gap-2 text-xs text-slate-600">

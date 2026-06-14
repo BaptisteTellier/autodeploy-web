@@ -49,9 +49,10 @@ type NodeDeploy struct {
 	PairingCode string // appliance pairing/handshake code (default "000000")
 
 	// Remote kickstart (both set => kickstart mode for this node):
-	KSUrl       string // kickstart URL (…/media/output/<job>/<file>.cfg/content)
-	BaseISOPath string // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
-	BootCommand string // optional override of the GRUB boot command (one line per row); "" = role default
+	KSUrl       string        // kickstart URL (…/media/output/<job>/<file>.cfg/content)
+	BaseISOPath string        // local path of the ORIGINAL Veeam ISO (uploaded only if absent from the library)
+	BootCommand string        // optional override of the GRUB boot command (one line per row); "" = role default
+	BootWait    time.Duration // per-node GRUB timer: wait before typing the boot command; 0 = use Spec.BootWait
 
 	// Ref is populated by the orchestrator after VM creation. Used by the
 	// DHCP IP-resolution step to query the hypervisor guest agent.
@@ -572,6 +573,9 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 
 	if node.kickstart() {
 		bootWait := spec.BootWait
+		if node.BootWait > 0 {
+			bootWait = node.BootWait // per-node GRUB timer overrides the global default
+		}
 		if bootWait <= 0 {
 			bootWait = DefaultBootWait
 		}
