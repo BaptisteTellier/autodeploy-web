@@ -31,20 +31,37 @@ RUN echo "${AUTODEPLOY_VERSION}" > /autodeploy/.pinned-version
 ############################
 # Stage 3 — Runtime
 ############################
-FROM mcr.microsoft.com/powershell:7.4-debian-bullseye-slim
+# Debian base + PowerShell from the official GitHub release tarball. We do NOT
+# use mcr.microsoft.com/powershell: MCR's anonymous-pull token endpoint
+# rate-limits CI runners (HTTP 401 / 429) and intermittently broke image builds.
+# GitHub + Docker Hub (used by the other stages) are the reliable registries here.
+FROM debian:bookworm-slim
 
 ARG AUTODEPLOY_VERSION=dev
+ARG PWSH_VERSION=7.4.6
 LABEL org.opencontainers.image.title="autodeploy-web"
 LABEL org.opencontainers.image.description="Web UI + container wrapper around BaptisteTellier/autodeploy PowerShell tool"
 LABEL org.opencontainers.image.source="https://github.com/BaptisteTellier/autodeploy-web"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL autodeploy.version="${AUTODEPLOY_VERSION}"
 
+# App runtime deps (xorriso/rsync are invoked by autodeploy.ps1) + the shared
+# libraries PowerShell 7.4 needs on Debian 12, then pwsh itself (linux-x64).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xorriso \
         rsync \
         ca-certificates \
+        curl \
         tini \
+        less \
+        libicu72 \
+        libssl3 \
+    && curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz" -o /tmp/pwsh.tar.gz \
+    && mkdir -p /opt/microsoft/powershell/7 \
+    && tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 \
+    && chmod +x /opt/microsoft/powershell/7/pwsh \
+    && ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
+    && rm -f /tmp/pwsh.tar.gz \
     && rm -rf /var/lib/apt/lists/*
 
 # Wrapper "wsl" — the PS1 calls "wsl xorriso ..." on Windows.
