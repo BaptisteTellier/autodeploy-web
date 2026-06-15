@@ -681,12 +681,18 @@ if ($ret.ReturnValue -ne 0) {
 // NIC on the VM, as seen by the Hyper-V integration services.
 // Returns ("", nil) when integration services are not yet running.
 func (h *HyperV) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
+	// Resolve the VM by GUID first, then read its NICs' reported addresses.
+	// (Get-VMNetworkAdapter has no -VMId parameter — using it errored silently
+	// and made DHCP nodes poll forever.)
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
-$addrs = (Get-VMNetworkAdapter -VMId '%s' -ErrorAction SilentlyContinue).IPAddresses |
-    Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
-    Where-Object { $_ -notlike '127.*' -and $_ -notlike '169.254.*' -and $_ -ne '0.0.0.0' }
-if ($addrs) { ($addrs | Select-Object -First 1).Trim() }
+$vm = Get-VM -Id '%s' -ErrorAction SilentlyContinue
+if ($vm) {
+    $addrs = @($vm.NetworkAdapters.IPAddresses) |
+        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
+        Where-Object { $_ -notlike '127.*' -and $_ -notlike '169.254.*' -and $_ -ne '0.0.0.0' }
+    if ($addrs) { ($addrs | Select-Object -First 1).Trim() }
+}
 `, vm.ID)
 	out, err := h.runPS(ctx, script)
 	if err != nil {

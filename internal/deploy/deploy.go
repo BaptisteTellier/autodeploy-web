@@ -480,7 +480,14 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 				d.AppendLine(fmt.Sprintf("[%s] DHCP — polling hypervisor for IP…", spec.Nodes[i].Name))
 			}
 		}
-		if err := m.resolveNodeIPs(ctx, d, spec); err != nil {
+		ipTimeout := spec.WireTimeout
+		if ipTimeout <= 0 {
+			ipTimeout = DefaultWireTimeout
+		}
+		ipCtx, ipCancel := context.WithTimeout(ctx, ipTimeout)
+		err := m.resolveNodeIPs(ipCtx, d, spec)
+		ipCancel()
+		if err != nil {
 			if d.isCanceled() {
 				d.AppendLine("Deployment stopped by user.")
 				d.setState(StateCanceled)
@@ -903,7 +910,14 @@ func (m *Manager) runWireOnly(d *Deployment, spec Spec) {
 	}()
 
 	// Re-resolve IPs for any DHCP node (IP="" but Ref.ID set from the original run).
-	if err := m.resolveNodeIPs(ctx, d, spec); err != nil {
+	ipTimeout := spec.WireTimeout
+	if ipTimeout <= 0 {
+		ipTimeout = DefaultWireTimeout
+	}
+	ipCtx, ipCancel := context.WithTimeout(ctx, ipTimeout)
+	err := m.resolveNodeIPs(ipCtx, d, spec)
+	ipCancel()
+	if err != nil {
 		if d.isCanceled() {
 			d.AppendLine("Wiring retry stopped by user.")
 			d.setState(StateCanceled)
