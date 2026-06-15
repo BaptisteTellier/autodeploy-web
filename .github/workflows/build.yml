@@ -64,7 +64,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # amd64 only: the deploy targets (Proxmox / Hyper-V / Docker-on-Windows)
+          # are x86_64, and dropping arm64 halves the pulls against MCR's
+          # rate-limited anonymous token endpoint (the 401/429 that broke builds)
+          # while roughly halving build time. Add linux/arm64 back if ever needed.
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
