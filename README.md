@@ -233,7 +233,7 @@ Replace `<server>` with the hostname or IP of the machine running autodeploy-web
 Boot the Veeam appliance ISO, press **`c`** at the GRUB menu to drop into the command shell, then type these **three** lines (press Enter after each):
 
 ```
-linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.29:8080/media/output/bd68e20d-4c13-4fc6-a8e3-211fb6f15d6f/proxy-ks.cfg/content ip=dhcp quiet inst.assumeyes
+linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.10:8080/media/output/bd68e20d-4c13-4fc6-a8e3-211fb6f15d6f/proxy-ks.cfg/content ip=dhcp quiet inst.assumeyes
 initrdefi /images/pxeboot/initrd.img
 boot
 ```
@@ -296,7 +296,7 @@ Connection settings are entered **in the Deploy form** (nothing is stored on dis
 
 | Field | Example | Notes |
 |---|---|---|
-| `pve_url` | `https://192.168.1.181:8006/api2/json` | Proxmox API base URL |
+| `pve_url` | `https://192.168.1.10:8006/api2/json` | Proxmox API base URL |
 | `pve_node` | `proxmox` | Target node name |
 | `pve_storage` | `local-lvm` | Where VM disks land |
 | `pve_iso_storage` | `local` | Where ISOs are uploaded / looked up |
@@ -391,7 +391,7 @@ IP of the Docker host** (not the container's internal `172.x`), so scope the Win
 rule to that IP:
 
 ```powershell
-Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -RemoteAddress 192.168.1.29  # your Docker host
+Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -RemoteAddress 192.168.1.50  # your Docker host
 ```
 
 Verify it works (the listener is up, and the Docker host can reach it):

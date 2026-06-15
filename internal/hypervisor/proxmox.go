@@ -41,7 +41,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 
 // ProxmoxConfig holds connection + placement settings for a Proxmox VE target.
 type ProxmoxConfig struct {
-	BaseURL    string // full API base, e.g. "https://192.168.1.181:8006/api2/json"
+	BaseURL    string // full API base, e.g. "https://192.168.1.10:8006/api2/json"
 	Node       string // PVE node name, e.g. "pve"
 	Storage    string // storage for VM disks, e.g. "local-lvm"
 	ISOStorage string // storage holding ISO content (defaults to Storage if empty), e.g. "local"

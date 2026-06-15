@@ -18,18 +18,18 @@ func Defaults() Config {
 		Hostname:       "veeam-server",
 
 		UseDHCP:    false,
-		StaticIP:   "192.168.1.166",
+		StaticIP:   "192.168.1.100",
 		Subnet:     "255.255.255.0",
 		Gateway:    "192.168.1.1",
-		DNSServers: FlexStringArray{"192.168.1.64", "8.8.4.4"},
+		DNSServers: FlexStringArray{"192.168.1.1", "8.8.8.8"},
 
-		VeeamAdminPassword:     "123q123Q123!123",
+		VeeamAdminPassword:     "Aa1!Bb2!Cc3!Dd4!",
 		VeeamAdminMfaSecretKey: "JBSWY3DPEHPK3PXP",
 		VeeamAdminIsMfaEnabled: true,
-		VeeamSoPassword:        "123w123W123!123",
+		VeeamSoPassword:        "Ee5!Ff6!Gg7!Hh8!",
 		VeeamSoMfaSecretKey:    "JBSWY3DPEHPK3PXP",
 		VeeamSoIsMfaEnabled:    true,
-		VeeamSoRecoveryToken:   "eb9fcbf4-2be6-e94d-4203-dded67c5a450",
+		VeeamSoRecoveryToken:   "12345678-90ab-cdef-1234-567890abcdef",
 		VeeamSoIsEnabled:       true,
 
 		NtpServer:  FlexStringArray{"time.nist.gov"},
