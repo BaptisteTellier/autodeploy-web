@@ -277,6 +277,10 @@ func TestCreateHAClusterPayload(t *testing.T) {
 		if body["secondaryNodeCredentialsId"] != "cred-9" || body["clusterDnsName"] != "vbr.local" {
 			t.Errorf("HA payload = %v", body)
 		}
+		// clusterEndpoint (floating VIP) must be present in standard mode.
+		if body["clusterEndpoint"] != "10.0.0.12" {
+			t.Errorf("HA clusterEndpoint = %v, want 10.0.0.12", body["clusterEndpoint"])
+		}
 		cert, _ := body["certificate"].(map[string]any)
 		if cert["formatType"] != "Pem" || cert["certificate"] != "CERTB64" {
 			t.Errorf("HA cert = %v", cert)
@@ -288,6 +292,7 @@ func TestCreateHAClusterPayload(t *testing.T) {
 	sess, err := c.CreateHACluster(context.Background(), HASpec{
 		PrimaryNodeIP: "10.0.0.10", SecondaryNodeIP: "10.0.0.11",
 		SecondaryCredentialsID: "cred-9", ClusterDNSName: "vbr.local",
+		ClusterEndpoint:      "10.0.0.12",
 		CertificatePEMBase64: "CERTB64",
 	})
 	if err != nil {
@@ -396,6 +401,308 @@ func TestListBackupsFiltersByRepo(t *testing.T) {
 	}
 	if len(ids) != 2 {
 		t.Errorf("ids = %v, want 2 (b1,b3)", ids)
+	}
+}
+
+func TestCreateCloudCredentials(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/cloudCredentials", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		body := decode(t, r)
+		for k, want := range map[string]any{
+			"type":        "Amazon",
+			"accessKey":   "AKIAIOSFODNN7EXAMPLE",
+			"secretKey":   "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			"description": "test creds",
+		} {
+			if body[k] != want {
+				t.Errorf("body[%q] = %v, want %v", k, body[k], want)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "cloud-cred-1"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	id, err := c.CreateCloudCredentials(context.Background(), "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "test creds")
+	if err != nil {
+		t.Fatalf("CreateCloudCredentials: %v", err)
+	}
+	if id != "cloud-cred-1" {
+		t.Errorf("id = %q, want cloud-cred-1", id)
+	}
+}
+
+func TestAddS3RepositoryAmazon(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		body := decode(t, r)
+		if body["type"] != "AmazonS3" {
+			t.Errorf("type = %v, want AmazonS3", body["type"])
+		}
+		if body["name"] != "MyS3Repo" || body["description"] != "desc" {
+			t.Errorf("name/description = %v / %v", body["name"], body["description"])
+		}
+		account, _ := body["account"].(map[string]any)
+		if account == nil {
+			t.Fatal("missing account object")
+		}
+		if account["credentialsId"] != "cloud-cred-1" {
+			t.Errorf("account.credentialsId = %v, want cloud-cred-1", account["credentialsId"])
+		}
+		if account["regionType"] != "Global" {
+			t.Errorf("account.regionType = %v, want Global", account["regionType"])
+		}
+		connSettings, _ := account["connectionSettings"].(map[string]any)
+		if connSettings["connectionType"] != "Direct" {
+			t.Errorf("connectionSettings.connectionType = %v, want Direct", connSettings["connectionType"])
+		}
+		bucket, _ := body["bucket"].(map[string]any)
+		if bucket == nil {
+			t.Fatal("missing bucket object")
+		}
+		if bucket["regionId"] != "us-east-1" || bucket["bucketName"] != "my-bucket" || bucket["folderName"] != "vbr" {
+			t.Errorf("bucket = %v", bucket)
+		}
+		// immutability must be present with 30 days.
+		imm, _ := bucket["immutability"].(map[string]any)
+		if imm == nil {
+			t.Fatal("missing immutability object")
+		}
+		if imm["isEnabled"] != true || imm["daysCount"].(float64) != 30 || imm["immutabilityMode"] != "RepositorySettings" {
+			t.Errorf("immutability = %v", imm)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-s3"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	sess, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "MyS3Repo", Description: "desc",
+		CredentialsID: "cloud-cred-1", Compatible: false,
+		RegionID: "us-east-1", Bucket: "my-bucket", Folder: "vbr",
+		ImmutableDays: 30,
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (Amazon): %v", err)
+	}
+	if sess != "sess-s3" {
+		t.Errorf("session = %q, want sess-s3", sess)
+	}
+}
+
+func TestAddS3RepositoryAmazonNoImmutability(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		bucket, _ := body["bucket"].(map[string]any)
+		if bucket == nil {
+			t.Fatal("missing bucket object")
+		}
+		// When ImmutableDays==0 the immutability key must be absent.
+		if _, ok := bucket["immutability"]; ok {
+			t.Errorf("immutability must be absent when ImmutableDays=0, got %v", bucket["immutability"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-s3-noim"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	_, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "Repo", Description: "", CredentialsID: "cred-1",
+		Compatible: false, RegionID: "eu-west-1", Bucket: "b", Folder: "f",
+		ImmutableDays: 0,
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (no immutability): %v", err)
+	}
+}
+
+func TestAddS3RepositoryCompatible(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		body := decode(t, r)
+		if body["type"] != "S3Compatible" {
+			t.Errorf("type = %v, want S3Compatible", body["type"])
+		}
+		account, _ := body["account"].(map[string]any)
+		if account == nil {
+			t.Fatal("missing account object")
+		}
+		if account["servicePoint"] != "https://s3.example.com" {
+			t.Errorf("account.servicePoint = %v, want https://s3.example.com", account["servicePoint"])
+		}
+		if account["regionId"] != "default" {
+			t.Errorf("account.regionId = %v, want default", account["regionId"])
+		}
+		if account["credentialsId"] != "cred-2" {
+			t.Errorf("account.credentialsId = %v, want cred-2", account["credentialsId"])
+		}
+		connSettings, _ := account["connectionSettings"].(map[string]any)
+		if connSettings["connectionType"] != "Direct" {
+			t.Errorf("connectionSettings.connectionType = %v, want Direct", connSettings["connectionType"])
+		}
+		bucket, _ := body["bucket"].(map[string]any)
+		if bucket == nil {
+			t.Fatal("missing bucket object")
+		}
+		if bucket["bucketName"] != "compat-bucket" || bucket["folderName"] != "backups" {
+			t.Errorf("bucket = %v", bucket)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-compat"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	sess, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "CompatRepo", Description: "s3-compat",
+		CredentialsID: "cred-2", Compatible: true,
+		ServicePoint: "https://s3.example.com", RegionID: "default",
+		Bucket: "compat-bucket", Folder: "backups",
+		ImmutableDays: 0,
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (S3Compatible): %v", err)
+	}
+	if sess != "sess-compat" {
+		t.Errorf("session = %q, want sess-compat", sess)
+	}
+}
+
+func TestSetSyslog(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/generalOptions/eventForwarding", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %s, want PUT", r.Method)
+		}
+		body := decode(t, r)
+		srv, _ := body["syslogServer"].(map[string]any)
+		if srv == nil {
+			t.Fatal("missing syslogServer object")
+		}
+		if srv["serverName"] != "syslog.example.com" {
+			t.Errorf("serverName = %v, want syslog.example.com", srv["serverName"])
+		}
+		if srv["port"].(float64) != 514 {
+			t.Errorf("port = %v, want 514", srv["port"])
+		}
+		if srv["transportProtocol"] != "Tcp" {
+			t.Errorf("transportProtocol = %v, want Tcp", srv["transportProtocol"])
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	c, _ := newTestClient(t, mux)
+
+	if err := c.SetSyslog(context.Background(), "syslog.example.com", 514, "Tcp"); err != nil {
+		t.Fatalf("SetSyslog: %v", err)
+	}
+}
+
+func TestSetSyslogDefaults(t *testing.T) {
+	// When protocol=="" and port<=0 the method must default to Udp/514.
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/generalOptions/eventForwarding", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		srv, _ := body["syslogServer"].(map[string]any)
+		if srv["port"].(float64) != 514 {
+			t.Errorf("default port = %v, want 514", srv["port"])
+		}
+		if srv["transportProtocol"] != "Udp" {
+			t.Errorf("default protocol = %v, want Udp", srv["transportProtocol"])
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	c, _ := newTestClient(t, mux)
+
+	if err := c.SetSyslog(context.Background(), "syslog.example.com", 0, ""); err != nil {
+		t.Fatalf("SetSyslog defaults: %v", err)
+	}
+}
+
+func TestSetNodeExporterNoAuth(t *testing.T) {
+	mux := baseMux()
+	puts := 0
+	mux.HandleFunc("/api/v1/generalOptions/nodeExporterSettings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %s, want PUT", r.Method)
+		}
+		puts++
+		body := decode(t, r)
+		if body["metricsSharingEnabled"] != true {
+			t.Errorf("metricsSharingEnabled = %v, want true", body["metricsSharingEnabled"])
+		}
+		if body["tlsEnabled"] != false {
+			t.Errorf("tlsEnabled = %v, want false", body["tlsEnabled"])
+		}
+		auth, _ := body["auth"].(map[string]any)
+		if auth == nil {
+			t.Fatal("missing auth object")
+		}
+		if auth["type"] != "None" {
+			t.Errorf("auth.type = %v, want None", auth["type"])
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	c, _ := newTestClient(t, mux)
+
+	if err := c.SetNodeExporter(context.Background(), true, false, "", ""); err != nil {
+		t.Fatalf("SetNodeExporter (no auth): %v", err)
+	}
+	// Ensure setBasicAuth was NOT called (no extra handler registered above).
+	if puts != 1 {
+		t.Errorf("PUT count = %d, want 1", puts)
+	}
+}
+
+func TestSetNodeExporterWithBasicAuth(t *testing.T) {
+	mux := baseMux()
+	var putBody, postBody map[string]any
+	mux.HandleFunc("/api/v1/generalOptions/nodeExporterSettings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putBody = decode(t, r)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// POST to setBasicAuth lands here because the mux matches the prefix.
+		// (The setBasicAuth handler below is more specific and takes priority.)
+		t.Errorf("unexpected method %s on /nodeExporterSettings", r.Method)
+	})
+	mux.HandleFunc("/api/v1/generalOptions/nodeExporterSettings/setBasicAuth", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("setBasicAuth method = %s, want POST", r.Method)
+		}
+		postBody = decode(t, r)
+		w.WriteHeader(http.StatusOK)
+	})
+	c, _ := newTestClient(t, mux)
+
+	if err := c.SetNodeExporter(context.Background(), true, true, "prometheus", "s3cr3t"); err != nil {
+		t.Fatalf("SetNodeExporter (with auth): %v", err)
+	}
+	// PUT assertions.
+	if putBody == nil {
+		t.Fatal("PUT was not called")
+	}
+	auth, _ := putBody["auth"].(map[string]any)
+	if auth["type"] != "UsernamePassword" {
+		t.Errorf("auth.type = %v, want UsernamePassword", auth["type"])
+	}
+	if auth["username"] != "prometheus" || auth["password"] != "s3cr3t" {
+		t.Errorf("auth credentials = %v", auth)
+	}
+	if putBody["tlsEnabled"] != true {
+		t.Errorf("tlsEnabled = %v, want true", putBody["tlsEnabled"])
+	}
+	// POST assertions.
+	if postBody == nil {
+		t.Fatal("POST setBasicAuth was not called")
+	}
+	if postBody["username"] != "prometheus" || postBody["password"] != "s3cr3t" {
+		t.Errorf("setBasicAuth body = %v", postBody)
 	}
 }
 

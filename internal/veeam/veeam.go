@@ -373,8 +373,11 @@ func (c *Client) ListBackups(ctx context.Context, repoID string) ([]string, erro
 
 // DeleteBackup deletes a backup by id and returns the async session id.
 func (c *Client) DeleteBackup(ctx context.Context, backupID string) (string, error) {
+	// includeGFS=true so GFS (weekly/monthly/yearly) restore points are removed
+	// too — otherwise the Default Backup Repository can't be emptied/deleted
+	// (matches the vbr-ha-cluster reference).
 	var out idResponse
-	if err := c.do(ctx, http.MethodDelete, "/api/v1/backups/"+url.PathEscape(backupID), nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodDelete, "/api/v1/backups/"+url.PathEscape(backupID)+"?includeGFS=true", nil, &out); err != nil {
 		return "", err
 	}
 	return out.ID, nil
@@ -546,6 +549,169 @@ func (c *Client) CreateHACluster(ctx context.Context, spec HASpec) (string, erro
 		return "", err
 	}
 	return out.ID, nil
+}
+
+// --- cloud credentials -------------------------------------------------------
+
+// CreateCloudCredentials creates an Amazon S3 access-key/secret-key credential
+// (POST /api/v1/cloudCredentials, type "Amazon") and returns its id.
+func (c *Client) CreateCloudCredentials(ctx context.Context, accessKey, secretKey, description string) (string, error) {
+	body := map[string]any{
+		"type":        "Amazon",
+		"accessKey":   accessKey,
+		"secretKey":   secretKey,
+		"description": description,
+	}
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/cloudCredentials", body, &out); err != nil {
+		return "", fmt.Errorf("veeam: CreateCloudCredentials: %w", err)
+	}
+	return out.ID, nil
+}
+
+// --- object-storage repositories ---------------------------------------------
+
+// S3RepoSpec describes an S3 / S3-compatible object-storage repository to add.
+type S3RepoSpec struct {
+	Name          string // repository display name
+	Description   string
+	CredentialsID string // from CreateCloudCredentials
+	Compatible    bool   // true => S3Compatible (servicePoint required); false => AmazonS3
+	ServicePoint  string // S3Compatible only: endpoint URL e.g. https://s3.example.com
+	RegionID      string // AmazonS3: AWS region id (e.g. "us-east-1"); S3Compatible: provider region string
+	Bucket        string
+	Folder        string
+	ImmutableDays int // 0 = immutability disabled
+}
+
+// AddS3Repository adds an Amazon S3 or S3-compatible object-storage repository
+// (POST /api/v1/backupInfrastructure/repositories) and returns the async session id.
+func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, error) {
+	// Build the immutability sub-object only when requested.
+	var immutability map[string]any
+	if spec.ImmutableDays > 0 {
+		immutability = map[string]any{
+			"isEnabled":        true,
+			"daysCount":        spec.ImmutableDays,
+			"immutabilityMode": "RepositorySettings",
+		}
+	}
+
+	var body map[string]any
+	if spec.Compatible {
+		// S3Compatible repository type.
+		bucket := map[string]any{
+			"bucketName": spec.Bucket,
+			"folderName": spec.Folder,
+		}
+		if immutability != nil {
+			bucket["immutability"] = immutability
+		}
+		body = map[string]any{
+			"type":        "S3Compatible",
+			"name":        spec.Name,
+			"description": spec.Description,
+			"account": map[string]any{
+				"servicePoint":  spec.ServicePoint,
+				"regionId":      spec.RegionID,
+				"credentialsId": spec.CredentialsID,
+				"connectionSettings": map[string]any{
+					"connectionType": "Direct",
+				},
+			},
+			"bucket": bucket,
+		}
+	} else {
+		// AmazonS3 repository type.
+		bucket := map[string]any{
+			"regionId":   spec.RegionID,
+			"bucketName": spec.Bucket,
+			"folderName": spec.Folder,
+		}
+		if immutability != nil {
+			bucket["immutability"] = immutability
+		}
+		body = map[string]any{
+			"type":        "AmazonS3",
+			"name":        spec.Name,
+			"description": spec.Description,
+			"account": map[string]any{
+				"credentialsId": spec.CredentialsID,
+				"regionType":    "Global",
+				"connectionSettings": map[string]any{
+					"connectionType": "Direct",
+				},
+			},
+			"bucket": bucket,
+		}
+	}
+
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/repositories", body, &out); err != nil {
+		return "", fmt.Errorf("veeam: AddS3Repository: %w", err)
+	}
+	return out.ID, nil
+}
+
+// --- general options: syslog -------------------------------------------------
+
+// SetSyslog points VBR event forwarding at a syslog server
+// (PUT /api/v1/generalOptions/eventForwarding). protocol is "Udp"|"Tcp"|"Tls".
+func (c *Client) SetSyslog(ctx context.Context, serverName string, port int, protocol string) error {
+	if protocol == "" {
+		protocol = "Udp"
+	}
+	if port <= 0 {
+		port = 514
+	}
+	body := map[string]any{
+		"syslogServer": map[string]any{
+			"serverName":        serverName,
+			"port":              port,
+			"transportProtocol": protocol,
+		},
+	}
+	if err := c.do(ctx, http.MethodPut, "/api/v1/generalOptions/eventForwarding", body, nil); err != nil {
+		return fmt.Errorf("veeam: SetSyslog: %w", err)
+	}
+	return nil
+}
+
+// --- general options: node exporter ------------------------------------------
+
+// SetNodeExporter enables/disables the appliance Prometheus metrics endpoint
+// (PUT /api/v1/generalOptions/nodeExporterSettings). When username != "" the
+// auth type is UsernamePassword and credentials are also pushed via
+// POST /api/v1/generalOptions/nodeExporterSettings/setBasicAuth.
+func (c *Client) SetNodeExporter(ctx context.Context, enabled, tls bool, username, password string) error {
+	authType := "None"
+	auth := map[string]any{"type": authType}
+	if username != "" {
+		authType = "UsernamePassword"
+		auth = map[string]any{
+			"type":     authType,
+			"username": username,
+			"password": password,
+		}
+	}
+	body := map[string]any{
+		"metricsSharingEnabled": enabled,
+		"tlsEnabled":            tls,
+		"auth":                  auth,
+	}
+	if err := c.do(ctx, http.MethodPut, "/api/v1/generalOptions/nodeExporterSettings", body, nil); err != nil {
+		return fmt.Errorf("veeam: SetNodeExporter: %w", err)
+	}
+	if username != "" {
+		credsBody := map[string]any{
+			"username": username,
+			"password": password,
+		}
+		if err := c.do(ctx, http.MethodPost, "/api/v1/generalOptions/nodeExporterSettings/setBasicAuth", credsBody, nil); err != nil {
+			return fmt.Errorf("veeam: SetNodeExporter setBasicAuth: %w", err)
+		}
+	}
+	return nil
 }
 
 // Logout best-effort revokes the token.

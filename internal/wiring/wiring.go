@@ -23,14 +23,40 @@ const DefaultPairingCode = "000000"
 
 // Config controls how the wiring connects to the VSA and shapes the topology.
 type Config struct {
-	Username       string        // VSA REST user (default "veeamadmin")
-	Password       string        // VSA REST password
-	Insecure       bool          // skip TLS verification (self-signed VSA cert)
-	ClusterDNSName string        // HA cluster DNS name (HA topologies only)
-	RepoPath       string        // hardened-repo path (default /var/lib/veeam/backups)
-	ImmutableDays  int           // hardened-repo immutability days (default 7)
-	SessionTimeout time.Duration // how long to wait per async infra session
-	LicensePath    string        // optional .lic file to install on the VSA via REST ("" = skip)
+	Username        string        // VSA REST user (default "veeamadmin")
+	Password        string        // VSA REST password
+	Insecure        bool          // skip TLS verification (self-signed VSA cert)
+	ClusterDNSName  string        // HA cluster DNS name (HA topologies only)
+	ClusterEndpoint string        // HA cluster floating VIP IP (required by VBR in same-subnet mode)
+	RepoPath        string        // hardened-repo path (default /var/lib/veeam/backups)
+	ImmutableDays   int           // hardened-repo immutability days (default 7)
+	SessionTimeout  time.Duration // how long to wait per async infra session
+	LicensePath     string        // optional .lic file to install on the VSA via REST ("" = skip)
+
+	// Advanced post-wiring options, applied on the primary VSA after the
+	// topology is registered. Zero values are skipped.
+	NodeExporter     bool   // enable the Prometheus node_exporter metrics endpoint
+	NodeExporterTLS  bool   // serve node_exporter over TLS
+	NodeExporterUser string // optional basic-auth username ("" = no auth)
+	NodeExporterPass string // optional basic-auth password
+	SyslogServer     string // syslog target host/IP ("" = skip)
+	SyslogPort       int    // syslog port (default 514)
+	SyslogProtocol   string // "Udp" | "Tcp" | "Tls" (default Udp)
+	S3               *S3Config
+}
+
+// S3Config describes an optional object-storage backup repository to add during
+// wiring (a cloud credential is created first, then the repository).
+type S3Config struct {
+	Name          string // repository name
+	Compatible    bool   // true => S3-compatible (ServicePoint required); false => Amazon S3
+	ServicePoint  string // S3-compatible endpoint URL
+	Region        string // AWS region id (Amazon) or provider region (compatible)
+	Bucket        string
+	Folder        string
+	AccessKey     string
+	SecretKey     string
+	ImmutableDays int // 0 = immutability disabled
 }
 
 // Wirer registers a deployed topology into its VSA. It satisfies deploy.Wirer.
@@ -166,7 +192,11 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 			} else {
 				log(fmt.Sprintf("hardened repository %q already exists — skipping.", repoName))
 			}
-			hardenedRepoID = id
+			// First hardened repo in the topology becomes the HA config-backup
+			// target (keep the first, ignore any later ones).
+			if hardenedRepoID == "" {
+				hardenedRepoID = id
+			}
 		case isProxy(n.Role):
 			log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
 			ps, err := client.AddVmwareProxy(ctx, hostID, 4)
@@ -184,7 +214,7 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	// prerequisite ordering follows the vbr-ha-cluster reference (Steps 3.5/4/7).
 	if len(vsas) >= 2 {
 		if hardenedRepoID != "" {
-			log("redirecting config backup to the hardened repository…")
+			log("redirecting config backup to the first hardened repository…")
 			if err := client.RedirectConfigBackup(ctx, hardenedRepoID); err != nil {
 				return fmt.Errorf("redirect config backup: %w", err)
 			}
@@ -195,6 +225,55 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		}
 		if err := w.createHA(ctx, client, vsas[0], vsas[1], log); err != nil {
 			return err
+		}
+	}
+
+	// Advanced options (node_exporter / syslog / S3 repository) on the primary VSA.
+	if err := w.applyAdvanced(ctx, client, log); err != nil {
+		return err
+	}
+	return nil
+}
+
+// applyAdvanced applies the optional post-wiring settings on the primary VSA:
+// the Prometheus node_exporter endpoint, a syslog forwarding target, and an
+// object-storage (S3 / S3-compatible) backup repository. Each block is skipped
+// when its config is zero-valued.
+func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, log func(string)) error {
+	if w.cfg.NodeExporter {
+		log("enabling node_exporter metrics endpoint…")
+		if err := client.SetNodeExporter(ctx, true, w.cfg.NodeExporterTLS, w.cfg.NodeExporterUser, w.cfg.NodeExporterPass); err != nil {
+			return fmt.Errorf("node_exporter: %w", err)
+		}
+	}
+	if w.cfg.SyslogServer != "" {
+		log(fmt.Sprintf("configuring syslog forwarding to %s…", w.cfg.SyslogServer))
+		if err := client.SetSyslog(ctx, w.cfg.SyslogServer, w.cfg.SyslogPort, w.cfg.SyslogProtocol); err != nil {
+			return fmt.Errorf("syslog: %w", err)
+		}
+	}
+	if s := w.cfg.S3; s != nil {
+		log(fmt.Sprintf("creating object-storage repository %q…", s.Name))
+		credID, err := client.CreateCloudCredentials(ctx, s.AccessKey, s.SecretKey, "autodeploy S3 "+s.Name)
+		if err != nil {
+			return fmt.Errorf("S3 credentials: %w", err)
+		}
+		sess, err := client.AddS3Repository(ctx, veeam.S3RepoSpec{
+			Name:          s.Name,
+			Description:   "autodeploy object storage",
+			CredentialsID: credID,
+			Compatible:    s.Compatible,
+			ServicePoint:  s.ServicePoint,
+			RegionID:      s.Region,
+			Bucket:        s.Bucket,
+			Folder:        s.Folder,
+			ImmutableDays: s.ImmutableDays,
+		})
+		if err != nil {
+			return fmt.Errorf("S3 repository: %w", err)
+		}
+		if err := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+			return fmt.Errorf("S3 repository: %w", err)
 		}
 	}
 	return nil
@@ -314,11 +393,17 @@ func (w *Wirer) createHA(ctx context.Context, client *veeam.Client, primary, sec
 	if dns == "" {
 		dns = primary.Name // fall back to the primary hostname
 	}
+	// VBR requires the cluster floating IP (clusterEndpoint) in same-subnet
+	// (non-cross-subnet) mode — fail early with a clear message if it's missing.
+	if w.cfg.ClusterEndpoint == "" {
+		return fmt.Errorf("HA cluster endpoint (floating VIP IP) is required — set the 'Cluster IP' field")
+	}
 	sess, err := client.CreateHACluster(ctx, veeam.HASpec{
 		PrimaryNodeIP:          primary.IP,
 		SecondaryNodeIP:        secondary.IP,
 		SecondaryCredentialsID: credID,
 		ClusterDNSName:         dns,
+		ClusterEndpoint:        w.cfg.ClusterEndpoint,
 		CertificatePEMBase64:   certB64,
 	})
 	if err != nil {

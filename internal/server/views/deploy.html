@@ -41,6 +41,11 @@
             if (p.power_on) powerOn = true;
             if (p.text && p.text.ks_base_url) ksbase = p.text.ks_base_url;
             if (Array.isArray(p.node_outputs)) {
+              const b = (DEPLOY_CATALOG[kind]||[]).length;
+              for (let i=b; i<p.node_outputs.length; i++){
+                const role = p.text && p.text['node_'+i+'_role'];
+                if (role) extra.push(role);
+              }
               p.node_outputs.forEach(function(v,i){ if(v) sel[i]=v; });
             }
             if (Array.isArray(p.node_boots)) {
@@ -55,9 +60,14 @@
             if(k && DEPLOY_CATALOG[k]) kind=k;
           }
         "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'',
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'',
                   get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
-                  get roles(){ return DEPLOY_CATALOG[this.kind] || []; },
+                  extra: [],
+                  baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
+                  get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
+                  addVIA(role){ this.extra.push(role); },
+                  removeNode(idx){ const b=this.baseLen(); if(idx<b) return; this.extra.splice(idx-b,1); const n=this.roles.length; ['sel','bootcmd','adv','edited'].forEach(m=>{ for(let k=idx;k<n;k++){ this[m][k]=this[m][k+1]; } delete this[m][n]; }); },
+                  get ipConflict(){ const seen={}, dups={}; this.roles.forEach((r,i)=>{ const o=this.summ(i); if(!o||!o.network||o.network==='DHCP') return; if(seen[o.network]) dups[o.network]=true; else seen[o.network]=true; }); return Object.keys(dups); },
                   get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
                   get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
                   get isHA(){ return this.kind.startsWith('vsa-ha'); },
@@ -98,7 +108,7 @@
                       L.push('  body: { name:'+ip+', type:LinuxHost, pairingCode:000000 }');
                       if(role.includes('HR')){
                         L.push('GET  '+ep+'/api/v1/backupInfrastructure/repositories');
-                        L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories/hardenedRepository  # if absent');
+                        L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories  # type=LinuxHardened, if absent');
                         L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/var/lib/veeam/backups, immutabilityDays:7 }');
                       } else if(role.includes('Proxy')){
                         L.push('POST '+ep+'/api/v1/backupInfrastructure/vsphereProxies');
@@ -120,8 +130,34 @@
                       L.push('POST '+ep+'/api/v1/credentials');
                       L.push('  body: { username:veeamadmin, password:*** }');
                       L.push('POST '+ep+'/api/v1/connectionCertificate?host='+secIP);
-                      L.push('POST '+ep+'/api/v1/backupInfrastructure/haCluster');
-                      L.push('  body: { primaryNodeIp:'+vsaIP+', secondaryNodeIp:'+secIP+', clusterDnsName:<dns> }');
+                      L.push('POST '+ep+'/api/v1/highAvailabilityCluster');
+                      L.push('  body: { primaryNodeIpAddress:'+vsaIP+', secondaryNodeIpAddress:'+secIP+', clusterDnsName:<dns>, clusterEndpoint:<vip>, certificate:{…} }');
+                    }
+                    // Advanced options, applied on the primary VSA.
+                    if(this.wireNodeExp){
+                      L.push('');
+                      L.push('# node_exporter (Prometheus metrics)');
+                      L.push('PUT  '+ep+'/api/v1/generalOptions/nodeExporterSettings');
+                      L.push('  body: { metricsSharingEnabled:true, tlsEnabled:<tls>, auth:{ type:None|UsernamePassword } }');
+                    }
+                    {
+                      const sl=(document.getElementsByName('wire_syslog_server')[0]||{}).value;
+                      if(sl){
+                        L.push('');
+                        L.push('# syslog event forwarding');
+                        L.push('PUT  '+ep+'/api/v1/generalOptions/eventForwarding');
+                        L.push('  body: { syslogServer:{ serverName:'+sl+', port:<port>, transportProtocol:<proto> } }');
+                      }
+                    }
+                    if(this.wireS3){
+                      const t=this.wireS3Compat?'S3Compatible':'AmazonS3';
+                      const bucket=(document.getElementsByName('wire_s3_bucket')[0]||{}).value||'<bucket>';
+                      L.push('');
+                      L.push('# object-storage repository ('+t+')');
+                      L.push('POST '+ep+'/api/v1/cloudCredentials');
+                      L.push('  body: { type:Amazon, accessKey:***, secretKey:*** }');
+                      L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories');
+                      L.push('  body: { type:'+t+', bucket:{ bucketName:'+bucket+', folderName:<folder> } }');
                     }
                     return L.join('\n');
                   } }">
@@ -129,7 +165,7 @@
     <!-- Topology + per-slot output selection -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
       <h2 class="font-semibold text-slate-800">{{t "deploy.topology"}}</h2>
-      <select name="kind" x-model="kind" @change="sel = {}" required
+      <select name="kind" x-model="kind" @change="sel={}; extra=[]; bootcmd={}; adv={}; edited={}" required
               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         <option value="">{{t "deploy.select_topology"}}</option>
         {{range .Kinds}}<option value="{{.Kind}}">{{.Kind}}</option>{{end}}
@@ -139,7 +175,18 @@
         <h3 class="text-sm font-medium text-slate-600">{{t "deploy.nodes"}}</h3>
         <template x-for="(role, i) in roles" :key="i">
           <div class="border border-slate-200 rounded-lg p-4 space-y-3">
-            <div class="text-sm font-semibold text-emerald-700" x-text="(i+1)+'. '+role"></div>
+            <input type="hidden" :name="'node_'+i+'_role'" :value="role">
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-sm font-semibold text-emerald-700" x-text="(i+1)+'. '+role"></div>
+              <div class="flex gap-1">
+                <button type="button" x-show="!role.startsWith('VSA')" @click="addVIA(role)"
+                        title="{{t "deploy.add_via"}}"
+                        class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold">＋</button>
+                <button type="button" x-show="i >= baseLen()" @click="removeNode(i)"
+                        title="{{t "deploy.remove_node"}}"
+                        class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-semibold">✕</button>
+              </div>
+            </div>
             <select :name="'node_'+i+'_output'" x-model="sel[i]" required @change="refreshBoot(i)"
                     class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
               <option value="">{{t "deploy.select_output"}}</option>
@@ -259,7 +306,7 @@
                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           <option value="proxmox">Proxmox VE</option>
           <option value="vsphere">VMware vSphere / vCenter (experimental)</option>
-          <option value="hyperv">Microsoft Hyper-V (experimental)</option>
+          <option value="hyperv">Microsoft Hyper-V</option>
           <option value="nutanix">Nutanix AHV (experimental)</option>
           <option value="xcpng">XCP-ng (experimental)</option>
         </select>
@@ -480,6 +527,11 @@
           <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
+        <label x-show="isHA" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_endpoint"}}
+          <input name="cluster_endpoint" :required="wire && isHA" placeholder="192.168.1.200"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <span class="text-xs text-slate-400">{{t "deploy.cluster_endpoint_hint"}}</span>
+        </label>
         <!-- License install over REST: only meaningful with remote kickstart,
              where the .lic cannot be baked into the booted ISO. -->
         <label x-show="ks" x-cloak class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.wire_license"}}
@@ -495,11 +547,109 @@
             <input type="checkbox" x-model="wireAdv" class="rounded border-slate-300">
             {{t "deploy.wire_advanced"}}
           </label>
-          <pre x-show="wireAdv" x-cloak
-               class="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 whitespace-pre overflow-x-auto"
-               x-text="wirePreview()"></pre>
+
+          <!-- Advanced wiring options (applied on the primary VSA via REST) -->
+          <div x-show="wireAdv" x-cloak class="mt-3 space-y-4">
+
+            <!-- node_exporter -->
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" name="wire_node_exporter" x-model="wireNodeExp" class="rounded border-slate-300">
+                {{t "deploy.wire_node_exporter"}}
+              </label>
+              <div x-show="wireNodeExp" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
+                <label class="flex items-center gap-2 text-xs text-slate-600 sm:col-span-2">
+                  <input type="checkbox" name="wire_node_exporter_tls" class="rounded border-slate-300">
+                  {{t "deploy.wire_ne_tls"}}
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_ne_user"}}
+                  <input name="wire_node_exporter_user" autocomplete="off"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_ne_pass"}}
+                  <input name="wire_node_exporter_pass" type="password" autocomplete="new-password"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+              </div>
+            </div>
+
+            <!-- syslog -->
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <label class="text-sm text-slate-600 sm:col-span-2">{{t "deploy.wire_syslog"}}
+                <input name="wire_syslog_server" placeholder="syslog.lab.local"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              </label>
+              <label class="text-sm text-slate-600">{{t "deploy.wire_syslog_port"}}
+                <input name="wire_syslog_port" type="number" value="514"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              </label>
+              <label class="text-sm text-slate-600">{{t "deploy.wire_syslog_proto"}}
+                <select name="wire_syslog_protocol"
+                        class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <option>Udp</option><option>Tcp</option><option>Tls</option>
+                </select>
+              </label>
+            </div>
+
+            <!-- S3 / object-storage repository -->
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" name="wire_s3" x-model="wireS3" class="rounded border-slate-300">
+                {{t "deploy.wire_s3"}}
+              </label>
+              <div x-show="wireS3" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
+                <label class="flex items-center gap-2 text-xs text-slate-600 sm:col-span-2">
+                  <input type="checkbox" name="wire_s3_compatible" x-model="wireS3Compat" class="rounded border-slate-300">
+                  {{t "deploy.wire_s3_compatible"}}
+                </label>
+                <label x-show="wireS3Compat" x-cloak class="text-xs text-slate-600 sm:col-span-2">{{t "deploy.wire_s3_endpoint"}}
+                  <input name="wire_s3_endpoint" placeholder="https://s3.lab.local"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_region"}}
+                  <input name="wire_s3_region" placeholder="us-east-1"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_name"}}
+                  <input name="wire_s3_name" placeholder="Object Storage"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_bucket"}}
+                  <input name="wire_s3_bucket"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_folder"}}
+                  <input name="wire_s3_folder" placeholder="backups"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_access"}}
+                  <input name="wire_s3_access_key" autocomplete="off"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_secret"}}
+                  <input name="wire_s3_secret_key" type="password" autocomplete="new-password"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_immutable"}}
+                  <input name="wire_s3_immutable_days" type="number" min="0" value="0"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+              </div>
+            </div>
+
+            <pre class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 whitespace-pre overflow-x-auto"
+                 x-text="wirePreview()"></pre>
+          </div>
         </div>
       </div>
+    </div>
+
+    <!-- Total node count (catalog + added VIA nodes) for the server. -->
+    <input type="hidden" name="node_count" :value="roles.length">
+
+    <!-- Static-IP conflict: two nodes can't share the same fixed IP. -->
+    <div x-show="ipConflict.length" x-cloak class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+      <span x-text="'{{t "deploy.ip_conflict"}} ' + ipConflict.join(', ')"></span>
     </div>
 
     <!-- Power on + launch -->
@@ -514,7 +664,8 @@
           {{t "deploy.power_on"}}
         </label>
         <button type="submit"
-                class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors">
+                :disabled="ipConflict.length > 0"
+                class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           {{t "deploy.launch"}}
         </button>
       </div>

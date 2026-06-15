@@ -60,7 +60,10 @@ services:
       - ./data:/data
 
 ###############################################################################
-# FOLDER STRUCTURE (created automatically by the init container below)
+# FOLDER STRUCTURE — nothing to pre-create.
+#
+# The app creates these sub-folders (and the SQLite jobs.db) under ./data on
+# first start, so a bare ./data is enough:
 #
 #   ./data/
 #     iso/        ← PUT YOUR VEEAM SOURCE ISOs HERE
@@ -68,27 +71,5 @@ services:
 #     license/    ← optional: .lic files
 #     conf/       ← optional: restore config files
 #     configs/    ← UI presets (auto-managed)
-#
+#     jobs.db     ← SQLite job history (survives restarts)
 ###############################################################################
-
-  # One-shot init container that creates the host directories on first run.
-  # Harmless on subsequent runs. Runs before autodeploy-web starts.
-  init:
-    image: busybox:latest
-    container_name: autodeploy-web-init
-    restart: "no"
-    entrypoint: >
-      sh -c "
-        mkdir -p /mnt/iso /mnt/output /mnt/license /mnt/conf /mnt/configs &&
-        echo 'Directories ready.' &&
-        echo '' &&
-        echo '  → Drop your Veeam source ISO into ./data/iso/' &&
-        echo '  → Then open http://localhost:${PORT:-8080}' &&
-        echo ''
-      "
-    volumes:
-      - ./data/iso:/mnt/iso
-      - ./data/output:/mnt/output
-      - ./data/license:/mnt/license
-      - ./data/conf:/mnt/conf
-      - ./data/configs:/mnt/configs

@@ -35,8 +35,8 @@
 curl -O https://raw.githubusercontent.com/BaptisteTellier/autodeploy-web/main/docker-compose.yml
 
 # 2. Drop your Veeam source ISO into ./data/iso/
-#    (the init container creates the folders automatically on first run)
-cp /path/to/VeeamSoftwareAppliance_*.iso ./data/iso/
+#    (mkdir it if needed — the app creates the other sub-folders on first start)
+mkdir -p ./data/iso && cp /path/to/VeeamSoftwareAppliance_*.iso ./data/iso/
 
 # 3. Start
 docker compose up -d
@@ -113,7 +113,10 @@ services:
       - ./data:/data
 
 ###############################################################################
-# FOLDER STRUCTURE (created automatically by the init container below)
+# FOLDER STRUCTURE — nothing to pre-create.
+#
+# The app creates these sub-folders (and the SQLite jobs.db) under ./data on
+# first start, so a bare ./data is enough:
 #
 #   ./data/
 #     iso/        ← PUT YOUR VEEAM SOURCE ISOs HERE
@@ -122,30 +125,7 @@ services:
 #     conf/       ← optional: restore config files
 #     configs/    ← UI presets (auto-managed)
 #     jobs.db     ← SQLite job history (survives restarts)
-#
 ###############################################################################
-
-  # One-shot init container that creates the host directories on first run.
-  # Harmless on subsequent runs. Runs before autodeploy-web starts.
-  init:
-    image: busybox:latest
-    container_name: autodeploy-web-init
-    restart: "no"
-    entrypoint: >
-      sh -c "
-        mkdir -p /mnt/iso /mnt/output /mnt/license /mnt/conf /mnt/configs &&
-        echo 'Directories ready.' &&
-        echo '' &&
-        echo '  → Drop your Veeam source ISO into ./data/iso/' &&
-        echo '  → Then open http://localhost:${PORT:-8080}' &&
-        echo ''
-      "
-    volumes:
-      - ./data/iso:/mnt/iso
-      - ./data/output:/mnt/output
-      - ./data/license:/mnt/license
-      - ./data/conf:/mnt/conf
-      - ./data/configs:/mnt/configs
 ```
 
 Optional files (drop and forget):
@@ -280,15 +260,15 @@ You pick a topology, point it at a Proxmox host, choose where each VM's customis
 output came from, and click deploy. It is **Go-native** — no Terraform, no Packer.
 
 > [!NOTE]
-> **Proxmox VE is the only production-validated target.** The hypervisor layer is an
+> **Proxmox VE and Microsoft Hyper-V are the production-validated targets.** The hypervisor layer is an
 > interface (`internal/hypervisor`) with five back-ends. A **Hypervisor** dropdown on
 > the Deploy page selects between them:
 >
 > | Back-end | Status | Remote kickstart |
 > |---|---|---|
 > | **Proxmox VE** | ✅ validated | ✅ QEMU `sendkey` |
+> | **Microsoft Hyper-V** (WinRM) | ✅ validated | ✅ `Msvm_Keyboard` |
 > | **VMware vSphere / vCenter** | 🧪 experimental (untested on live infra) | ✅ USB scan codes |
-> | **Microsoft Hyper-V** (WinRM) | 🧪 experimental (untested on live infra) | ✅ `Msvm_Keyboard` |
 > | **Nutanix AHV** | 🧪 experimental (untested on live infra) | ❌ no key-injection API |
 > | **XCP-ng** | 🧪 experimental (untested on live infra) | ❌ no key-injection API |
 >
@@ -439,7 +419,7 @@ Use a **local administrator** account in the Deploy form's user/password fields.
 
 - 🚫 **No authentication** — designed for LAN use. Add a reverse proxy (Caddy, Traefik) for public exposure.
 - 💾 **Jobs are persisted** in a SQLite database (`DATA_DIR/jobs.db`) and survive restarts; they can be deleted from the Jobs tab. **Deployments are still in-memory** and cleared on restart.
-- 🧪 **Auto-Deploy: only Proxmox VE is production-validated.** vSphere, Hyper-V, Nutanix AHV and XCP-ng back-ends are implemented but **experimental / untested on live infrastructure** (see the Auto-Deploy note above). On AHV and XCP-ng, remote kickstart is unavailable — use a pre-customised ISO.
+- 🧪 **Auto-Deploy: Proxmox VE and Hyper-V are production-validated.** vSphere, Nutanix AHV and XCP-ng back-ends are implemented but **experimental / untested on live infrastructure** (see the Auto-Deploy note above). On AHV and XCP-ng, remote kickstart is unavailable — use a pre-customised ISO.
 - ⚠️ **Hyper-V ISO upload over WinRM is slow** for 15–20 GB ISOs (base64 streaming) — **pre-stage** the ISO in the host's ISO path so `FindISO` skips the upload.
 - ⚠️ **Remote-kickstart keystroke injection is best-effort** — there is no clean screenshot/console feedback over the Proxmox API, so the classic customised-ISO boot mode remains the most reliable.
 - The PS1 hard-coded behaviours (NTP failure aborts build, etc.) apply unchanged.

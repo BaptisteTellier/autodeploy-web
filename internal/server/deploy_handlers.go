@@ -535,7 +535,10 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		// global network
 		"vm_bridge", "vm_vlan",
 		// wiring
-		"wire_timeout", "cluster_dns", "wire_license",
+		"wire_timeout", "cluster_dns", "cluster_endpoint", "wire_license",
+		// advanced wiring (secrets — keys/passwords — deliberately excluded)
+		"wire_node_exporter_user", "wire_syslog_server", "wire_syslog_port", "wire_syslog_protocol",
+		"wire_s3_name", "wire_s3_endpoint", "wire_s3_region", "wire_s3_bucket", "wire_s3_folder", "wire_s3_immutable_days",
 		// Proxmox
 		"pve_url", "pve_node", "pve_storage", "pve_iso_storage", "pve_user", "pve_token_id",
 		// vSphere
@@ -549,12 +552,16 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 	)
 
 	checks := map[string]bool{
-		"pve_insecure": r.FormValue("pve_insecure") != "",
-		"vs_insecure":  r.FormValue("vs_insecure") != "",
-		"hv_insecure":  r.FormValue("hv_insecure") != "",
-		"hv_https":     r.FormValue("hv_https") != "",
-		"nx_insecure":  r.FormValue("nx_insecure") != "",
-		"xen_insecure": r.FormValue("xen_insecure") != "",
+		"pve_insecure":           r.FormValue("pve_insecure") != "",
+		"vs_insecure":            r.FormValue("vs_insecure") != "",
+		"hv_insecure":            r.FormValue("hv_insecure") != "",
+		"hv_https":               r.FormValue("hv_https") != "",
+		"nx_insecure":            r.FormValue("nx_insecure") != "",
+		"xen_insecure":           r.FormValue("xen_insecure") != "",
+		"wire_node_exporter":     r.FormValue("wire_node_exporter") != "",
+		"wire_node_exporter_tls": r.FormValue("wire_node_exporter_tls") != "",
+		"wire_s3":                r.FormValue("wire_s3") != "",
+		"wire_s3_compatible":     r.FormValue("wire_s3_compatible") != "",
 	}
 
 	nodeOutputs := make([]string, n)
@@ -562,8 +569,9 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 	for i := 0; i < n; i++ {
 		nodeOutputs[i] = strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
 		nodeBoots[i] = r.FormValue(fmt.Sprintf("node_%d_bootcmd", i))
-		// Per-node sizing fields
+		// Per-node sizing + role (role lets "Copy to deploy" restore added VIAs)
 		for _, k := range []string{
+			fmt.Sprintf("node_%d_role", i),
 			fmt.Sprintf("node_%d_cpus", i),
 			fmt.Sprintf("node_%d_memory", i),
 			fmt.Sprintf("node_%d_disk_0", i),
@@ -627,19 +635,40 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nodes := make([]deploy.NodeDeploy, len(specs))
-	var primaryCfg config.Config // first VSA's config — wiring creds come from it
+	// Base roles come from the catalog; the form may APPEND extra VIA nodes
+	// (node_count > len(specs)), each carrying its own node_<i>_role. The node
+	// role (not the catalog) drives disk minimums and wiring classification.
+	baseRoles := make([]string, len(specs))
 	for i, sp := range specs {
+		baseRoles[i] = roleLabel(sp)
+	}
+	nodeCount := atoiDefault(r.FormValue("node_count"), len(specs))
+	if nodeCount < len(specs) {
+		nodeCount = len(specs)
+	}
+
+	nodes := make([]deploy.NodeDeploy, nodeCount)
+	var primaryCfg config.Config // first VSA's config — wiring creds come from it
+	for i := 0; i < nodeCount; i++ {
 		jobid := strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
 		if jobid == "" {
 			http.Error(w, translate(lang, "deploy.err_output_missing"), http.StatusUnprocessableEntity)
 			return
 		}
+		role := strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_role", i)))
+		if role == "" {
+			if i < len(baseRoles) {
+				role = baseRoles[i]
+			} else {
+				http.Error(w, translate(lang, "deploy.err_output_missing"), http.StatusUnprocessableEntity)
+				return
+			}
+		}
 		bootCmd := r.FormValue(fmt.Sprintf("node_%d_bootcmd", i))
 
 		// Per-node disk sizing — up to 2 disks, each floored by buildNodeDisks.
 		minDisk := minVIADiskGiB
-		if sp.Role == topology.RoleVSA {
+		if strings.HasPrefix(role, "VSA") {
 			minDisk = minVSADiskGiB
 		}
 		diskSizes := []int{
@@ -647,7 +676,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			atoiMin(r.FormValue(fmt.Sprintf("node_%d_disk_1", i)), minDisk, minDisk),
 		}
 
-		n, c, err := s.resolveOutputNode(jobid, roleLabel(sp), diskSizes, ks, bootCmd)
+		n, c, err := s.resolveOutputNode(jobid, role, diskSizes, ks, bootCmd)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -694,16 +723,43 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		if lf := strings.TrimSpace(r.FormValue("wire_license")); lf != "" {
 			licensePath = filepath.Join(s.deps.DataDir, "license", filepath.Base(lf))
 		}
-		wirer = wiring.New(wiring.Config{
-			Username:       "veeamadmin",
-			Password:       primaryCfg.VeeamAdminPassword,
-			Insecure:       true,
-			ClusterDNSName: strings.TrimSpace(r.FormValue("cluster_dns")),
-			LicensePath:    licensePath,
-		})
+		wireCfg := wiring.Config{
+			Username:        "veeamadmin",
+			Password:        primaryCfg.VeeamAdminPassword,
+			Insecure:        true,
+			ClusterDNSName:  strings.TrimSpace(r.FormValue("cluster_dns")),
+			ClusterEndpoint: strings.TrimSpace(r.FormValue("cluster_endpoint")),
+			LicensePath:     licensePath,
+		}
+		// Advanced wiring options (revealed under the "Advanced" toggle).
+		if r.FormValue("wire_node_exporter") != "" {
+			wireCfg.NodeExporter = true
+			wireCfg.NodeExporterTLS = r.FormValue("wire_node_exporter_tls") != ""
+			wireCfg.NodeExporterUser = strings.TrimSpace(r.FormValue("wire_node_exporter_user"))
+			wireCfg.NodeExporterPass = r.FormValue("wire_node_exporter_pass")
+		}
+		if sl := strings.TrimSpace(r.FormValue("wire_syslog_server")); sl != "" {
+			wireCfg.SyslogServer = sl
+			wireCfg.SyslogPort = atoiDefault(r.FormValue("wire_syslog_port"), 514)
+			wireCfg.SyslogProtocol = strDefault(strings.TrimSpace(r.FormValue("wire_syslog_protocol")), "Udp")
+		}
+		if r.FormValue("wire_s3") != "" && strings.TrimSpace(r.FormValue("wire_s3_bucket")) != "" {
+			wireCfg.S3 = &wiring.S3Config{
+				Name:          strDefault(strings.TrimSpace(r.FormValue("wire_s3_name")), "Object Storage"),
+				Compatible:    r.FormValue("wire_s3_compatible") != "",
+				ServicePoint:  strings.TrimSpace(r.FormValue("wire_s3_endpoint")),
+				Region:        strings.TrimSpace(r.FormValue("wire_s3_region")),
+				Bucket:        strings.TrimSpace(r.FormValue("wire_s3_bucket")),
+				Folder:        strDefault(strings.TrimSpace(r.FormValue("wire_s3_folder")), "backups"),
+				AccessKey:     strings.TrimSpace(r.FormValue("wire_s3_access_key")),
+				SecretKey:     r.FormValue("wire_s3_secret_key"),
+				ImmutableDays: atoiDefault(r.FormValue("wire_s3_immutable_days"), 0),
+			}
+		}
+		wirer = wiring.New(wireCfg)
 	}
 
-	snap := deployFormSnapshot(r, len(specs))
+	snap := deployFormSnapshot(r, nodeCount)
 	d, err := s.deps.DeployManager.Start(deploy.Spec{
 		Label:       string(kind),
 		Nodes:       nodes,
