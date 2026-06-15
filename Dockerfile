@@ -39,6 +39,7 @@ FROM debian:bookworm-slim
 
 ARG AUTODEPLOY_VERSION=dev
 ARG PWSH_VERSION=7.4.6
+ARG TARGETARCH
 LABEL org.opencontainers.image.title="autodeploy-web"
 LABEL org.opencontainers.image.description="Web UI + container wrapper around BaptisteTellier/autodeploy PowerShell tool"
 LABEL org.opencontainers.image.source="https://github.com/BaptisteTellier/autodeploy-web"
@@ -46,7 +47,9 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL autodeploy.version="${AUTODEPLOY_VERSION}"
 
 # App runtime deps (xorriso/rsync are invoked by autodeploy.ps1) + the shared
-# libraries PowerShell 7.4 needs on Debian 12, then pwsh itself (linux-x64).
+# libraries PowerShell 7.4 needs on Debian 12, then pwsh itself. The PowerShell
+# build is chosen per target arch (TARGETARCH is set by buildx) so the arm64
+# image (e.g. ARM Synology) gets the arm64 binary.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xorriso \
         rsync \
@@ -56,7 +59,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         less \
         libicu72 \
         libssl3 \
-    && curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz" -o /tmp/pwsh.tar.gz \
+    && case "${TARGETARCH}" in \
+         amd64) PS_ARCH=x64 ;; \
+         arm64) PS_ARCH=arm64 ;; \
+         *) echo "unsupported TARGETARCH='${TARGETARCH}'" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-${PS_ARCH}.tar.gz" -o /tmp/pwsh.tar.gz \
     && mkdir -p /opt/microsoft/powershell/7 \
     && tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 \
     && chmod +x /opt/microsoft/powershell/7/pwsh \
