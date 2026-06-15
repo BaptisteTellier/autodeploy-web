@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -197,16 +198,29 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	outputs := s.listOutputs()
 	outputsJSON, _ := json.Marshal(outputs)
 
-	// Build the prefill payload when ?copy=<id> is set and resolvable.
+	// Build the prefill payload from either ?copy=<deployment-id> (a past run)
+	// or ?preset=<name> (a saved deploy template). Both feed the same
+	// DEPLOY_PREFILL mechanism in the form.
 	prefillJSON := template.JS("null") //nolint:gosec
-	if s.deps.DeployManager != nil {
-		if copyID := r.URL.Query().Get("copy"); copyID != "" {
-			if d, ok := s.deps.DeployManager.Get(copyID); ok {
-				if b, err := json.Marshal(d.View().Form); err == nil {
-					prefillJSON = template.JS(b) //nolint:gosec — JSON of our own struct, rendered in a <script> JSON context
-				}
+	presetName := ""
+	if copyID := r.URL.Query().Get("copy"); copyID != "" && s.deps.DeployManager != nil {
+		if d, ok := s.deps.DeployManager.Get(copyID); ok {
+			if b, err := json.Marshal(d.View().Form); err == nil {
+				prefillJSON = template.JS(b) //nolint:gosec — JSON of our own struct, rendered in a <script> JSON context
 			}
 		}
+	} else if pn := strings.TrimSpace(r.URL.Query().Get("preset")); pn != "" && s.deps.DeployPresets != nil {
+		if snap, err := s.deps.DeployPresets.Load(pn); err == nil {
+			if b, err := json.Marshal(snap); err == nil {
+				prefillJSON = template.JS(b) //nolint:gosec — JSON of our own struct, rendered in a <script> JSON context
+				presetName = pn
+			}
+		}
+	}
+
+	var presets []deploy.PresetInfo
+	if s.deps.DeployPresets != nil {
+		presets, _ = s.deps.DeployPresets.List()
 	}
 
 	s.render(w, r, "views/deploy.html", map[string]any{
@@ -218,7 +232,70 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 		"LicenseFiles":  listDir(filepath.Join(s.deps.DataDir, "license"), []string{".lic"}),
 		"KSBaseURL":     "http://" + r.Host,
 		"PrefillJSON":   prefillJSON,
+		"DeployPresets": presets,
+		"PresetName":    presetName,
 	})
+}
+
+// handleListDeployPresets returns the saved deploy templates as JSON.
+func (s *Server) handleListDeployPresets(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DeployPresets == nil {
+		http.NotFound(w, r)
+		return
+	}
+	items, err := s.deps.DeployPresets.List()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, items)
+}
+
+// handleSaveDeployPreset saves the submitted deploy form as a named template.
+// It builds the same non-secret FormSnapshot a launch would (deployFormSnapshot),
+// so secrets (passwords / keys) are never persisted.
+func (s *Server) handleSaveDeployPreset(w http.ResponseWriter, r *http.Request) {
+	lang := langFromRequest(r)
+	if s.deps.DeployPresets == nil {
+		http.Error(w, translate(lang, "deploy.err_unavailable"), http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseMultipartForm(8 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("preset_name"))
+	if name == "" {
+		http.Error(w, translate(lang, "deploy.tpl_name_required"), http.StatusBadRequest)
+		return
+	}
+	specs := topology.Catalog(topology.Kind(r.FormValue("kind")))
+	nodeCount := atoiDefault(r.FormValue("node_count"), len(specs))
+	if nodeCount < len(specs) {
+		nodeCount = len(specs)
+	}
+	if err := s.deps.DeployPresets.Save(name, deployFormSnapshot(r, nodeCount)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok", "name": name})
+}
+
+// handleDeleteDeployPreset removes a saved deploy template.
+func (s *Server) handleDeleteDeployPreset(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DeployPresets == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.deps.DeployPresets.Delete(r.PathValue("name")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeployDetail renders one deployment's progress + live log.
@@ -332,11 +409,18 @@ func (s *Server) resolveOutputNode(jobid, role string, diskSizes []int, ks ksPar
 	if name == "" {
 		name = jobid[:min(8, len(jobid))]
 	}
+	// IP is left empty for DHCP outputs so the deploy step resolves the real
+	// address from the hypervisor guest agent (GetVMIP) before wiring. Using the
+	// config's leftover StaticIP here would make DHCP nodes collide on a stale IP.
+	ip := ""
+	if !c.UseDHCP {
+		ip = c.StaticIP
+	}
 	node := deploy.NodeDeploy{
 		Name:        name,
 		Role:        role,
 		Disks:       buildNodeDisks(c, diskSizes),
-		IP:          c.StaticIP,
+		IP:          ip,
 		PairingCode: wiring.DefaultPairingCode,
 	}
 

@@ -134,6 +134,33 @@ function initSortableTables(root) {
 
 document.addEventListener('DOMContentLoaded', function () { initSortableTables(); });
 
+// --- Deploy templates --------------------------------------------------------
+// Save the current deploy form as a named template (a non-secret FormSnapshot),
+// load via the dropdown (?preset=), or delete the selected one. Mirrors the ISO
+// preset toolbar but posts the live form so the server builds the snapshot.
+async function deploySaveTemplate() {
+  const el = document.getElementById('deploy_preset_name');
+  const name = (el ? el.value : '').trim();
+  if (!name) { alert('Template name required'); return; }
+  const form = document.getElementById('deploy-form');
+  if (!form) return;
+  const fd = new FormData(form);
+  fd.set('preset_name', name);
+  const res = await fetch('/deploy/presets', { method: 'POST', body: fd });
+  if (res.ok) { location.href = '/deploy?preset=' + encodeURIComponent(name); }
+  else { alert('Save failed: ' + (await res.text())); }
+}
+
+async function deployDeleteTemplate() {
+  const sel = document.getElementById('deploy_preset_select');
+  const name = sel ? sel.value : '';
+  if (!name) { alert('Select a template to delete first.'); return; }
+  if (!confirm('Delete template "' + name + '"?')) return;
+  const res = await fetch('/deploy/presets/' + encodeURIComponent(name), { method: 'DELETE' });
+  if (res.ok) { location.href = '/deploy'; }
+  else { alert('Delete failed: ' + (await res.text())); }
+}
+
 // --- Generators ----------------------------------------------------------
 
 // Veeam password: 16 chars, ensures at least 1 of each class and no 4-in-a-row

@@ -449,17 +449,19 @@ func (h *HyperV) Status(ctx context.Context, vm VMRef) (PowerState, error) {
 	}
 }
 
-// Destroy hard-stops the VM (tolerating already-off), removes it, and deletes
-// all VHDX files that were attached as SCSI hard disk drives.
+// Destroy hard-stops the VM (tolerating already-off), removes it, deletes its
+// VHDX files, and removes the VM's dedicated folder under VMPath so a later
+// re-create doesn't fall back to a "-2" suffixed name.
 func (h *HyperV) Destroy(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $base = '%s'
 $vm = Get-VM -Id '%s' -ErrorAction SilentlyContinue
 if (-not $vm) { return }
-# Collect attached VHDX paths + the VM folder before destroying the VM object.
-$dir  = $vm.Path
-$vhds = @(Get-VMHardDiskDrive -VM $vm | Select-Object -ExpandProperty Path)
+# Capture name / folder / disks BEFORE the VM object is destroyed.
+$vmName = $vm.Name
+$vmDir  = $vm.Path
+$vhds   = @(Get-VMHardDiskDrive -VM $vm | Select-Object -ExpandProperty Path)
 # Hard-stop; ignore errors if already off.
 if ($vm.State -ne 'Off') {
     Stop-VM -VM $vm -TurnOff -Force -ErrorAction SilentlyContinue
@@ -467,14 +469,24 @@ if ($vm.State -ne 'Off') {
 Remove-VM -VM $vm -Force
 # Delete the VHDX files.
 foreach ($v in $vhds) {
-    if ($v -and (Test-Path $v)) { Remove-Item -Path $v -Force }
+    if ($v -and (Test-Path $v)) { Remove-Item -Path $v -Force -ErrorAction SilentlyContinue }
 }
-# Remove the VM's dedicated folder, but never the shared VMPath root (guards
-# older VMs that were created flat in VMPath before per-VM folders existed).
-$expected = Join-Path $base $vm.Name
-if ($dir -and $dir -eq $expected -and $dir -ne $base -and (Test-Path $dir)) {
-    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+# Remove a folder only when it is STRICTLY inside $base (never the shared VMPath
+# root — protects older flat-layout VMs). Retry briefly: vmms may still hold
+# file locks for a moment right after Remove-VM.
+$root = [IO.Path]::GetFullPath($base).TrimEnd('\')
+function Remove-VMFolder($p) {
+    if (-not $p) { return }
+    $full = [IO.Path]::GetFullPath($p).TrimEnd('\')
+    if (-not $full.StartsWith($root + '\', [System.StringComparison]::OrdinalIgnoreCase)) { return }
+    for ($i = 0; $i -lt 5 -and (Test-Path $full); $i++) {
+        try { Remove-Item -Path $full -Recurse -Force -ErrorAction Stop; break }
+        catch { Start-Sleep -Milliseconds 500 }
+    }
 }
+# Both the path Hyper-V reports and the folder we create at <base>\<name>.
+Remove-VMFolder $vmDir
+Remove-VMFolder (Join-Path $base $vmName)
 `, h.cfg.VMPath, vm.ID)
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: Destroy VM %s: %w", vm.ID, err)

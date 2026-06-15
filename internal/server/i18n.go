@@ -366,6 +366,9 @@ var translations = map[string]map[string]string{
 		// --- deploy ---
 		"nav.deploy":                   "🚀 Deploy",
 		"deploy.title":                 "Deploy a Veeam architecture",
+		"deploy.load_template":         "Load template",
+		"deploy.save_template":         "Save as template",
+		"deploy.tpl_name_required":     "template name required",
 		"deploy.subtitle":              "Build the ISOs and provision a full topology on a hypervisor.",
 		"deploy.warning":               "⚠️ This provisions real VMs on your hypervisor and builds an ISO per node. Use a test environment.",
 		"deploy.topology":              "Topology",
@@ -798,6 +801,9 @@ var translations = map[string]map[string]string{
 		// --- deploy ---
 		"nav.deploy":                   "🚀 Déployer",
 		"deploy.title":                 "Déployer une architecture Veeam",
+		"deploy.load_template":         "Charger un modèle",
+		"deploy.save_template":         "Enregistrer comme modèle",
+		"deploy.tpl_name_required":     "nom du modèle requis",
 		"deploy.subtitle":              "Construit les ISOs et provisionne une topologie complète sur un hyperviseur.",
 		"deploy.warning":               "⚠️ Ceci provisionne de vraies VMs sur ton hyperviseur et construit un ISO par nœud. Utilise un environnement de test.",
 		"deploy.topology":              "Topologie",

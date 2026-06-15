@@ -117,7 +117,7 @@ func (s *Store) Delete(name string) error {
 
 // EnsureDataLayout creates the volume sub-directories the PS1 expects.
 func EnsureDataLayout(root string) error {
-	subs := []string{"iso", "output", "license", "conf", "configs", "work"}
+	subs := []string{"iso", "output", "license", "conf", "configs", "work", "deploy-presets"}
 	for _, s := range subs {
 		if err := os.MkdirAll(filepath.Join(root, s), 0o755); err != nil {
 			return err

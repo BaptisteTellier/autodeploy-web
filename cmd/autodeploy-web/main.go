@@ -75,6 +75,7 @@ func main() {
 	})
 
 	deployMgr := deploy.NewManager()
+	deployPresets := deploy.NewPresetStore(filepath.Join(dataDir, "deploy-presets"))
 
 	srv := server.New(server.Deps{
 		Version:       version,
@@ -85,6 +86,7 @@ func main() {
 		Store:         store,
 		JobManager:    mgr,
 		DeployManager: deployMgr,
+		DeployPresets: deployPresets,
 	})
 
 	httpSrv := &http.Server{

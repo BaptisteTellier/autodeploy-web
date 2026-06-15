@@ -28,7 +28,31 @@
     const DEPLOY_PREFILL = {{.PrefillJSON}};
   </script>
 
-  <form method="POST" action="/deploy" class="space-y-6"
+  <!-- Deploy templates — save / load / delete a named (non-secret) form snapshot -->
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs font-semibold uppercase text-slate-500">{{t "deploy.load_template"}}</label>
+      <div class="flex gap-1">
+        <select id="deploy_preset_select" class="border border-slate-300 rounded px-2 py-1 text-sm bg-white"
+                onchange="if(this.value){location.href='/deploy?preset='+encodeURIComponent(this.value);}">
+          <option value="">{{t "form.select_dash"}}</option>
+          {{range .DeployPresets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        <button type="button" title="{{t "form.delete_preset"}}"
+                class="bg-red-100 text-red-700 hover:bg-red-200 rounded px-2 py-1 text-sm" onclick="deployDeleteTemplate()">🗑</button>
+      </div>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold uppercase text-slate-500">{{t "deploy.save_template"}}</label>
+      <div class="flex gap-1">
+        <input id="deploy_preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}" value="{{.PresetName}}"
+               class="border border-slate-300 rounded px-2 py-1 text-sm">
+        <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" onclick="deploySaveTemplate()">{{t "form.save"}}</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="deploy-form" method="POST" action="/deploy" class="space-y-6"
         x-init="
           $watch('wire', function(v){ if(v) powerOn=true; });
           $watch('ks',   function(v){ if(v) powerOn=true; });

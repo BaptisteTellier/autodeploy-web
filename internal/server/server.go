@@ -20,6 +20,7 @@ type Deps struct {
 	Store         *config.Store
 	JobManager    *job.Manager
 	DeployManager *deploy.Manager
+	DeployPresets *deploy.PresetStore
 }
 
 type Server struct {
@@ -61,6 +62,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /deploy/{id}/remove", s.handleDeployRemove)
 	mux.HandleFunc("POST /deploy/{id}/retry", s.handleDeployRetry)
 	mux.HandleFunc("POST /deploy/{id}/rewire", s.handleDeployRewire)
+
+	// Deploy templates (named FormSnapshot presets). The literal "presets"
+	// segment is matched ahead of the {id} wildcard by net/http's ServeMux.
+	mux.HandleFunc("GET /deploy/presets", s.handleListDeployPresets)
+	mux.HandleFunc("POST /deploy/presets", s.handleSaveDeployPreset)
+	mux.HandleFunc("DELETE /deploy/presets/{name}", s.handleDeleteDeployPreset)
 
 	mux.HandleFunc("GET /", s.handleIndex)
 
