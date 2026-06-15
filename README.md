@@ -321,6 +321,13 @@ card** lets you verify the whole plan before launch.
 | VIA (proxy / HR) | 2 × 128 GiB |
 | VIA + *Single Disk* | 1 × 128 GiB |
 
+CPU / RAM / per-disk sizes are editable per node in each card.
+
+**Add more VIA nodes.** Click **＋** next to any VIA slot to append another proxy or
+hardened-repo node — as many as you want; the wiring step registers every one. Each
+node must resolve to a **distinct static IP** (or use DHCP) — the form **blocks launch**
+if two selected outputs share the same fixed IP.
+
 ### 4. Two boot modes
 
 - **Customised ISO (classic, most robust).** The per-VM ISO is attached and booted;
@@ -342,14 +349,40 @@ card** lets you verify the whole plan before launch.
 ### 5. Optional post-boot wiring (Veeam REST)
 
 If enabled, once the VMs are up autodeploy-web **registers the topology into the VSA**
-over the Veeam B&R REST API (`:9419`): adds the VIA backup proxy, the hardened
+over the Veeam B&R REST API (`:9419`): adds every VIA backup proxy, every hardened
 repository, and — for HA topologies — builds the 2-node HA cluster.
 
 - It **waits for each node to answer** on the network before wiring (no blind firing).
 - Bounded by a **configurable timeout** (default **45 min**) so it never hangs forever.
 - VSA REST credentials are taken from the chosen output's own config
   (`veeamadmin` + its admin password) — **never asked again** in the UI.
-- The **HA cluster DNS name** is requested **only** for HA topologies.
+- All added VIA nodes are registered; for HA the **config backup is redirected to the
+  first hardened repository** in the list (and the Default Backup Repository removed)
+  before the cluster is formed.
+
+**License install.** Under *Remote kickstart* the appliance boots **unlicensed** (the
+`.lic` can't ride inside the original ISO). Pick a license from the dropdown (files in
+`/data/license`) and the wiring step installs it over REST once the VSA answers.
+⚠️ A warning is shown if the chosen output was built with a license **baked into its
+config** — under kickstart that reference can break the install, so install over REST
+instead.
+
+**HA cluster (HA topologies only).** Two fields are required:
+- **HA cluster DNS name** — the cluster's DNS record.
+- **HA cluster IP (VIP)** — a free floating IP, distinct from both node IPs. VBR
+  requires it in standard (same-subnet) mode; wiring fails early with a clear message
+  if it's missing.
+
+**Advanced options** (under the *Advanced* toggle, applied on the primary VSA — the
+panel also renders a live **REST API preview** of every call):
+- **node_exporter** — enable the built-in Prometheus metrics endpoint (optional TLS + basic auth).
+- **Syslog** — forward VBR events to a syslog server (host / port / UDP·TCP·TLS).
+- **S3 / object-storage repository** — creates the cloud credential, then adds an
+  **Amazon S3** (region + bucket) or **S3-compatible** (endpoint URL + region + bucket —
+  MinIO / Wasabi / Ceph …) repository, with optional immutability days.
+
+> Adding a Cloud Connect **service provider** is **not** exposed by the VBR REST API
+> (1.3-rev2) — use `Add-VBRCloudServiceProvider` on the appliance instead.
 
 ### Live status
 
