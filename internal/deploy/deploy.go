@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -369,13 +370,76 @@ type Manager struct {
 	deployments map[string]*Deployment
 	wg          sync.WaitGroup
 	stopCh      chan struct{}
+	store       *Store // nil when persistence is disabled
 }
 
-// NewManager returns an empty deployment manager.
-func NewManager() *Manager {
-	return &Manager{
+// NewManager returns a deployment manager. store may be nil (disables persistence).
+func NewManager(store *Store) *Manager {
+	m := &Manager{
 		deployments: make(map[string]*Deployment),
 		stopCh:      make(chan struct{}),
+		store:       store,
+	}
+	if m.store != nil {
+		m.loadFromStore()
+	}
+	return m
+}
+
+// loadFromStore hydrates the in-memory deployment registry from persisted records.
+// Running or pending states from a previous crash are normalised to failed.
+func (m *Manager) loadFromStore() {
+	records, err := m.store.LoadAll()
+	if err != nil {
+		log.Printf("deploy store: load failed: %v", err)
+		return
+	}
+	for _, p := range records {
+		st := p.View.State
+		if st == StatePending || st == StateRunning {
+			// Worker is gone — mark as failed and re-persist the normalised record.
+			p.View.State = StateFailed
+			if p.View.FinishedAt.IsZero() {
+				p.View.FinishedAt = time.Now()
+			}
+			p.View.Error = "interrupted by a restart"
+			p.Lines = append(p.Lines, time.Now().Format("15:04:05")+" interrupted by a restart")
+			if serr := m.store.Save(p); serr != nil {
+				log.Printf("deploy store: normalise %s: %v", p.View.ID, serr)
+			}
+		}
+		// Reconstruct an inert Deployment: done channel pre-closed, hv nil, spec zero.
+		done := make(chan struct{})
+		close(done)
+		d := &Deployment{
+			ID:         p.View.ID,
+			Kind:       p.View.Kind,
+			State:      p.View.State,
+			Nodes:      p.View.Nodes,
+			CreatedAt:  p.View.CreatedAt,
+			FinishedAt: p.View.FinishedAt,
+			Error:      p.View.Error,
+			done:       done,
+			form:       p.View.Form,
+			lines:      p.Lines,
+		}
+		m.deployments[d.ID] = d
+	}
+	log.Printf("deploy store: loaded %d deployment(s)", len(records))
+}
+
+// persist saves the current snapshot of d to the store, logging on error.
+// It is a no-op when the store is nil.
+func (m *Manager) persist(d *Deployment) {
+	if m.store == nil {
+		return
+	}
+	rec := PersistedDeployment{
+		View:  d.View(),
+		Lines: d.Snapshot(),
+	}
+	if err := m.store.Save(rec); err != nil {
+		log.Printf("deploy store: save %s: %v", d.ID, err)
 	}
 }
 
@@ -416,6 +480,8 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 	m.deployments[d.ID] = d
 	m.mu.Unlock()
 
+	m.persist(d) // initial pending record
+
 	m.wg.Add(1)
 	go m.run(d, spec)
 	return d, nil
@@ -428,6 +494,7 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 		d.mu.Lock()
 		d.FinishedAt = time.Now()
 		d.mu.Unlock()
+		m.persist(d) // final state + complete log
 		d.closeSubs()
 		close(d.done)
 	}()
@@ -784,6 +851,16 @@ func (m *Manager) Remove(ctx context.Context, id string) (int, error) {
 			}
 			removed++
 		}
+	} else {
+		// d.hv is nil when this deployment was reloaded from the store after a
+		// restart (loadFromStore sets hv=nil). Warn only when VMs were actually
+		// created (at least one node has a non-empty VMID).
+		for _, n := range v.Nodes {
+			if n.VMID != "" {
+				d.AppendLine("No live hypervisor connection (deployment was reloaded after a restart) — its VMs were NOT destroyed; remove them manually on the hypervisor.")
+				break
+			}
+		}
 	}
 
 	// Keep the record so it stays listed and can be retried.
@@ -795,6 +872,7 @@ func (m *Manager) Remove(ctx context.Context, id string) (int, error) {
 	}
 	d.mu.Unlock()
 	d.AppendLine(fmt.Sprintf("Removed deployment: destroyed %d VM(s).", removed))
+	m.persist(d) // state=removed
 
 	if len(errs) > 0 {
 		return removed, fmt.Errorf("destroyed %d VM(s); errors: %s", removed, strings.Join(errs, "; "))
@@ -879,6 +957,8 @@ func (m *Manager) startWireOnly(spec Spec) (*Deployment, error) {
 	m.deployments[d.ID] = d
 	m.mu.Unlock()
 
+	m.persist(d) // initial pending record
+
 	m.wg.Add(1)
 	go m.runWireOnly(d, spec)
 	return d, nil
@@ -891,6 +971,7 @@ func (m *Manager) runWireOnly(d *Deployment, spec Spec) {
 		d.mu.Lock()
 		d.FinishedAt = time.Now()
 		d.mu.Unlock()
+		m.persist(d) // final state + complete log
 		d.closeSubs()
 		close(d.done)
 	}()

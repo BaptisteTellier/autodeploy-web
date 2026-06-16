@@ -75,6 +75,11 @@
             if (Array.isArray(p.node_boots)) {
               p.node_boots.forEach(function(v,i){ if(v){ adv[i]=true; edited[i]=true; bootcmd[i]=v; } });
             }
+            wireNodeExp = !!(p.checks && p.checks.wire_node_exporter);
+            wireS3       = !!(p.checks && p.checks.wire_s3);
+            wireS3Compat = !!(p.checks && p.checks.wire_s3_compatible);
+            if (p.text && p.text.wire_license) licenseFile = p.text.wire_license;
+            wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
             $nextTick(function(){
               if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
               if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.checked=!!v; });
@@ -84,11 +89,15 @@
             if(k && DEPLOY_CATALOG[k]) kind=k;
           }
         "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'',
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
+                  gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
                   get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
                   extra: [],
                   baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
                   get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
+                  groupRank(role){ if(!role) return 1; if(role.startsWith('VSA')) return 0; if(role.includes('HR')) return 2; return 1; },
+                  groupLabel(role){ const r=this.groupRank(role); return r===0?this.gLabels.vsa:r===2?this.gLabels.hr:this.gLabels.proxy; },
+                  get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
                   addVIA(role){ this.extra.push(role); },
                   removeNode(idx){ const b=this.baseLen(); if(idx<b) return; this.extra.splice(idx-b,1); const n=this.roles.length; ['sel','bootcmd','adv','edited'].forEach(m=>{ for(let k=idx;k<n;k++){ this[m][k]=this[m][k+1]; } delete this[m][n]; }); },
                   get ipConflict(){ const seen={}, dups={}; this.roles.forEach((r,i)=>{ const o=this.summ(i); if(!o||!o.network||o.network==='DHCP') return; if(seen[o.network]) dups[o.network]=true; else seen[o.network]=true; }); return Object.keys(dups); },
@@ -197,84 +206,96 @@
 
       <div x-show="roles.length" x-cloak class="space-y-3">
         <h3 class="text-sm font-medium text-slate-600">{{t "deploy.nodes"}}</h3>
-        <template x-for="(role, i) in roles" :key="i">
-          <div class="border border-slate-200 rounded-lg p-4 space-y-3">
-            <input type="hidden" :name="'node_'+i+'_role'" :value="role">
-            <div class="flex items-center justify-between gap-2">
-              <div class="text-sm font-semibold text-emerald-700" x-text="(i+1)+'. '+role"></div>
-              <div class="flex gap-1">
-                <button type="button" x-show="!role.startsWith('VSA')" @click="addVIA(role)"
-                        title="{{t "deploy.add_via"}}"
-                        class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold">＋</button>
-                <button type="button" x-show="i >= baseLen()" @click="removeNode(i)"
-                        title="{{t "deploy.remove_node"}}"
-                        class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-semibold">✕</button>
-              </div>
-            </div>
-            <select :name="'node_'+i+'_output'" x-model="sel[i]" required @change="refreshBoot(i)"
-                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <option value="">{{t "deploy.select_output"}}</option>
-              {{range .Outputs}}<option value="{{.JobID}}">{{.Name}}</option>{{end}}
-            </select>
+        <template x-for="(idx, pos) in displayOrder" :key="idx">
+          <div>
+            <!-- Group delimiter header: shown when this is the first card of its group -->
+            <div x-show="pos===0 || groupRank(roles[displayOrder[pos-1]]) !== groupRank(roles[idx])"
+                 class="text-xs font-semibold uppercase tracking-wide text-slate-500 pt-2 pb-1 border-t border-slate-200 mt-2"
+                 x-text="groupLabel(roles[idx])"></div>
 
-            <!-- Summary of the chosen output -->
-            <div x-show="summ(i)" x-cloak class="bg-slate-50 rounded-lg p-3 border text-xs">
-              <div class="grid grid-cols-2 gap-x-6 gap-y-1">
-                <span class="text-slate-500">{{t "th.appliance"}}</span><span class="font-mono font-semibold" x-text="summ(i)?.appliance"></span>
-                <span class="text-slate-500">{{t "form.hostname"}}</span><span class="font-mono" x-text="summ(i)?.hostname || '—'"></span>
-                <span class="text-slate-500">{{t "form.network"}}</span><span class="font-mono" x-text="summ(i)?.network || '—'"></span>
-                <span class="text-slate-500">MFA</span><span x-text="summ(i)?.mfa_admin ? '✓' : '✗'"></span>
-                <span class="text-slate-500">SO</span><span x-text="summ(i)?.so_enabled ? '✓' : '✗'"></span>
-                <span class="text-slate-500">{{t "deploy.disks"}}</span><span class="font-mono text-emerald-700" x-text="summ(i)?.disks"></span>
-                <span class="text-slate-500">{{t "form.grub_timeout"}}</span><span class="font-mono" x-text="(summ(i)?.grub_timeout ?? 0)+' s'"></span>
-                <span class="text-slate-500">ISO</span><span class="font-mono truncate" x-text="summ(i)?.iso_file"></span>
-              </div>
-              <p x-show="role.indexOf('VSA')===0 ? summ(i)?.appliance!=='VSA' : summ(i)?.appliance==='VSA'"
-                 class="text-amber-600 mt-2">{{t "deploy.role_mismatch"}}</p>
-              <p x-show="ks && summ(i)?.license_baked" x-cloak
-                 class="text-amber-600 mt-2">{{t "deploy.license_baked_warn"}}</p>
-            </div>
-
-            <!-- Advanced: show/edit the exact GRUB boot command typed for this VM (kickstart only) -->
-            <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3">
-              <label class="flex items-center gap-2 text-xs text-slate-600">
-                <input type="checkbox" x-model="adv[i]" @change="if(adv[i]) revealBoot(i)" class="rounded border-slate-300">
-                {{t "deploy.show_bootcmd"}}
-              </label>
-              <div x-show="adv[i]" x-cloak class="mt-2 space-y-1">
-                <textarea :name="(ks && adv[i]) ? 'node_'+i+'_bootcmd' : null" x-model="bootcmd[i]" @input="edited[i]=true"
-                          rows="4" spellcheck="false"
-                          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono bg-slate-50 focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
-                <div class="flex items-center justify-between">
-                  <span class="text-xs text-slate-400">{{t "deploy.bootcmd_hint"}}</span>
-                  <button type="button" @click="edited[i]=false; bootcmd[i]=defaultBoot(i)"
-                          class="text-xs text-blue-600 hover:underline">↻ {{t "deploy.reset_bootcmd"}}</button>
+            <!-- Node card -->
+            <div class="border border-slate-200 rounded-lg p-4 space-y-3">
+              <input type="hidden" :name="'node_'+idx+'_role'" :value="roles[idx]">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-semibold text-emerald-700" x-text="(pos+1)+'. '+roles[idx]"></div>
+                <div class="flex gap-1">
+                  <button type="button" x-show="!roles[idx].startsWith('VSA')" @click="addVIA(roles[idx])"
+                          title="{{t "deploy.add_via"}}"
+                          class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold">＋</button>
+                  <button type="button" x-show="idx >= baseLen()" @click="removeNode(idx)"
+                          title="{{t "deploy.remove_node"}}"
+                          class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-semibold">✕</button>
                 </div>
               </div>
-            </div>
+              <select :name="'node_'+idx+'_output'" x-model="sel[idx]" required @change="refreshBoot(idx)"
+                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.select_output"}}</option>
+                {{range .Outputs}}<option value="{{.JobID}}">{{.Name}}</option>{{end}}
+              </select>
 
-            <!-- Per-node VM sizing -->
-            <div class="border-t border-slate-100 pt-3 grid grid-cols-2 gap-2">
-              <label class="text-sm text-slate-600">{{t "deploy.vm_cpus"}}
-                <input :name="'node_'+i+'_cpus'" type="number" min="1" value="4"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              </label>
-              <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
-                <input :name="'node_'+i+'_memory'" type="number" min="512" value="8192"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              </label>
-              <label class="text-sm text-slate-600">
-                <span x-text="diskCountFor(i)===1?'Disk (GiB)':'Disk 1 (GiB)'"></span>
-                <span class="text-slate-400 text-xs" x-text="' ≥'+diskMin(i)"></span>
-                <input :name="'node_'+i+'_disk_0'" type="number" :min="diskMin(i)" :value="diskDefault(i)"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              </label>
-              <label class="text-sm text-slate-600" x-show="diskCountFor(i)>1">
-                Disk 2 (GiB)
-                <span class="text-slate-400 text-xs" x-text="'≥'+diskMin(i)"></span>
-                <input :name="'node_'+i+'_disk_1'" type="number" :min="diskMin(i)" :value="diskDefault(i)"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              </label>
+              <!-- Summary of the chosen output -->
+              <div x-show="summ(idx)" x-cloak class="bg-slate-50 rounded-lg p-3 border text-xs">
+                <div class="grid grid-cols-2 gap-x-6 gap-y-1">
+                  <span class="text-slate-500">{{t "th.appliance"}}</span><span class="font-mono font-semibold" x-text="summ(idx)?.appliance"></span>
+                  <span class="text-slate-500">{{t "form.hostname"}}</span><span class="font-mono" x-text="summ(idx)?.hostname || '—'"></span>
+                  <span class="text-slate-500">{{t "form.network"}}</span><span class="font-mono" x-text="summ(idx)?.network || '—'"></span>
+                  <span class="text-slate-500">MFA</span><span x-text="summ(idx)?.mfa_admin ? '✓' : '✗'"></span>
+                  <span class="text-slate-500">SO</span><span x-text="summ(idx)?.so_enabled ? '✓' : '✗'"></span>
+                  <span class="text-slate-500">{{t "deploy.disks"}}</span><span class="font-mono text-emerald-700" x-text="summ(idx)?.disks"></span>
+                  <span class="text-slate-500">{{t "form.grub_timeout"}}</span><span class="font-mono" x-text="(summ(idx)?.grub_timeout ?? 0)+' s'"></span>
+                  <span class="text-slate-500">ISO</span><span class="font-mono truncate" x-text="summ(idx)?.iso_file"></span>
+                </div>
+                <p x-show="roles[idx].indexOf('VSA')===0 ? summ(idx)?.appliance!=='VSA' : summ(idx)?.appliance==='VSA'"
+                   class="text-amber-600 mt-2">{{t "deploy.role_mismatch"}}</p>
+                <p x-show="ks && summ(idx)?.license_baked" x-cloak
+                   class="text-amber-600 mt-2">{{t "deploy.license_baked_warn"}}</p>
+                <p x-show="ks && summ(idx) && (summ(idx).grub_timeout||0) <= bootWait" x-cloak
+                   class="text-amber-600 mt-2">{{t "deploy.warn_grub_bootwait"}}</p>
+                <p x-show="isHA && roles[idx].startsWith('VSA') && summ(idx) && !summ(idx).ha" x-cloak
+                   class="text-amber-600 mt-2">{{t "deploy.warn_ha_disabled"}}</p>
+              </div>
+
+              <!-- Advanced: show/edit the exact GRUB boot command typed for this VM (kickstart only) -->
+              <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3">
+                <label class="flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" x-model="adv[idx]" @change="if(adv[idx]) revealBoot(idx)" class="rounded border-slate-300">
+                  {{t "deploy.show_bootcmd"}}
+                </label>
+                <div x-show="adv[idx]" x-cloak class="mt-2 space-y-1">
+                  <textarea :name="(ks && adv[idx]) ? 'node_'+idx+'_bootcmd' : null" x-model="bootcmd[idx]" @input="edited[idx]=true"
+                            rows="4" spellcheck="false"
+                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono bg-slate-50 focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs text-slate-400">{{t "deploy.bootcmd_hint"}}</span>
+                    <button type="button" @click="edited[idx]=false; bootcmd[idx]=defaultBoot(idx)"
+                            class="text-xs text-blue-600 hover:underline">↻ {{t "deploy.reset_bootcmd"}}</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Per-node VM sizing -->
+              <div class="border-t border-slate-100 pt-3 grid grid-cols-2 gap-2">
+                <label class="text-sm text-slate-600">{{t "deploy.vm_cpus"}}
+                  <input :name="'node_'+idx+'_cpus'" type="number" min="1" value="4"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
+                  <input :name="'node_'+idx+'_memory'" type="number" min="512" value="8192"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-sm text-slate-600">
+                  <span x-text="diskCountFor(idx)===1?'Disk (GiB)':'Disk 1 (GiB)'"></span>
+                  <span class="text-slate-400 text-xs" x-text="' ≥'+diskMin(idx)"></span>
+                  <input :name="'node_'+idx+'_disk_0'" type="number" :min="diskMin(idx)" :value="diskDefault(idx)"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-sm text-slate-600" x-show="diskCountFor(idx)>1">
+                  Disk 2 (GiB)
+                  <span class="text-slate-400 text-xs" x-text="'≥'+diskMin(idx)"></span>
+                  <input :name="'node_'+idx+'_disk_1'" type="number" :min="diskMin(idx)" :value="diskDefault(idx)"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+              </div>
             </div>
           </div>
         </template>
@@ -314,7 +335,7 @@
           <span class="text-xs text-slate-400">{{t "deploy.ks_base_url_hint"}}</span>
         </label>
         <label class="text-sm text-slate-600">{{t "deploy.boot_wait"}}
-          <input name="boot_wait" type="number" min="3" value="10"
+          <input name="boot_wait" type="number" min="3" value="10" x-model.number="bootWait"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           <span class="text-xs text-slate-400">{{t "deploy.boot_wait_hint"}}</span>
         </label>

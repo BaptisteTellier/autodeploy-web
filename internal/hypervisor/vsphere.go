@@ -401,6 +401,18 @@ func (v *VSphere) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 		DeviceChange: deviceChange,
 	}
 
+	if spec.UEFI {
+		// Explicitly disable Secure Boot so the unsigned Veeam appliance ISO
+		// boots under UEFI — mirrors Proxmox pre-enrolled-keys=0 and Hyper-V
+		// Secure Boot Off. SetBootDiskThenCD only sets BootOrder so this value
+		// persists across subsequent reconfigures.
+		// Note: a vTPM is intentionally omitted — it requires a vCenter Key
+		// Provider / KMS that we cannot assume is present.
+		cfgSpec.BootOptions = &types.VirtualMachineBootOptions{
+			EfiSecureBootEnabled: types.NewBool(false),
+		}
+	}
+
 	task, err := folder.CreateVM(ctx, cfgSpec, rp, nil)
 	if err != nil {
 		return VMRef{}, fmt.Errorf("vsphere: create VM %q: %w", spec.Name, err)
@@ -562,6 +574,9 @@ func (v *VSphere) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
 	}
 	spec := types.VirtualMachineConfigSpec{
 		BootOptions: &types.VirtualMachineBootOptions{
+			// Re-assert CreateVM's EfiSecureBootEnabled=false so it survives this
+			// reconfigure regardless of whether vSphere merges or resets BootOptions.
+			EfiSecureBootEnabled: types.NewBool(false),
 			BootOrder: []types.BaseVirtualMachineBootOptionsBootableDevice{
 				&types.VirtualMachineBootOptionsBootableDiskDevice{
 					DeviceKey: disks[0].GetVirtualDevice().Key,

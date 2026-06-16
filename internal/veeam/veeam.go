@@ -98,7 +98,21 @@ func (c *Client) Authenticate(ctx context.Context) error {
 }
 
 // do performs an authenticated JSON request. body and out may be nil.
+// On HTTP 401 it transparently re-authenticates and retries — once PER REQUEST,
+// not once per run. Because the VBR access token lives only ~15 min, a long
+// wiring (many VIAs, hours) re-auths as often as the token expires: every do()
+// call (including each WaitSession poll) independently refreshes when it hits a
+// 401, so the session self-heals at every 15-minute boundary indefinitely.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	return c.doOnce(ctx, method, path, body, out, true)
+}
+
+// doOnce is the inner implementation of do. When allowReauth is true and the
+// server responds with HTTP 401, it re-authenticates and retries exactly once
+// for THIS request (the retry passes allowReauth=false). The single-retry cap
+// only prevents an infinite loop within one request: a freshly issued token
+// rejected immediately is a real auth failure (bad creds), not expiry.
+func (c *Client) doOnce(ctx context.Context, method, path string, body, out any, allowReauth bool) error {
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -126,6 +140,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized && allowReauth && c.cfg.Username != "" {
+		// Drain and discard the 401 body before re-authenticating.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		if err := c.Authenticate(ctx); err != nil {
+			return fmt.Errorf("veeam: re-authenticate after 401: %w", err)
+		}
+		return c.doOnce(ctx, method, path, body, out, false)
+	}
 	if resp.StatusCode/100 != 2 {
 		return apiError(method, path, resp)
 	}

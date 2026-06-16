@@ -718,3 +718,94 @@ func TestAPIErrorSurfacesMessage(t *testing.T) {
 		t.Errorf("error = %v, want it to contain 'boom'", err)
 	}
 }
+
+// newReauthMux returns a fresh mux with a token endpoint that counts its calls.
+// This is used by the reauth tests to avoid double-registration with baseMux.
+func newReauthMux(tokenCalls *int) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		*tokenCalls++
+		_ = r.ParseForm()
+		if r.PostFormValue("grant_type") != "Password" {
+			http.Error(w, "bad grant", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "tok-fresh"})
+	})
+	return mux
+}
+
+// TestReauthOn401 verifies that the client transparently re-authenticates
+// when the server returns HTTP 401 and retries the request exactly once.
+func TestReauthOn401(t *testing.T) {
+	tokenCalls := 0
+	mux := newReauthMux(&tokenCalls)
+
+	credCalls := 0
+	mux.HandleFunc("/api/v1/credentials", func(w http.ResponseWriter, r *http.Request) {
+		credCalls++
+		// First call: simulate expired token → 401.
+		// Second call: succeed.
+		if credCalls == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "token expired"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "cred-reauth"})
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := New(Config{BaseURL: srv.URL, Username: "admin", Password: "pw"})
+	// Initial authenticate (counts as tokenCalls=1).
+	if err := c.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	tokenCallsBefore := tokenCalls
+
+	id, err := c.CreateCredentials(context.Background(), "u", "p", "desc")
+	if err != nil {
+		t.Fatalf("CreateCredentials after 401: %v", err)
+	}
+	if id != "cred-reauth" {
+		t.Errorf("id = %q, want cred-reauth", id)
+	}
+	// Exactly one re-auth should have happened.
+	if tokenCalls != tokenCallsBefore+1 {
+		t.Errorf("token endpoint called %d extra times, want 1", tokenCalls-tokenCallsBefore)
+	}
+	// The credentials endpoint must have been hit twice (401 then 200).
+	if credCalls != 2 {
+		t.Errorf("credentials endpoint called %d times, want 2", credCalls)
+	}
+}
+
+// TestReauthOn401NoPersistentLoop verifies that a persistent 401 (server always
+// returns 401) propagates as an error and does not loop infinitely.
+func TestReauthOn401NoPersistentLoop(t *testing.T) {
+	tokenCalls := 0
+	mux := newReauthMux(&tokenCalls)
+
+	credCalls := 0
+	mux.HandleFunc("/api/v1/credentials", func(w http.ResponseWriter, r *http.Request) {
+		credCalls++
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": "always 401"})
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := New(Config{BaseURL: srv.URL, Username: "admin", Password: "pw"})
+	if err := c.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	_, err := c.CreateCredentials(context.Background(), "u", "p", "desc")
+	if err == nil {
+		t.Error("expected error on persistent 401, got nil")
+	}
+	// With one re-auth the credential endpoint is hit at most twice (initial + retry).
+	if credCalls > 2 {
+		t.Errorf("credentials endpoint called %d times, want <= 2 (no infinite loop)", credCalls)
+	}
+}

@@ -74,7 +74,13 @@ func main() {
 		Store:         jobStore,
 	})
 
-	deployMgr := deploy.NewManager()
+	deployStore, err := deploy.OpenStore(filepath.Join(dataDir, "deployments.db"))
+	if err != nil {
+		log.Fatalf("deploy store: %v", err)
+	}
+	defer deployStore.Close()
+
+	deployMgr := deploy.NewManager(deployStore)
 	deployPresets := deploy.NewPresetStore(filepath.Join(dataDir, "deploy-presets"))
 
 	srv := server.New(server.Deps{

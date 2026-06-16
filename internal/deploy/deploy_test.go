@@ -110,7 +110,7 @@ func twoNodes() []NodeDeploy {
 
 func TestDeploySequenceHappyPath(t *testing.T) {
 	hv := &mockHV{}
-	m := NewManager()
+	m := NewManager(nil)
 	d, err := m.Start(Spec{
 		Label:   "vsa+proxy",
 		Nodes:   twoNodes(),
@@ -149,7 +149,7 @@ func TestDeploySequenceHappyPath(t *testing.T) {
 
 func TestDeployPowerOnInvokesBoot(t *testing.T) {
 	hv := &mockHV{}
-	m := NewManager()
+	m := NewManager(nil)
 	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: hv, PowerOn: true})
 	waitDone(t, d)
 	poweron := 0
@@ -165,7 +165,7 @@ func TestDeployPowerOnInvokesBoot(t *testing.T) {
 
 func TestDeployStopsOnNodeFailure(t *testing.T) {
 	hv := &mockHV{uploadErr: "/out/a/vsa.iso"} // first node's upload fails
-	m := NewManager()
+	m := NewManager(nil)
 	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: hv})
 	waitDone(t, d)
 	v := d.View()
@@ -196,7 +196,7 @@ func (w *mockWirer) Wire(_ context.Context, nodes []NodeDeploy, log func(string)
 
 func TestWirerRunsAfterDeployWhenPoweredOn(t *testing.T) {
 	w := &mockWirer{}
-	m := NewManager()
+	m := NewManager(nil)
 	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: &mockHV{}, PowerOn: true, Wirer: w})
 	waitDone(t, d)
 	if d.View().State != StateDone {
@@ -209,7 +209,7 @@ func TestWirerRunsAfterDeployWhenPoweredOn(t *testing.T) {
 
 func TestWirerSkippedWhenNotPoweredOn(t *testing.T) {
 	w := &mockWirer{}
-	m := NewManager()
+	m := NewManager(nil)
 	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: &mockHV{}, PowerOn: false, Wirer: w})
 	waitDone(t, d)
 	if w.called {
@@ -219,7 +219,7 @@ func TestWirerSkippedWhenNotPoweredOn(t *testing.T) {
 
 func TestWirerFailureMarksDeploymentFailed(t *testing.T) {
 	w := &mockWirer{err: fmt.Errorf("boom")}
-	m := NewManager()
+	m := NewManager(nil)
 	d, _ := m.Start(Spec{Nodes: twoNodes(), HV: &mockHV{}, PowerOn: true, Wirer: w})
 	waitDone(t, d)
 	v := d.View()
@@ -229,7 +229,7 @@ func TestWirerFailureMarksDeploymentFailed(t *testing.T) {
 }
 
 func TestStartValidation(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	if _, err := m.Start(Spec{Nodes: nil, HV: &mockHV{}}); err == nil {
 		t.Error("Start should reject an empty node list")
 	}
@@ -246,7 +246,7 @@ func TestStartValidation(t *testing.T) {
 
 func TestKickstartFlow(t *testing.T) {
 	hv := &mockHV{libISOs: map[string]bool{"via.iso": true}} // VIA ISO already in library
-	m := NewManager()
+	m := NewManager(nil)
 	nodes := []NodeDeploy{
 		{Name: "vsa-01", Role: "VSA", KSUrl: "http://h/media/output/a/vbr-ks.cfg/content", BaseISOPath: "/data/iso/vsa.iso", Disks: []int{256, 256}},
 		{Name: "hr-01", Role: "VIA-HR", KSUrl: "http://h/media/output/b/hr-ks.cfg/content", BaseISOPath: "/data/iso/via.iso", Disks: []int{128}},
@@ -276,7 +276,7 @@ func TestKickstartFlow(t *testing.T) {
 
 func TestRemoveDestroysCreatedVMs(t *testing.T) {
 	hv := &mockHV{}
-	m := NewManager()
+	m := NewManager(nil)
 	d, err := m.Start(Spec{Label: "vsa+proxy", Nodes: twoNodes(), HV: hv, VM: hypervisor.VMSpec{Bridge: "vmbr0"}})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -313,7 +313,7 @@ func TestRemoveDestroysCreatedVMs(t *testing.T) {
 
 func TestRetryRelaunchesSameSpec(t *testing.T) {
 	hv := &mockHV{}
-	m := NewManager()
+	m := NewManager(nil)
 	d, err := m.Start(Spec{Label: "vsa+proxy", Nodes: twoNodes(), HV: hv, VM: hypervisor.VMSpec{Bridge: "vmbr0"}})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
