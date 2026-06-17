@@ -593,6 +593,17 @@ func (c *Client) CreateCloudCredentials(ctx context.Context, accessKey, secretKe
 
 // --- object-storage repositories ---------------------------------------------
 
+// normalizeEndpoint ensures an S3 endpoint carries a URL scheme; VBR rejects a
+// bare host ("Invalid Amazon API URI ... format"). A value that already has a
+// scheme (contains "://") or is empty is returned unchanged.
+func normalizeEndpoint(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.Contains(s, "://") {
+		return s
+	}
+	return "https://" + s
+}
+
 // S3RepoSpec describes an S3 / S3-compatible object-storage repository to add.
 type S3RepoSpec struct {
 	Name          string // repository display name
@@ -659,7 +670,7 @@ func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, 
 			"name":        spec.Name,
 			"description": spec.Description,
 			"account": map[string]any{
-				"servicePoint":  spec.ServicePoint,
+				"servicePoint":  normalizeEndpoint(spec.ServicePoint),
 				"regionId":      spec.RegionID,
 				"credentialsId": spec.CredentialsID,
 				"connectionSettings": map[string]any{
@@ -704,6 +715,25 @@ func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, 
 		return "", fmt.Errorf("veeam: AddS3Repository: %w", err)
 	}
 	return out.ID, nil
+}
+
+// NewS3CompatibleFolder creates a folder inside an existing S3-compatible bucket
+// (POST /api/v1/cloudBrowser/newFolder). VBR's repository-add only OPENS an
+// existing folder, so the folder must be created first (this is what the GUI's
+// "New Folder" button does). The endpoint is normalized to include a scheme.
+func (c *Client) NewS3CompatibleFolder(ctx context.Context, credentialsID, connectionPoint, regionID, bucketName, folderName string) error {
+	body := map[string]any{
+		"credentialsId":   credentialsID,
+		"serviceType":     "S3Compatible",
+		"newFolderName":   folderName,
+		"connectionPoint": normalizeEndpoint(connectionPoint),
+		"regionId":        regionID,
+		"bucketName":      bucketName,
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/v1/cloudBrowser/newFolder", body, nil); err != nil {
+		return fmt.Errorf("veeam: NewS3CompatibleFolder: %w", err)
+	}
+	return nil
 }
 
 // --- general options: syslog -------------------------------------------------

@@ -858,6 +858,79 @@ func TestAPIErrorSurfacesMessage(t *testing.T) {
 	}
 }
 
+func TestNormalizeEndpoint(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"s3.example.com", "https://s3.example.com"},
+		{"https://s3.example.com", "https://s3.example.com"},
+		{"http://h", "http://h"},
+		{"  s3.x  ", "https://s3.x"},
+	}
+	for _, tc := range cases {
+		got := normalizeEndpoint(tc.in)
+		if got != tc.want {
+			t.Errorf("normalizeEndpoint(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestAddS3RepositoryCompatibleNormalizesServicePoint(t *testing.T) {
+	// When ServicePoint is a bare host (no scheme), AddS3Repository must send
+	// account.servicePoint with an https:// prefix — VBR rejects the bare form.
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		account, _ := body["account"].(map[string]any)
+		if account == nil {
+			t.Fatal("missing account object")
+		}
+		if account["servicePoint"] != "https://s3.example.com" {
+			t.Errorf("account.servicePoint = %v, want https://s3.example.com", account["servicePoint"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-norm"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	_, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "NormRepo", CredentialsID: "cred-n", Compatible: true,
+		ServicePoint: "s3.example.com", // bare host — must be normalized
+		RegionID:     "eu-west-4", Bucket: "veeam", Folder: "backups",
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (normalize servicePoint): %v", err)
+	}
+}
+
+func TestNewS3CompatibleFolder(t *testing.T) {
+	mux := baseMux()
+	var gotBody map[string]any
+	mux.HandleFunc("/api/v1/cloudBrowser/newFolder", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		gotBody = decode(t, r)
+		w.WriteHeader(http.StatusCreated) // 201 with empty body
+	})
+	c, _ := newTestClient(t, mux)
+
+	err := c.NewS3CompatibleFolder(context.Background(), "cred-uuid", "s3.eu-west-4.idrivee2.com", "eu-west-4", "veeam", "backups")
+	if err != nil {
+		t.Fatalf("NewS3CompatibleFolder: %v", err)
+	}
+	for k, want := range map[string]any{
+		"credentialsId":   "cred-uuid",
+		"serviceType":     "S3Compatible",
+		"newFolderName":   "backups",
+		"connectionPoint": "https://s3.eu-west-4.idrivee2.com",
+		"regionId":        "eu-west-4",
+		"bucketName":      "veeam",
+	} {
+		if gotBody[k] != want {
+			t.Errorf("body[%q] = %v, want %v", k, gotBody[k], want)
+		}
+	}
+}
+
 // newReauthMux returns a fresh mux with a token endpoint that counts its calls.
 // This is used by the reauth tests to avoid double-registration with baseMux.
 func newReauthMux(tokenCalls *int) *http.ServeMux {

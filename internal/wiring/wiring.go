@@ -294,6 +294,19 @@ func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, nodes [
 			}
 		}
 
+		// VBR's repository-add only OPENS an existing folder, so create it first
+		// (what the GUI's "New Folder" button does). newFolder is idempotent — it
+		// returns 201 whether the folder is new or already exists — so no
+		// browse/exists pre-check is needed. Any error is non-fatal: AddS3Repository
+		// will fail clearly afterwards if the folder truly can't be opened.
+		if s.Compatible && s.Folder != "" {
+			if err := client.NewS3CompatibleFolder(ctx, credID, s.ServicePoint, s.Region, s.Bucket, s.Folder); err != nil {
+				log(fmt.Sprintf("S3: ensure folder %q: %v (continuing)", s.Folder, err))
+			} else {
+				log(fmt.Sprintf("S3: folder %q ready in bucket %s", s.Folder, s.Bucket))
+			}
+		}
+
 		sess, err := client.AddS3Repository(ctx, veeam.S3RepoSpec{
 			Name:          s.Name,
 			Description:   "autodeploy object storage",
