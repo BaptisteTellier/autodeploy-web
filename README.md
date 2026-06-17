@@ -123,8 +123,11 @@ services:
 #     output/     ← customised ISOs land here
 #     license/    ← optional: .lic files
 #     conf/       ← optional: restore config files
-#     configs/    ← UI presets (auto-managed)
-#     jobs.db     ← SQLite job history (survives restarts)
+#     configs/         ← UI presets (auto-managed)
+#     deploy-presets/  ← saved deploy templates (auto-managed)
+#     jobs.db          ← SQLite ISO-job history (survives restarts)
+#     deployments.db   ← SQLite deployment history (survives restarts)
+#     settings.json    ← app settings (history limit)
 ###############################################################################
 ```
 
@@ -151,7 +154,7 @@ Change the port or concurrency by copying `.env.example` → `.env` and editing 
 - ✅ **Web form** instead of editing JSON by hand — with live validation, password generators, GUID generator, preset save/load, import/export.
 - ✅ **Live build log** streamed in real time (SSE) — see xorriso progress line by line.
 - ✅ **JSON round-trip 100% compatible** with `autodeploy.ps1` — export the form as JSON and run it directly with the PS1 on Windows.
-- ✅ **Auto-Deploy** — provision a whole multi-VM Veeam topology (VSA + VIA proxies / hardened repos, optional HA) straight onto Proxmox, with optional **remote kickstart** and automatic **Veeam REST wiring** — no Terraform, no Packer.
+- ✅ **Auto-Deploy** — provision a whole multi-VM Veeam topology (VSA + VIA proxies / hardened repos, optional HA) onto **Proxmox, Hyper-V, vSphere, Nutanix AHV or XCP-ng**, with optional **remote kickstart** and automatic **Veeam REST wiring** (proxies, repositories, S3, HA cluster, license) — no Terraform, no Packer.
 - ✅ **Auto-updated** — each new release of `autodeploy.ps1` triggers a new image automatically.
 
 ## How it works
@@ -187,7 +190,10 @@ The app organises it into these sub-paths:
 | `license/` | Veeam `.lic` files (for `LicenseVBRTune` / wiring license install) |
 | `conf/` | Restore config files (`unattended.xml`, `.bco`, …) |
 | `configs/` | Saved JSON presets — also drop PS1-compatible JSONs here directly |
-| `jobs.db` | SQLite **job history** — survives restarts; jobs can be deleted from the Jobs tab |
+| `jobs.db` | SQLite **ISO-job history** — survives restarts; jobs can be deleted from the Jobs tab |
+| `deployments.db` | SQLite **deployment history** — survives restarts; rows can be retried, re-wired or deleted |
+| `deploy-presets/` | Saved **deploy** templates (topology + connection + advanced options) |
+| `settings.json` | App settings — currently the **history limit** (max finished entries kept) |
 
 ## Environment variables
 
@@ -240,7 +246,7 @@ boot
 
 Key points:
 - **`boot` on the third line is mandatory** — `linuxefi`/`initrdefi` only load the kernel and initrd into memory; nothing starts until you run `boot`. If "nothing happens", you almost certainly forgot it.
-- **`ip=dhcp`** brings the network up early so Anaconda can actually fetch the HTTP kickstart. Without it the fetch fails silently. For a static address use e.g. `ip=192.168.1.50::192.168.1.1:255.255.255.0::eth0:none`.
+- **`ip=dhcp`** brings the network up early so Anaconda can actually fetch the HTTP kickstart. Without it the fetch fails silently. For a static address use e.g. `ip=192.168.1.50::192.168.1.1:255.255.255.0:host::none`. In **Auto-Deploy** this is automatic: a node configured with a fixed IP gets a static `ip=<ip>::<gw>:<mask>:<host>::none` arg generated for it (no `ip=dhcp`), so remote kickstart works even on networks without DHCP.
 - `linuxefi`/`initrdefi` are the UEFI commands; on a legacy BIOS boot use `linux`/`initrd` instead.
 - Use the **🔗 Link** button in the UI to copy the exact URL (job ID + filename) and avoid typos.
 
@@ -378,11 +384,55 @@ panel also renders a live **REST API preview** of every call):
 - **node_exporter** — enable the built-in Prometheus metrics endpoint (optional TLS + basic auth).
 - **Syslog** — forward VBR events to a syslog server (host / port / UDP·TCP·TLS).
 - **S3 / object-storage repository** — creates the cloud credential, then adds an
-  **Amazon S3** (region + bucket) or **S3-compatible** (endpoint URL + region + bucket —
-  MinIO / Wasabi / Ceph …) repository, with optional immutability days.
+  **Amazon S3** (region + bucket) or **S3-compatible** (endpoint + region + bucket + folder —
+  iDrive e2 / MinIO / Wasabi / Ceph …) repository, with optional immutability days.
+  For S3-compatible it mirrors the GUI exactly: the **endpoint is normalised to include
+  `https://`** (VBR rejects a bare host) and the **bucket folder is created first** via
+  the cloud-browser API (idempotent — safe if it already exists) before the repository is
+  added. Optionally **pin a Linux mount server** by selecting one of the VIA-Proxy nodes
+  added above (falls back to VBR auto-selection if left on *— auto —*).
 
 > Adding a Cloud Connect **service provider** is **not** exposed by the VBR REST API
 > (1.3-rev2) — use `Add-VBRCloudServiceProvider` on the appliance instead.
+
+### Pre-flight checks (config vs. deployment)
+
+Before launch, the form cross-checks each selected output against the chosen deploy
+options and shows an inline warning when they don't match:
+
+- ⚠️ **GRUB timeout vs. boot-wait** — under *Remote kickstart*, the output's **GRUB
+  timeout must exceed the boot-wait** below, or GRUB auto-boots before the keystrokes
+  are sent.
+- ⚠️ **HA not enabled** — on an **HA topology**, a VSA output that was **not built with
+  High Availability enabled** is flagged, because the HA-cluster wiring would fail.
+
+### Advanced features — what they do and how they behave
+
+| Feature | Behaviour |
+|---|---|
+| **Boot mode: Customised ISO** | Per-VM ISO attached & booted; embedded kickstart self-runs; no keystrokes injected. Most robust. |
+| **Boot mode: Remote kickstart** | Injects a role-aware GRUB command over the console so the appliance fetches its kickstart over HTTP. `c` halts the GRUB countdown; a **boot-wait** (default 10 s) lets slow OVMF reach GRUB. Unavailable on Nutanix AHV / XCP-ng. |
+| **Static IP vs. DHCP** | Fixed-IP node → static `ip=<ip>::<gw>:<mask>:<host>::none` GRUB arg auto-generated (works without DHCP). DHCP node → IP resolved from the hypervisor guest agent before wiring. The form **blocks launch** if two outputs share the same fixed IP. |
+| **Add VIA nodes (＋)** | Append extra proxy / hardened-repo nodes to a topology; each is registered during wiring. New nodes group **directly under** their VIA-Proxy / VIA-HR slot. |
+| **Post-boot wiring** | Registers every VIA proxy & hardened repo into the VSA over REST (`:9419`). Waits for each node to answer first; bounded by a configurable timeout (default **45 min**); re-auths automatically on token expiry. |
+| **License install (REST)** | Installs a `/data/license/*.lic` on the VSA after boot (needed under remote kickstart, which boots unlicensed). Warns if the output baked a license into its config. |
+| **HA cluster** | HA topologies only — needs a **DNS name** + a free **VIP**. Config backup is redirected to the first hardened repository, the Default Backup Repository is removed, then the 2-node cluster is formed. |
+| **node_exporter** | Enables the Prometheus metrics endpoint on the VSA; optional TLS and basic auth. |
+| **Syslog** | Forwards VBR events to a syslog target (host / port / UDP·TCP·TLS). |
+| **S3 / object storage** | Creates the cloud credential, then the repo. S3-compatible: endpoint auto-prefixed with `https://`, bucket **folder created first** (idempotent), optional **Linux mount-server pin** (a VIA proxy) and immutability days. |
+| **History limit** | Caps the number of finished ISO jobs **and** deployments kept (default **20**, set in *Settings → History*); older finished entries are pruned automatically. |
+| **Retry / Re-wire** | A finished deployment can be **retried** (re-run end-to-end — the retry links back to the original) or **re-wired** (re-run only the Veeam REST wiring step against the existing VMs). |
+| **Delete row** | Removes a deployment **record only** — it does **not** destroy the VMs (that's the separate *Remove* action). Mirrors the ISO-job delete button. |
+| **Copy to deploy / presets** | Prefill the whole Deploy form from a past deployment (*Copy*) or a saved **deploy preset** (topology + connection + advanced options). |
+
+### Managing deployments
+
+The **Jobs** page lists ISO-creation jobs and, in a separate **Deployments** table,
+every Auto-Deploy run — with **Created** / **Finished** columns, a **↻ retry of …** link
+when a run is a retry of another, and a per-row **🗑 delete** (record only). Opening a
+deployment shows the live log plus a **node table with each machine's IP** (static IPs
+appear immediately; DHCP IPs stream in live as they're resolved) and persists across
+restarts.
 
 ### Live status
 
@@ -451,7 +501,7 @@ Use a **local administrator** account in the Deploy form's user/password fields.
 ## Limitations
 
 - 🚫 **No authentication** — designed for LAN use. Add a reverse proxy (Caddy, Traefik) for public exposure.
-- 💾 **Jobs are persisted** in a SQLite database (`DATA_DIR/jobs.db`) and survive restarts; they can be deleted from the Jobs tab. **Deployments are still in-memory** and cleared on restart.
+- 💾 **Jobs and deployments are persisted** in SQLite (`DATA_DIR/jobs.db` and `DATA_DIR/deployments.db`) and survive restarts; both can be deleted row-by-row from the UI. A run interrupted by a restart is reloaded as **failed** ("interrupted by a restart"). The number of finished entries kept is capped (default **20**) and pruned automatically — see *Settings → History*.
 - 🧪 **Auto-Deploy: Proxmox VE and Hyper-V are production-validated.** vSphere, Nutanix AHV and XCP-ng back-ends are implemented but **experimental / untested on live infrastructure** (see the Auto-Deploy note above). On AHV and XCP-ng, remote kickstart is unavailable — use a pre-customised ISO.
 - ⚠️ **Hyper-V ISO upload over WinRM is slow** for 15–20 GB ISOs (base64 streaming) — **pre-stage** the ISO in the host's ISO path so `FindISO` skips the upload.
 - ⚠️ **Remote-kickstart keystroke injection is best-effort** — there is no clean screenshot/console feedback over the Proxmox API, so the classic customised-ISO boot mode remains the most reliable.
