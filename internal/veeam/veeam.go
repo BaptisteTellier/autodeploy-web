@@ -604,6 +604,13 @@ type S3RepoSpec struct {
 	Bucket        string
 	Folder        string
 	ImmutableDays int // 0 = immutability disabled
+
+	// Linux mount server pin (MountServersSettingsModel, optional).
+	// When MountServerID is non-empty a mountServer block with type "Linux" is
+	// added to the repository body so VBR uses the identified managed server as
+	// the Linux mount server instead of selecting one automatically.
+	MountServerID   string // managed-server UUID ("" = let VBR choose automatically)
+	MountWriteCache string // writeCacheFolder; defaults to "/tmp" when MountServerID is set but this is empty
 }
 
 // AddS3Repository adds an Amazon S3 or S3-compatible object-storage repository
@@ -616,6 +623,24 @@ func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, 
 			"isEnabled":        true,
 			"daysCount":        spec.ImmutableDays,
 			"immutabilityMode": "RepositorySettings",
+		}
+	}
+
+	// Build the optional Linux mount server block (MountServersSettingsModel).
+	// Omit the key entirely when MountServerID is not set (preserve existing behaviour).
+	var mountServer map[string]any
+	if spec.MountServerID != "" {
+		writeCache := spec.MountWriteCache
+		if writeCache == "" {
+			writeCache = "/tmp"
+		}
+		mountServer = map[string]any{
+			"mountServerSettingsType": "Linux",
+			"linux": map[string]any{
+				"mountServerId":    spec.MountServerID,
+				"vPowerNFSEnabled": false,
+				"writeCacheFolder": writeCache,
+			},
 		}
 	}
 
@@ -643,6 +668,9 @@ func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, 
 			},
 			"bucket": bucket,
 		}
+		if mountServer != nil {
+			body["mountServer"] = mountServer
+		}
 	} else {
 		// AmazonS3 repository type.
 		bucket := map[string]any{
@@ -665,6 +693,9 @@ func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, 
 				},
 			},
 			"bucket": bucket,
+		}
+		if mountServer != nil {
+			body["mountServer"] = mountServer
 		}
 	}
 

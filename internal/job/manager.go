@@ -164,6 +164,18 @@ func (m *Manager) Submit(c config.Config) (*Job, error) {
 	return j, nil
 }
 
+// SetKeepCompleted updates the cap on finished jobs kept in the registry and
+// immediately prunes any excess. n <= 0 is silently ignored (keeps current cap).
+func (m *Manager) SetKeepCompleted(n int) {
+	if n <= 0 {
+		return
+	}
+	m.mu.Lock()
+	m.opts.KeepCompleted = n
+	m.pruneLocked()
+	m.mu.Unlock()
+}
+
 // pruneLocked drops oldest finished jobs above KeepCompleted.
 func (m *Manager) pruneLocked() {
 	type finishedJob struct {

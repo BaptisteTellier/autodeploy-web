@@ -351,7 +351,7 @@ func TestBootCommandOverrideFromText(t *testing.T) {
 }
 
 func TestBootCommandKeys(t *testing.T) {
-	keys := BootCommandKeys("VIA-Proxy", "http://10.0.0.1:8080/x.cfg/content", false)
+	keys := BootCommandKeys("VIA-Proxy", "http://10.0.0.1:8080/x.cfg/content", "ip=dhcp", false)
 	if keys[0] != "c" {
 		t.Errorf("first key = %q, want c (open GRUB console)", keys[0])
 	}
@@ -374,22 +374,44 @@ func TestBootCommandKeys(t *testing.T) {
 
 func TestBootCommandRoleSpecific(t *testing.T) {
 	// VSA uses LABEL=VeeamSA + fips=1; VIA uses LABEL=VeeamJeOS, no fips.
-	vsa := linuxLine("VSA", "http://h/k", false)
+	vsa := linuxLine("VSA", "http://h/k", "ip=dhcp", false)
 	if !strings.Contains(vsa, "LABEL=VeeamSA") || !strings.Contains(vsa, "fips=1") {
 		t.Errorf("VSA line wrong: %s", vsa)
 	}
-	via := linuxLine("VIA-HR", "http://h/k", false)
+	via := linuxLine("VIA-HR", "http://h/k", "ip=dhcp", false)
 	if !strings.Contains(via, "LABEL=VeeamJeOS") || strings.Contains(via, "fips=1") {
 		t.Errorf("VIA line wrong: %s", via)
 	}
 	// VIA single-disk must include inst.vsingledisk; VSA must not even when singleDisk=true.
-	viaSD := linuxLine("VIA-HR", "http://h/k", true)
+	viaSD := linuxLine("VIA-HR", "http://h/k", "ip=dhcp", true)
 	if !strings.Contains(viaSD, "inst.vsingledisk") {
 		t.Errorf("VIA single-disk line missing inst.vsingledisk: %s", viaSD)
 	}
-	vsaSD := linuxLine("VSA", "http://h/k", true)
+	vsaSD := linuxLine("VSA", "http://h/k", "ip=dhcp", true)
 	if strings.Contains(vsaSD, "inst.vsingledisk") {
 		t.Errorf("VSA line must not contain inst.vsingledisk: %s", vsaSD)
+	}
+}
+
+func TestIPKernelArgStatic(t *testing.T) {
+	// DHCP: empty ip yields ip=dhcp.
+	if got := ipKernelArg("", "", "", ""); got != "ip=dhcp" {
+		t.Errorf("ipKernelArg(\"\",…) = %q, want \"ip=dhcp\"", got)
+	}
+	// Static: full dracut/anaconda format.
+	want := "ip=192.168.1.29::192.168.1.1:255.255.255.0:via-proxy::none"
+	if got := ipKernelArg("192.168.1.29", "192.168.1.1", "255.255.255.0", "via-proxy"); got != want {
+		t.Errorf("ipKernelArg static = %q, want %q", got, want)
+	}
+	// BootCommandText with a static ip= must contain the static form and must not
+	// contain ip=dhcp.
+	staticArg := ipKernelArg("192.168.1.29", "192.168.1.1", "255.255.255.0", "via-proxy")
+	txt := BootCommandText("VIA-Proxy", "http://h/k", staticArg, false)
+	if !strings.Contains(txt, "ip=192.168.1.29::") {
+		t.Errorf("BootCommandText missing static ip= arg: %s", txt)
+	}
+	if strings.Contains(txt, "ip=dhcp") {
+		t.Errorf("BootCommandText must not contain ip=dhcp for a static node: %s", txt)
 	}
 }
 

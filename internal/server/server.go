@@ -17,6 +17,7 @@ type Deps struct {
 	BuildDate     string // build timestamp baked at build time ("" for dev builds)
 	DataDir       string
 	AutodeployDir string
+	SettingsPath  string // path to settings.json on disk
 	Store         *config.Store
 	JobManager    *job.Manager
 	DeployManager *deploy.Manager
@@ -45,6 +46,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin", s.handleAdmin)
+	mux.HandleFunc("POST /admin/settings", s.handleAdminSettings)
 	mux.HandleFunc("POST /admin/autodeploy/update", s.handleAdminUpdatePS1)
 	mux.HandleFunc("POST /admin/autodeploy/upload", s.handleAdminUploadPS1)
 	mux.HandleFunc("DELETE /admin/autodeploy/reset", s.handleAdminResetPS1)
@@ -62,6 +64,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /deploy/{id}/remove", s.handleDeployRemove)
 	mux.HandleFunc("POST /deploy/{id}/retry", s.handleDeployRetry)
 	mux.HandleFunc("POST /deploy/{id}/rewire", s.handleDeployRewire)
+	mux.HandleFunc("DELETE /deploy/{id}", s.handleDeployDelete)
 
 	// Deploy templates (named FormSnapshot presets). The literal "presets"
 	// segment is matched ahead of the {id} wildcard by net/http's ServeMux.

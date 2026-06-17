@@ -178,7 +178,7 @@ var translations = map[string]map[string]string{
 		"form.open_arrow":           "open →",
 
 		// --- jobs.html ---
-		"jobs.all":         "All jobs",
+		"jobs.all":         "ISO creation",
 		"jobs.deployments": "Deployments",
 		"jobs.open_job":    "open job",
 		"jobs.output":      "📂 output",
@@ -241,6 +241,11 @@ var translations = map[string]map[string]string{
 		"admin.err_delete":     "delete failed: ",
 		"admin.msg_downloaded": "downloaded",
 		"admin.msg_imported":   "imported",
+		// admin history settings
+		"admin.history_title":    "🗂️ History",
+		"admin.max_history":      "Max entries kept (ISO jobs & deployments)",
+		"admin.max_history_hint": "Older finished entries are pruned automatically.",
+		"admin.history_save":     "Save",
 
 		// --- media_workspace.html ---
 		"ws.title":            "🗂️ Workspace",
@@ -424,6 +429,7 @@ var translations = map[string]map[string]string{
 		"deploy.none":                  "No deployments yet.",
 		"deploy.step":                  "Step",
 		"deploy.vmid":                  "VM ID",
+		"deploy.node_ip":               "IP",
 		"deploy.live_log":              "Live log",
 		"deploy.back":                  "← All deployments",
 		"deploy.err_unavailable":       "Deployment engine unavailable.",
@@ -463,6 +469,8 @@ var translations = map[string]map[string]string{
 		"deploy.wire_s3_access":        "Access key",
 		"deploy.wire_s3_secret":        "Secret key",
 		"deploy.wire_s3_immutable":     "Immutability (days, 0 = off)",
+		"deploy.wire_s3_mount":         "Linux mount server (optional)",
+		"deploy.wire_s3_mount_none":    "— auto —",
 		"deploy.cluster_dns":           "HA cluster DNS name",
 		"deploy.cluster_endpoint":      "HA cluster IP (VIP)",
 		"deploy.cluster_endpoint_hint": "Free floating IP for the cluster — distinct from both node IPs. Required by VBR in same-subnet mode.",
@@ -492,6 +500,7 @@ var translations = map[string]map[string]string{
 		"deploy.rewire_timeout":        "Wiring timeout (min)",
 		"deploy.err_rewire":            "Could not retry wiring: ",
 		"deploy.copy_to_deploy":        "Copy to deploy",
+		"deploy.retry_of":              "retry of",
 	},
 
 	"fr": {
@@ -618,7 +627,7 @@ var translations = map[string]map[string]string{
 		"form.open_arrow":           "ouvrir →",
 
 		// --- jobs.html ---
-		"jobs.all":         "Tous les jobs",
+		"jobs.all":         "Création d'ISO",
 		"jobs.deployments": "Déploiements",
 		"jobs.open_job":    "ouvrir le job",
 		"jobs.output":      "📂 sortie",
@@ -681,6 +690,11 @@ var translations = map[string]map[string]string{
 		"admin.err_delete":     "suppression échouée : ",
 		"admin.msg_downloaded": "téléchargé",
 		"admin.msg_imported":   "importé",
+		// admin history settings
+		"admin.history_title":    "🗂️ Historique",
+		"admin.max_history":      "Nombre max d'entrées conservées (jobs ISO & déploiements)",
+		"admin.max_history_hint": "Les anciennes entrées terminées sont purgées automatiquement.",
+		"admin.history_save":     "Enregistrer",
 
 		// --- media_workspace.html ---
 		"ws.title":            "🗂️ Workspace",
@@ -864,6 +878,7 @@ var translations = map[string]map[string]string{
 		"deploy.none":                  "Aucun déploiement pour l'instant.",
 		"deploy.step":                  "Étape",
 		"deploy.vmid":                  "ID VM",
+		"deploy.node_ip":               "IP",
 		"deploy.live_log":              "Log en direct",
 		"deploy.back":                  "← Tous les déploiements",
 		"deploy.err_unavailable":       "Moteur de déploiement indisponible.",
@@ -903,6 +918,8 @@ var translations = map[string]map[string]string{
 		"deploy.wire_s3_access":        "Clé d'accès",
 		"deploy.wire_s3_secret":        "Clé secrète",
 		"deploy.wire_s3_immutable":     "Immutabilité (jours, 0 = désactivé)",
+		"deploy.wire_s3_mount":         "Serveur de montage Linux (optionnel)",
+		"deploy.wire_s3_mount_none":    "— auto —",
 		"deploy.cluster_dns":           "Nom DNS du cluster HA",
 		"deploy.cluster_endpoint":      "IP du cluster HA (VIP)",
 		"deploy.cluster_endpoint_hint": "IP flottante libre pour le cluster — distincte des IP des deux nœuds. Requise par VBR en mode même sous-réseau.",
@@ -932,5 +949,6 @@ var translations = map[string]map[string]string{
 		"deploy.rewire_timeout":        "Timeout câblage (min)",
 		"deploy.err_rewire":            "Impossible de recâbler : ",
 		"deploy.copy_to_deploy":        "Copier vers déploiement",
+		"deploy.retry_of":              "relance de",
 	},
 }

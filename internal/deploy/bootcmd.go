@@ -5,37 +5,50 @@ import "strings"
 // Remote-kickstart boot command, typed at the appliance ISO's GRUB menu. The
 // command is ROLE-SPECIFIC — the VSA and the VIA/JeOS installers use different
 // stage2 volume labels and kernel args (the VSA additionally needs fips=1;
-// a VIA single-disk build additionally needs inst.vsingledisk):
+// a VIA single-disk build additionally needs inst.vsingledisk). The ip= arg is
+// ip=dhcp for DHCP nodes; static nodes use ip=<ip>::<gw>:<netmask>:<host>::none
+// so the installer can reach the remote kickstart on a network without DHCP:
 //
-//	VSA      : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<URL> ip=dhcp quiet inst.assumeyes
-//	VIA      : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<URL> ip=dhcp quiet inst.assumeyes
-//	VIA+SD   : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<URL> inst.vsingledisk ip=dhcp quiet inst.assumeyes
-//	(all)    : initrdefi /images/pxeboot/initrd.img
-//	(all)    : boot
+//	VSA (DHCP)   : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<URL> ip=dhcp quiet inst.assumeyes
+//	VSA (static) : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<URL> ip=<ip>::<gw>:<mask>:<host>::none quiet inst.assumeyes
+//	VIA (DHCP)   : linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<URL> ip=dhcp quiet inst.assumeyes
+//	VIA+SD (DHCP): linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<URL> inst.vsingledisk ip=dhcp quiet inst.assumeyes
+//	(all)        : initrdefi /images/pxeboot/initrd.img
+//	(all)        : boot
 const (
 	labelVSA = "VeeamSA"
 	labelVIA = "VeeamJeOS"
 )
 
+// ipKernelArg builds the dracut/anaconda `ip=` boot argument. A node with a
+// static IP pins its address (so the installer can fetch the remote kickstart
+// on a network without DHCP); an empty ip yields the DHCP form.
+func ipKernelArg(ip, gateway, netmask, hostname string) string {
+	if ip == "" {
+		return "ip=dhcp"
+	}
+	return "ip=" + ip + "::" + gateway + ":" + netmask + ":" + hostname + "::none"
+}
+
 // linuxLine builds the role-specific `linuxefi …` GRUB line.
 // singleDisk is only meaningful for VIA roles (ignored for VSA).
-func linuxLine(role, ksURL string, singleDisk bool) string {
+func linuxLine(role, ksURL, ipArg string, singleDisk bool) string {
 	if strings.HasPrefix(role, "VSA") {
 		return "linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=" + labelVSA +
-			" fips=1 inst.ks=" + ksURL + " ip=dhcp quiet inst.assumeyes"
+			" fips=1 inst.ks=" + ksURL + " " + ipArg + " quiet inst.assumeyes"
 	}
 	line := "linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=" + labelVIA +
 		" inst.ks=" + ksURL
 	if singleDisk {
 		line += " inst.vsingledisk"
 	}
-	return line + " ip=dhcp quiet inst.assumeyes"
+	return line + " " + ipArg + " quiet inst.assumeyes"
 }
 
 // bootLines returns the three GRUB lines for a role + kickstart URL.
-func bootLines(role, ksURL string, singleDisk bool) []string {
+func bootLines(role, ksURL, ipArg string, singleDisk bool) []string {
 	return []string{
-		linuxLine(role, ksURL, singleDisk),
+		linuxLine(role, ksURL, ipArg, singleDisk),
 		"initrdefi /images/pxeboot/initrd.img",
 		"boot",
 	}
@@ -44,8 +57,8 @@ func bootLines(role, ksURL string, singleDisk bool) []string {
 // BootCommandText returns the full GRUB boot command (the three lines joined by
 // newlines) for the given role and kickstart URL. This is what the deploy UI
 // pre-fills in the editable "advanced boot command" box.
-func BootCommandText(role, ksURL string, singleDisk bool) string {
-	return strings.Join(bootLines(role, ksURL, singleDisk), "\n")
+func BootCommandText(role, ksURL, ipArg string, singleDisk bool) string {
+	return strings.Join(bootLines(role, ksURL, ipArg, singleDisk), "\n")
 }
 
 // bootKeysFromLines turns GRUB command lines into a QEMU sendkey sequence: it
@@ -66,8 +79,8 @@ func bootKeysFromLines(lines []string) []string {
 
 // BootCommandKeys returns the QEMU sendkey sequence that types the role-specific
 // remote-kickstart boot command at the GRUB menu.
-func BootCommandKeys(role, ksURL string, singleDisk bool) []string {
-	return bootKeysFromLines(bootLines(role, ksURL, singleDisk))
+func BootCommandKeys(role, ksURL, ipArg string, singleDisk bool) []string {
+	return bootKeysFromLines(bootLines(role, ksURL, ipArg, singleDisk))
 }
 
 // BootCommandKeysFromText returns the sendkey sequence for a user-supplied,

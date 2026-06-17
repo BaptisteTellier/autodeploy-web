@@ -62,6 +62,8 @@ type outputSummary struct {
 	Disks       string `json:"disks"`
 	SingleDisk  bool   `json:"single_disk"`
 	GrubTimeout int    `json:"grub_timeout"` // GRUB menu timeout (s) baked into the ISO/cfg at build time
+	Gateway     string `json:"gateway"`
+	Netmask     string `json:"netmask"`
 	// LicenseBaked is true when the output was built with a license baked into
 	// its config (LicenseVBRTune + LicenseFile). In remote-kickstart deploys the
 	// .lic cannot ride inside the ISO, so a baked-in license reference can break
@@ -163,8 +165,11 @@ func (s *Server) listOutputs() []outputSummary {
 			continue // needs at least an ISO (classic) or a .cfg (kickstart)
 		}
 		net := "DHCP"
+		var gw, mask string
 		if !c.UseDHCP {
 			net = c.StaticIP
+			gw = c.Gateway
+			mask = c.Subnet
 		}
 		out = append(out, outputSummary{
 			JobID:        e.Name(),
@@ -181,6 +186,8 @@ func (s *Server) listOutputs() []outputSummary {
 			SingleDisk:   c.VIASingleDisk,
 			GrubTimeout:  c.GrubTimeout,
 			LicenseBaked: c.LicenseVBRTune && c.LicenseFile != "",
+			Gateway:      gw,
+			Netmask:      mask,
 		})
 	}
 	return out
@@ -413,14 +420,19 @@ func (s *Server) resolveOutputNode(jobid, role string, diskSizes []int, ks ksPar
 	// address from the hypervisor guest agent (GetVMIP) before wiring. Using the
 	// config's leftover StaticIP here would make DHCP nodes collide on a stale IP.
 	ip := ""
+	var gw, netmask string
 	if !c.UseDHCP {
 		ip = c.StaticIP
+		gw = c.Gateway
+		netmask = c.Subnet
 	}
 	node := deploy.NodeDeploy{
 		Name:        name,
 		Role:        role,
 		Disks:       buildNodeDisks(c, diskSizes),
 		IP:          ip,
+		Gateway:     gw,
+		Netmask:     netmask,
 		PairingCode: wiring.DefaultPairingCode,
 	}
 
@@ -622,7 +634,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"wire_timeout", "cluster_dns", "cluster_endpoint", "wire_license",
 		// advanced wiring (secrets — keys/passwords — deliberately excluded)
 		"wire_node_exporter_user", "wire_syslog_server", "wire_syslog_port", "wire_syslog_protocol",
-		"wire_s3_name", "wire_s3_endpoint", "wire_s3_region", "wire_s3_bucket", "wire_s3_folder", "wire_s3_immutable_days",
+		"wire_s3_name", "wire_s3_endpoint", "wire_s3_region", "wire_s3_bucket", "wire_s3_folder", "wire_s3_immutable_days", "wire_s3_mount_node",
 		// Proxmox
 		"pve_url", "pve_node", "pve_storage", "pve_iso_storage", "pve_user", "pve_token_id",
 		// vSphere
@@ -678,6 +690,21 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		Text:        text,
 		Checks:      checks,
 	}
+}
+
+// handleDeployDelete removes a deployment record from the registry and the
+// database without touching any VMs. Returns 204 on success, 422 on error
+// (e.g. the deployment is still running).
+func (s *Server) handleDeployDelete(w http.ResponseWriter, r *http.Request) {
+	if s.deps.DeployManager == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.deps.DeployManager.Delete(r.PathValue("id")); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeployStart maps the chosen output folders onto the topology slots and
@@ -829,15 +856,16 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.FormValue("wire_s3") != "" && strings.TrimSpace(r.FormValue("wire_s3_bucket")) != "" {
 			wireCfg.S3 = &wiring.S3Config{
-				Name:          strDefault(strings.TrimSpace(r.FormValue("wire_s3_name")), "Object Storage"),
-				Compatible:    r.FormValue("wire_s3_compatible") != "",
-				ServicePoint:  strings.TrimSpace(r.FormValue("wire_s3_endpoint")),
-				Region:        strings.TrimSpace(r.FormValue("wire_s3_region")),
-				Bucket:        strings.TrimSpace(r.FormValue("wire_s3_bucket")),
-				Folder:        strDefault(strings.TrimSpace(r.FormValue("wire_s3_folder")), "backups"),
-				AccessKey:     strings.TrimSpace(r.FormValue("wire_s3_access_key")),
-				SecretKey:     r.FormValue("wire_s3_secret_key"),
-				ImmutableDays: atoiDefault(r.FormValue("wire_s3_immutable_days"), 0),
+				Name:            strDefault(strings.TrimSpace(r.FormValue("wire_s3_name")), "Object Storage"),
+				Compatible:      r.FormValue("wire_s3_compatible") != "",
+				ServicePoint:    strings.TrimSpace(r.FormValue("wire_s3_endpoint")),
+				Region:          strings.TrimSpace(r.FormValue("wire_s3_region")),
+				Bucket:          strings.TrimSpace(r.FormValue("wire_s3_bucket")),
+				Folder:          strDefault(strings.TrimSpace(r.FormValue("wire_s3_folder")), "backups"),
+				AccessKey:       strings.TrimSpace(r.FormValue("wire_s3_access_key")),
+				SecretKey:       r.FormValue("wire_s3_secret_key"),
+				ImmutableDays:   atoiDefault(r.FormValue("wire_s3_immutable_days"), 0),
+				MountServerNode: strings.TrimSpace(r.FormValue("wire_s3_mount_node")),
 			}
 		}
 		wirer = wiring.New(wireCfg)

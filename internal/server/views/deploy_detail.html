@@ -87,6 +87,7 @@
           <th class="px-4 py-3">{{t "deploy.topology"}}</th>
           <th class="px-4 py-3">{{t "deploy.step"}}</th>
           <th class="px-4 py-3">{{t "deploy.vmid"}}</th>
+          <th class="px-4 py-3">{{t "deploy.node_ip"}}</th>
         </tr>
       </thead>
       <tbody>
@@ -107,6 +108,7 @@
           {{if $n.Error}}<div class="text-xs text-red-600 mt-1">{{$n.Error}}</div>{{end}}
         </td>
         <td data-vmid="{{$i}}" class="px-4 py-3 font-mono text-slate-600">{{$n.VMID}}</td>
+        <td data-ip="{{$i}}" class="px-4 py-3 font-mono text-slate-600">{{$n.IP}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -151,6 +153,10 @@
       if (d.vm_id) {
         const vmCell = document.querySelector('[data-vmid="' + d.i + '"]');
         if (vmCell) vmCell.textContent = d.vm_id;
+      }
+      if (d.ip) {
+        const ipCell = document.querySelector('[data-ip="' + d.i + '"]');
+        if (ipCell) ipCell.textContent = d.ip;
       }
       // Once a node moves past "uploading", hide its upload progress bar.
       if (d.step !== 'uploading') {

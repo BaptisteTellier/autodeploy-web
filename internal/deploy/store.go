@@ -43,16 +43,17 @@ func OpenStore(path string) (*Store, error) {
 // migrate creates the deployments table if it does not yet exist.
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS deployments (
-		id          TEXT    PRIMARY KEY,
-		kind        TEXT    NOT NULL,
-		state       TEXT    NOT NULL,
-		created_at  INTEGER NOT NULL,
-		finished_at INTEGER NOT NULL,
-		error       TEXT    NOT NULL,
-		has_wirer   INTEGER NOT NULL,
-		nodes_json  TEXT    NOT NULL,
-		form_json   TEXT    NOT NULL,
-		log_json    TEXT    NOT NULL
+		id           TEXT    PRIMARY KEY,
+		kind         TEXT    NOT NULL,
+		state        TEXT    NOT NULL,
+		created_at   INTEGER NOT NULL,
+		finished_at  INTEGER NOT NULL,
+		error        TEXT    NOT NULL,
+		has_wirer    INTEGER NOT NULL,
+		nodes_json   TEXT    NOT NULL,
+		form_json    TEXT    NOT NULL,
+		log_json     TEXT    NOT NULL,
+		retried_from TEXT    NOT NULL DEFAULT ''
 	)`)
 	return err
 }
@@ -83,18 +84,19 @@ func (s *Store) Save(rec PersistedDeployment) error {
 	}
 
 	_, err = s.db.Exec(`INSERT INTO deployments
-		(id, kind, state, created_at, finished_at, error, has_wirer, nodes_json, form_json, log_json)
-		VALUES (?,?,?,?,?,?,?,?,?,?)
+		(id, kind, state, created_at, finished_at, error, has_wirer, nodes_json, form_json, log_json, retried_from)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
-		  kind        = excluded.kind,
-		  state       = excluded.state,
-		  created_at  = excluded.created_at,
-		  finished_at = excluded.finished_at,
-		  error       = excluded.error,
-		  has_wirer   = excluded.has_wirer,
-		  nodes_json  = excluded.nodes_json,
-		  form_json   = excluded.form_json,
-		  log_json    = excluded.log_json`,
+		  kind         = excluded.kind,
+		  state        = excluded.state,
+		  created_at   = excluded.created_at,
+		  finished_at  = excluded.finished_at,
+		  error        = excluded.error,
+		  has_wirer    = excluded.has_wirer,
+		  nodes_json   = excluded.nodes_json,
+		  form_json    = excluded.form_json,
+		  log_json     = excluded.log_json,
+		  retried_from = excluded.retried_from`,
 		v.ID,
 		v.Kind,
 		string(v.State),
@@ -105,6 +107,7 @@ func (s *Store) Save(rec PersistedDeployment) error {
 		string(nodesJSON),
 		string(formJSON),
 		string(logJSON),
+		v.RetriedFrom,
 	)
 	if err != nil {
 		return fmt.Errorf("deploy store save %s: %w", v.ID, err)
@@ -115,7 +118,7 @@ func (s *Store) Save(rec PersistedDeployment) error {
 // LoadAll returns all persisted deployment records ordered by created_at ascending.
 func (s *Store) LoadAll() ([]PersistedDeployment, error) {
 	rows, err := s.db.Query(`SELECT
-		id, kind, state, created_at, finished_at, error, has_wirer, nodes_json, form_json, log_json
+		id, kind, state, created_at, finished_at, error, has_wirer, nodes_json, form_json, log_json, retried_from
 		FROM deployments ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("deploy store load: %w", err)
@@ -125,18 +128,19 @@ func (s *Store) LoadAll() ([]PersistedDeployment, error) {
 	var out []PersistedDeployment
 	for rows.Next() {
 		var (
-			v          View
-			state      string
-			createdAt  int64
-			finishedAt int64
-			hasWirer   int
-			nodesJSON  string
-			formJSON   string
-			logJSON    string
+			v           View
+			state       string
+			createdAt   int64
+			finishedAt  int64
+			hasWirer    int
+			nodesJSON   string
+			formJSON    string
+			logJSON     string
+			retriedFrom string
 		)
 		if err := rows.Scan(
 			&v.ID, &v.Kind, &state, &createdAt, &finishedAt,
-			&v.Error, &hasWirer, &nodesJSON, &formJSON, &logJSON,
+			&v.Error, &hasWirer, &nodesJSON, &formJSON, &logJSON, &retriedFrom,
 		); err != nil {
 			return nil, fmt.Errorf("deploy store scan: %w", err)
 		}
@@ -144,6 +148,7 @@ func (s *Store) LoadAll() ([]PersistedDeployment, error) {
 		v.CreatedAt = fromDeployNanos(createdAt)
 		v.FinishedAt = fromDeployNanos(finishedAt)
 		v.HasWirer = hasWirer != 0
+		v.RetriedFrom = retriedFrom
 
 		if err := json.Unmarshal([]byte(nodesJSON), &v.Nodes); err != nil {
 			return nil, fmt.Errorf("deploy store unmarshal nodes %s: %w", v.ID, err)

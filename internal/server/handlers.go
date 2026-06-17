@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -290,12 +291,51 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		overrideVer = extractPS1Version(overridePS1)
 	}
 
+	settings := config.LoadSettings(s.deps.SettingsPath)
+
 	s.render(w, r, "views/admin.html", map[string]any{
 		"BakedPS1Version":    bakedVer,
 		"OverridePS1Version": overrideVer,
 		"OverrideModTime":    overrideMod,
 		"OverrideActive":     overrideActive,
+		"MaxHistory":         settings.MaxHistory,
 	})
+}
+
+// handleAdminSettings saves the max_history setting and applies it live to both
+// managers.
+func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	current := config.LoadSettings(s.deps.SettingsPath)
+	n := current.MaxHistory
+
+	if raw := r.FormValue("max_history"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			if parsed < 1 {
+				parsed = 1
+			} else if parsed > 1000 {
+				parsed = 1000
+			}
+			n = parsed
+		}
+	}
+
+	updated := config.Settings{MaxHistory: n}
+	if err := config.SaveSettings(s.deps.SettingsPath, updated); err != nil {
+		http.Error(w, "save settings: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.deps.JobManager.SetKeepCompleted(n)
+	if s.deps.DeployManager != nil {
+		s.deps.DeployManager.SetKeepCompleted(n)
+	}
+
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 // handleAdminUpdatePS1 downloads the latest autodeploy.ps1 from GitHub and

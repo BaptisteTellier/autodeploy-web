@@ -57,6 +57,12 @@ type S3Config struct {
 	AccessKey     string
 	SecretKey     string
 	ImmutableDays int // 0 = immutability disabled
+
+	// MountServerNode is the Name (hostname) of a previously-registered VIA-Proxy
+	// node to pin as the Linux mount server for this repository. When non-empty,
+	// applyAdvanced resolves its managed-server id and passes it to AddS3Repository.
+	// "" means let VBR choose automatically (existing behaviour).
+	MountServerNode string
 }
 
 // Wirer registers a deployed topology into its VSA. It satisfies deploy.Wirer.
@@ -229,7 +235,7 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	}
 
 	// Advanced options (node_exporter / syslog / S3 repository) on the primary VSA.
-	if err := w.applyAdvanced(ctx, client, log); err != nil {
+	if err := w.applyAdvanced(ctx, client, nodes, log); err != nil {
 		return err
 	}
 	return nil
@@ -239,7 +245,7 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 // the Prometheus node_exporter endpoint, a syslog forwarding target, and an
 // object-storage (S3 / S3-compatible) backup repository. Each block is skipped
 // when its config is zero-valued.
-func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, log func(string)) error {
+func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, nodes []deploy.NodeDeploy, log func(string)) error {
 	if w.cfg.NodeExporter {
 		log("enabling node_exporter metrics endpoint…")
 		if err := client.SetNodeExporter(ctx, true, w.cfg.NodeExporterTLS, w.cfg.NodeExporterUser, w.cfg.NodeExporterPass); err != nil {
@@ -258,6 +264,36 @@ func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, log fun
 		if err != nil {
 			return fmt.Errorf("S3 credentials: %w", err)
 		}
+
+		// Optionally pin a Linux mount server by resolving the nominated node's
+		// managed-server id. Failures are non-fatal: log a warning and proceed
+		// without a mount server (VBR will pick one automatically).
+		var mountServerID string
+		if s.MountServerNode != "" {
+			var mountNode *deploy.NodeDeploy
+			for i := range nodes {
+				if nodes[i].Name == s.MountServerNode {
+					mountNode = &nodes[i]
+					break
+				}
+			}
+			if mountNode == nil {
+				log(fmt.Sprintf("S3 mount server: node %q not found in topology — skipping mount server pin", s.MountServerNode))
+			} else if mountNode.IP == "" {
+				log(fmt.Sprintf("S3 mount server: node %q has no IP — skipping mount server pin", s.MountServerNode))
+			} else {
+				id, err := client.FindManagedServerByName(ctx, mountNode.IP)
+				if err != nil {
+					log(fmt.Sprintf("S3 mount server: lookup %s failed (%v) — skipping mount server pin", mountNode.IP, err))
+				} else if id == "" {
+					log(fmt.Sprintf("S3 mount server: %s (%s) not found in managed servers — skipping mount server pin", s.MountServerNode, mountNode.IP))
+				} else {
+					log(fmt.Sprintf("S3: using %s (%s) as Linux mount server", s.MountServerNode, mountNode.IP))
+					mountServerID = id
+				}
+			}
+		}
+
 		sess, err := client.AddS3Repository(ctx, veeam.S3RepoSpec{
 			Name:          s.Name,
 			Description:   "autodeploy object storage",
@@ -268,6 +304,7 @@ func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, log fun
 			Bucket:        s.Bucket,
 			Folder:        s.Folder,
 			ImmutableDays: s.ImmutableDays,
+			MountServerID: mountServerID,
 		})
 		if err != nil {
 			return fmt.Errorf("S3 repository: %w", err)

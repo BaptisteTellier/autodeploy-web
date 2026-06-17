@@ -47,6 +47,9 @@ func main() {
 		log.Fatalf("data layout: %v", err)
 	}
 
+	settingsPath := filepath.Join(dataDir, "settings.json")
+	settings := config.LoadSettings(settingsPath)
+
 	// Clear any stale per-job staging dirs left over from a crash, then
 	// recreate the empty work directory so it's ready for new jobs.
 	workDir := filepath.Join(dataDir, "work")
@@ -54,10 +57,6 @@ func main() {
 	_ = os.MkdirAll(workDir, 0o755)
 
 	store := config.NewStore(dataDir + "/configs")
-
-	// keepCompletedJobs caps how many finished jobs stay in the in-memory
-	// registry (their config snapshots are pruned with them).
-	const keepCompletedJobs = 50
 
 	jobStore, err := job.OpenStore(filepath.Join(dataDir, "jobs.db"))
 	if err != nil {
@@ -70,7 +69,7 @@ func main() {
 		AutodeployDir: autodeployDir,
 		PSScript:      psScript,
 		MaxConcurrent: concurrency,
-		KeepCompleted: keepCompletedJobs,
+		KeepCompleted: settings.MaxHistory,
 		Store:         jobStore,
 	})
 
@@ -81,6 +80,7 @@ func main() {
 	defer deployStore.Close()
 
 	deployMgr := deploy.NewManager(deployStore)
+	deployMgr.SetKeepCompleted(settings.MaxHistory)
 	deployPresets := deploy.NewPresetStore(filepath.Join(dataDir, "deploy-presets"))
 
 	srv := server.New(server.Deps{
@@ -89,6 +89,7 @@ func main() {
 		BuildDate:     date,
 		DataDir:       dataDir,
 		AutodeployDir: autodeployDir,
+		SettingsPath:  settingsPath,
 		Store:         store,
 		JobManager:    mgr,
 		DeployManager: deployMgr,

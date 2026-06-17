@@ -49,6 +49,8 @@ type NodeDeploy struct {
 	ISOPath     string // absolute path to the already-built customised ISO ("" in kickstart mode)
 	Disks       []int  // disk sizes in GiB (role/config-derived)
 	IP          string // static IP baked into the ISO; "" = DHCP (wiring resolves it via GetVMIP)
+	Gateway     string // static default gateway (set only when IP is static; "" for DHCP)
+	Netmask     string // static subnet mask, dotted-decimal (set only when IP is static)
 	PairingCode string // appliance pairing/handshake code (default "000000")
 
 	// Remote kickstart (both set => kickstart mode for this node):
@@ -77,6 +79,7 @@ type NodeStatus struct {
 	Step     string `json:"step"`     // uploading | creating-vm | attaching | booting | ready | failed
 	VMID     string `json:"vm_id"`    // populated once the VM is created
 	Progress int    `json:"progress"` // 0–100: ISO upload percent (only meaningful during "uploading")
+	IP       string `json:"ip,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -104,8 +107,9 @@ func NodeStatusLine(idx int, ns NodeStatus) string {
 		Idx   int    `json:"i"`
 		Step  string `json:"step"`
 		VMID  string `json:"vm_id"`
+		IP    string `json:"ip,omitempty"`
 		Error string `json:"error,omitempty"`
-	}{idx, ns.Step, ns.VMID, ns.Error})
+	}{idx, ns.Step, ns.VMID, ns.IP, ns.Error})
 	return nodeStatusPrefix + string(b)
 }
 
@@ -165,6 +169,9 @@ type Spec struct {
 	// Form is the form snapshot captured at submission time; stored on the
 	// Deployment so a finished run can be copied back into the deploy form.
 	Form FormSnapshot
+
+	// RetriedFrom is the source deployment id when this spec is a retry.
+	RetriedFrom string
 }
 
 // DefaultWireTimeout caps the wiring step so it never waits forever.
@@ -183,28 +190,30 @@ type Deployment struct {
 	FinishedAt time.Time    `json:"finished_at,omitempty"`
 	Error      string       `json:"error,omitempty"`
 
-	mu       sync.Mutex
-	lines    []string
-	subs     []chan string
-	done     chan struct{}
-	hv       hypervisor.Hypervisor // retained so Remove can destroy the created VMs
-	spec     Spec                  // retained so a removed deployment can be retried
-	form     FormSnapshot          // non-secret form snapshot for "Copy to deploy"
-	cancel   context.CancelFunc    // cancels the run goroutine (set once running)
-	canceled bool                  // true when a STOP was requested (vs. a real failure)
+	mu          sync.Mutex
+	lines       []string
+	subs        []chan string
+	done        chan struct{}
+	hv          hypervisor.Hypervisor // retained so Remove can destroy the created VMs
+	spec        Spec                  // retained so a removed deployment can be retried
+	form        FormSnapshot          // non-secret form snapshot for "Copy to deploy"
+	retriedFrom string                // source deployment id when this is a retry
+	cancel      context.CancelFunc    // cancels the run goroutine (set once running)
+	canceled    bool                  // true when a STOP was requested (vs. a real failure)
 }
 
 // View is a race-free snapshot of a Deployment's public fields.
 type View struct {
-	ID         string       `json:"id"`
-	Kind       string       `json:"kind"`
-	State      State        `json:"state"`
-	Nodes      []NodeStatus `json:"nodes"`
-	CreatedAt  time.Time    `json:"created_at"`
-	FinishedAt time.Time    `json:"finished_at,omitempty"`
-	Error      string       `json:"error,omitempty"`
-	HasWirer   bool         `json:"has_wirer"` // true when the deployment had wiring configured
-	Form       FormSnapshot `json:"form"`      // non-secret form snapshot for "Copy to deploy"
+	ID          string       `json:"id"`
+	Kind        string       `json:"kind"`
+	State       State        `json:"state"`
+	Nodes       []NodeStatus `json:"nodes"`
+	CreatedAt   time.Time    `json:"created_at"`
+	FinishedAt  time.Time    `json:"finished_at,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	HasWirer    bool         `json:"has_wirer"`              // true when the deployment had wiring configured
+	Form        FormSnapshot `json:"form"`                   // non-secret form snapshot for "Copy to deploy"
+	RetriedFrom string       `json:"retried_from,omitempty"` // source deployment id when this is a retry
 }
 
 // View returns a snapshot safe to hand to HTTP handlers / templates.
@@ -214,15 +223,16 @@ func (d *Deployment) View() View {
 	nodes := make([]NodeStatus, len(d.Nodes))
 	copy(nodes, d.Nodes)
 	return View{
-		ID:         d.ID,
-		Kind:       d.Kind,
-		State:      d.State,
-		Nodes:      nodes,
-		CreatedAt:  d.CreatedAt,
-		FinishedAt: d.FinishedAt,
-		Error:      d.Error,
-		HasWirer:   d.spec.Wirer != nil,
-		Form:       d.form,
+		ID:          d.ID,
+		Kind:        d.Kind,
+		State:       d.State,
+		Nodes:       nodes,
+		CreatedAt:   d.CreatedAt,
+		FinishedAt:  d.FinishedAt,
+		Error:       d.Error,
+		HasWirer:    d.spec.Wirer != nil,
+		Form:        d.form,
+		RetriedFrom: d.retriedFrom,
 	}
 }
 
@@ -366,11 +376,12 @@ func humanGiB(b int64) string {
 
 // Manager owns the in-memory deployment registry.
 type Manager struct {
-	mu          sync.RWMutex
-	deployments map[string]*Deployment
-	wg          sync.WaitGroup
-	stopCh      chan struct{}
-	store       *Store // nil when persistence is disabled
+	mu            sync.RWMutex
+	deployments   map[string]*Deployment
+	wg            sync.WaitGroup
+	stopCh        chan struct{}
+	store         *Store // nil when persistence is disabled
+	keepCompleted int    // 0 = unlimited; set via SetKeepCompleted
 }
 
 // NewManager returns a deployment manager. store may be nil (disables persistence).
@@ -384,6 +395,59 @@ func NewManager(store *Store) *Manager {
 		m.loadFromStore()
 	}
 	return m
+}
+
+// SetKeepCompleted sets the cap on finished deployments kept in the registry
+// and immediately prunes any excess. n <= 0 is silently ignored.
+func (m *Manager) SetKeepCompleted(n int) {
+	if n <= 0 {
+		return
+	}
+	m.mu.Lock()
+	m.keepCompleted = n
+	m.pruneCompleted()
+	m.mu.Unlock()
+}
+
+// pruneCompleted drops the oldest finished deployments above keepCompleted.
+// Finished states are: done, failed, canceled, removed.
+// MUST be called with m.mu held (write lock).
+// keepCompleted == 0 means unlimited — no-op.
+func (m *Manager) pruneCompleted() {
+	if m.keepCompleted <= 0 {
+		return
+	}
+	type finishedEntry struct {
+		d         *Deployment
+		createdAt time.Time
+	}
+	finished := make([]finishedEntry, 0)
+	for _, d := range m.deployments {
+		d.mu.Lock()
+		st := d.State
+		ca := d.CreatedAt
+		d.mu.Unlock()
+		switch st {
+		case StateDone, StateFailed, StateCanceled, StateRemoved:
+			finished = append(finished, finishedEntry{d: d, createdAt: ca})
+		}
+	}
+	if len(finished) <= m.keepCompleted {
+		return
+	}
+	sort.Slice(finished, func(i, j int) bool {
+		return finished[i].createdAt.Before(finished[j].createdAt)
+	})
+	drop := len(finished) - m.keepCompleted
+	for i := 0; i < drop; i++ {
+		pruned := finished[i].d
+		delete(m.deployments, pruned.ID)
+		if m.store != nil {
+			if err := m.store.Delete(pruned.ID); err != nil {
+				log.Printf("deploy store: prune delete %s: %v", pruned.ID, err)
+			}
+		}
+	}
 }
 
 // loadFromStore hydrates the in-memory deployment registry from persisted records.
@@ -412,20 +476,26 @@ func (m *Manager) loadFromStore() {
 		done := make(chan struct{})
 		close(done)
 		d := &Deployment{
-			ID:         p.View.ID,
-			Kind:       p.View.Kind,
-			State:      p.View.State,
-			Nodes:      p.View.Nodes,
-			CreatedAt:  p.View.CreatedAt,
-			FinishedAt: p.View.FinishedAt,
-			Error:      p.View.Error,
-			done:       done,
-			form:       p.View.Form,
-			lines:      p.Lines,
+			ID:          p.View.ID,
+			Kind:        p.View.Kind,
+			State:       p.View.State,
+			Nodes:       p.View.Nodes,
+			CreatedAt:   p.View.CreatedAt,
+			FinishedAt:  p.View.FinishedAt,
+			Error:       p.View.Error,
+			done:        done,
+			form:        p.View.Form,
+			retriedFrom: p.View.RetriedFrom,
+			lines:       p.Lines,
 		}
 		m.deployments[d.ID] = d
 	}
 	log.Printf("deploy store: loaded %d deployment(s)", len(records))
+	// Prune excess finished entries from the store on startup (applies the cap
+	// immediately when a lower MaxHistory is set after a crash/restart).
+	m.mu.Lock()
+	m.pruneCompleted()
+	m.mu.Unlock()
 }
 
 // persist saves the current snapshot of d to the store, logging on error.
@@ -462,14 +532,15 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 	}
 
 	d := &Deployment{
-		ID:        uuid.NewString(),
-		Kind:      spec.Label,
-		State:     StatePending,
-		CreatedAt: time.Now(),
-		done:      make(chan struct{}),
-		hv:        spec.HV,
-		spec:      spec,
-		form:      spec.Form,
+		ID:          uuid.NewString(),
+		Kind:        spec.Label,
+		State:       StatePending,
+		CreatedAt:   time.Now(),
+		done:        make(chan struct{}),
+		hv:          spec.HV,
+		spec:        spec,
+		form:        spec.Form,
+		retriedFrom: spec.RetriedFrom,
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {
@@ -495,6 +566,11 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 		d.FinishedAt = time.Now()
 		d.mu.Unlock()
 		m.persist(d) // final state + complete log
+		// Prune excess finished entries now that one more has finished.
+		// m.mu is NOT held here — pruneCompleted acquires it internally.
+		m.mu.Lock()
+		m.pruneCompleted()
+		m.mu.Unlock()
 		d.closeSubs()
 		close(d.done)
 	}()
@@ -614,7 +690,7 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node NodeDeploy, spec Spec) (hypervisor.VMRef, error) {
 	host := node.Name
 
-	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading"; ns.Progress = 0 })
+	d.setNode(i, func(ns *NodeStatus) { ns.Step = "uploading"; ns.Progress = 0; ns.IP = node.IP })
 	onProgress := d.uploadProgress(i, host)
 	var isoRef string
 	var err error
@@ -695,7 +771,7 @@ func (m *Manager) deployNode(ctx context.Context, d *Deployment, i int, node Nod
 			return zero, ctx.Err()
 		case <-time.After(bootWait):
 		}
-		keys := BootCommandKeys(node.Role, node.KSUrl, node.SingleDisk)
+		keys := BootCommandKeys(node.Role, node.KSUrl, ipKernelArg(node.IP, node.Gateway, node.Netmask, node.Name), node.SingleDisk)
 		if node.BootCommand != "" {
 			keys = BootCommandKeysFromText(node.BootCommand) // user-edited override
 		}
@@ -775,6 +851,7 @@ func (m *Manager) resolveNodeIPs(ctx context.Context, d *Deployment, spec Spec) 
 		case r := <-resultCh:
 			spec.Nodes[r.idx].IP = r.ip
 			d.AppendLine(fmt.Sprintf("[%s] guest IP resolved: %s", spec.Nodes[r.idx].Name, r.ip))
+			d.setNode(r.idx, func(ns *NodeStatus) { ns.IP = r.ip })
 			resolved++
 		case err := <-errCh:
 			return err
@@ -895,6 +972,7 @@ func (m *Manager) Retry(id string) (*Deployment, error) {
 	if spec.HV == nil || len(spec.Nodes) == 0 {
 		return nil, fmt.Errorf("deploy: deployment %q cannot be retried (no stored spec)", id)
 	}
+	spec.RetriedFrom = id
 	return m.Start(spec)
 }
 
@@ -932,6 +1010,7 @@ func (m *Manager) RetryWire(id string, wireTimeout time.Duration) (*Deployment, 
 	} else if spec.WireTimeout <= 0 {
 		spec.WireTimeout = DefaultWireTimeout
 	}
+	spec.RetriedFrom = id
 	return m.startWireOnly(spec)
 }
 
@@ -939,14 +1018,15 @@ func (m *Manager) RetryWire(id string, wireTimeout time.Duration) (*Deployment, 
 // its goroutine.
 func (m *Manager) startWireOnly(spec Spec) (*Deployment, error) {
 	d := &Deployment{
-		ID:        uuid.NewString(),
-		Kind:      spec.Label + " — wire retry",
-		State:     StatePending,
-		CreatedAt: time.Now(),
-		done:      make(chan struct{}),
-		hv:        spec.HV,
-		spec:      spec,
-		form:      spec.Form,
+		ID:          uuid.NewString(),
+		Kind:        spec.Label + " — wire retry",
+		State:       StatePending,
+		CreatedAt:   time.Now(),
+		done:        make(chan struct{}),
+		hv:          spec.HV,
+		spec:        spec,
+		form:        spec.Form,
+		retriedFrom: spec.RetriedFrom,
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {
@@ -972,6 +1052,11 @@ func (m *Manager) runWireOnly(d *Deployment, spec Spec) {
 		d.FinishedAt = time.Now()
 		d.mu.Unlock()
 		m.persist(d) // final state + complete log
+		// Prune excess finished entries now that one more has finished.
+		// m.mu is NOT held here — pruneCompleted acquires it internally.
+		m.mu.Lock()
+		m.pruneCompleted()
+		m.mu.Unlock()
 		d.closeSubs()
 		close(d.done)
 	}()
@@ -1051,6 +1136,33 @@ func (m *Manager) List() []View {
 		out[i] = d.View()
 	}
 	return out
+}
+
+// Delete removes a deployment record from the registry and the store without
+// touching any VMs. It returns an error if the deployment is not found or is
+// still running/pending (use Remove to destroy VMs first, or Cancel to stop it).
+func (m *Manager) Delete(id string) error {
+	m.mu.Lock()
+	d, ok := m.deployments[id]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("deploy: deployment %q not found", id)
+	}
+	d.mu.Lock()
+	st := d.State
+	d.mu.Unlock()
+	if st == StateRunning || st == StatePending {
+		m.mu.Unlock()
+		return fmt.Errorf("cannot delete a running deployment")
+	}
+	delete(m.deployments, id)
+	m.mu.Unlock()
+	if m.store != nil {
+		if err := m.store.Delete(id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Shutdown signals running deployments to cancel and waits (bounded by ctx).

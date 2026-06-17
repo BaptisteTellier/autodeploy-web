@@ -79,6 +79,7 @@
             wireS3       = !!(p.checks && p.checks.wire_s3);
             wireS3Compat = !!(p.checks && p.checks.wire_s3_compatible);
             if (p.text && p.text.wire_license) licenseFile = p.text.wire_license;
+            if (p.text && p.text.wire_s3_mount_node) s3MountNode = p.text.wire_s3_mount_node;
             wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
             $nextTick(function(){
               if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
@@ -89,9 +90,10 @@
             if(k && DEPLOY_CATALOG[k]) kind=k;
           }
         "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
+        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
                   get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
+                  get s3MountCandidates(){ return this.displayOrder.filter(idx => (this.roles[idx]||'').includes('Proxy') && this.summ(idx) && this.summ(idx).hostname).map(idx => ({ value: this.summ(idx).hostname, label: this.summ(idx).hostname })); },
                   extra: [],
                   baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
                   get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
@@ -110,10 +112,13 @@
                   diskMin(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
                   diskDefault(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
                   ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/media/output/'+this.sel[i]+'/'+o.cfg_file+'/content'; },
+                  ipArg(i){ const o=this.summ(i);
+                    if(!o || !o.network || o.network==='DHCP') return 'ip=dhcp';
+                    return 'ip='+o.network+'::'+(o.gateway||'')+':'+(o.netmask||'')+':'+(o.hostname||'')+'::none'; },
                   defaultBoot(i){ const vsa=(this.roles[i]||'').indexOf('VSA')===0;
                     const o=this.summ(i);
                     const sd=!vsa && o && o.single_disk;
-                    const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+(sd?' inst.vsingledisk':'')+' ip=dhcp quiet inst.assumeyes';
+                    const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+(sd?' inst.vsingledisk':'')+' '+this.ipArg(i)+' quiet inst.assumeyes';
                     return lx+'\ninitrdefi /images/pxeboot/initrd.img\nboot'; },
                   revealBoot(i){ if(!this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
                   refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
@@ -678,6 +683,15 @@
                 <label class="text-xs text-slate-600">{{t "deploy.wire_s3_immutable"}}
                   <input name="wire_s3_immutable_days" type="number" min="0" value="0"
                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-xs text-slate-600 sm:col-span-2">{{t "deploy.wire_s3_mount"}}
+                  <select name="wire_s3_mount_node" x-model="s3MountNode"
+                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <option value="">{{t "deploy.wire_s3_mount_none"}}</option>
+                    <template x-for="c in s3MountCandidates" :key="c.value">
+                      <option :value="c.value" x-text="c.label"></option>
+                    </template>
+                  </select>
                 </label>
               </div>
             </div>

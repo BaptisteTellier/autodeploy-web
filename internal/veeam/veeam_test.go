@@ -573,6 +573,145 @@ func TestAddS3RepositoryCompatible(t *testing.T) {
 	}
 }
 
+func TestAddS3RepositoryMountServerPresent(t *testing.T) {
+	// When MountServerID is set the body must contain a mountServer block with
+	// mountServerSettingsType=="Linux", the correct mountServerId, vPowerNFSEnabled==false,
+	// and writeCacheFolder defaulting to "/tmp" when MountWriteCache is empty.
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		body := decode(t, r)
+		ms, ok := body["mountServer"].(map[string]any)
+		if !ok || ms == nil {
+			t.Fatal("mountServer block missing from body")
+		}
+		if ms["mountServerSettingsType"] != "Linux" {
+			t.Errorf("mountServerSettingsType = %v, want Linux", ms["mountServerSettingsType"])
+		}
+		linux, _ := ms["linux"].(map[string]any)
+		if linux == nil {
+			t.Fatal("mountServer.linux sub-object missing")
+		}
+		if linux["mountServerId"] != "managed-uuid-1" {
+			t.Errorf("mountServerId = %v, want managed-uuid-1", linux["mountServerId"])
+		}
+		if linux["vPowerNFSEnabled"] != false {
+			t.Errorf("vPowerNFSEnabled = %v, want false", linux["vPowerNFSEnabled"])
+		}
+		if linux["writeCacheFolder"] != "/tmp" {
+			t.Errorf("writeCacheFolder = %v, want /tmp", linux["writeCacheFolder"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-s3-mount"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	sess, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "MountedRepo", Description: "with mount server",
+		CredentialsID: "cred-m", Compatible: false,
+		RegionID: "eu-west-1", Bucket: "b", Folder: "f",
+		MountServerID: "managed-uuid-1",
+		// MountWriteCache deliberately left empty — must default to "/tmp"
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (with mount server): %v", err)
+	}
+	if sess != "sess-s3-mount" {
+		t.Errorf("session = %q, want sess-s3-mount", sess)
+	}
+}
+
+func TestAddS3RepositoryMountServerCustomCache(t *testing.T) {
+	// When MountWriteCache is explicitly set it must be used verbatim.
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		ms, _ := body["mountServer"].(map[string]any)
+		if ms == nil {
+			t.Fatal("mountServer block missing")
+		}
+		linux, _ := ms["linux"].(map[string]any)
+		if linux == nil {
+			t.Fatal("mountServer.linux missing")
+		}
+		if linux["writeCacheFolder"] != "/mnt/cache" {
+			t.Errorf("writeCacheFolder = %v, want /mnt/cache", linux["writeCacheFolder"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-cache"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	_, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "CacheRepo", CredentialsID: "cred-c", Compatible: false,
+		RegionID: "us-west-2", Bucket: "b", Folder: "f",
+		MountServerID:   "managed-uuid-2",
+		MountWriteCache: "/mnt/cache",
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (custom cache): %v", err)
+	}
+}
+
+func TestAddS3RepositoryMountServerAbsentWhenEmpty(t *testing.T) {
+	// When MountServerID is "" the mountServer key must be absent from the body.
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		if _, ok := body["mountServer"]; ok {
+			t.Errorf("mountServer must be absent when MountServerID is empty, got %v", body["mountServer"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-no-mount"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	_, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "NoMountRepo", CredentialsID: "cred-n", Compatible: false,
+		RegionID: "ap-southeast-1", Bucket: "b", Folder: "f",
+		// MountServerID deliberately empty
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (no mount server): %v", err)
+	}
+}
+
+func TestAddS3RepositoryCompatibleMountServer(t *testing.T) {
+	// S3Compatible branch must also carry the mountServer block when set.
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		body := decode(t, r)
+		if body["type"] != "S3Compatible" {
+			t.Errorf("type = %v, want S3Compatible", body["type"])
+		}
+		ms, _ := body["mountServer"].(map[string]any)
+		if ms == nil {
+			t.Fatal("mountServer block missing from S3Compatible body")
+		}
+		if ms["mountServerSettingsType"] != "Linux" {
+			t.Errorf("mountServerSettingsType = %v, want Linux", ms["mountServerSettingsType"])
+		}
+		linux, _ := ms["linux"].(map[string]any)
+		if linux == nil {
+			t.Fatal("mountServer.linux missing")
+		}
+		if linux["mountServerId"] != "managed-compat-1" {
+			t.Errorf("mountServerId = %v, want managed-compat-1", linux["mountServerId"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-compat-mount"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	_, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "CompatMount", CredentialsID: "cred-cm", Compatible: true,
+		ServicePoint: "https://s3.lab.local", RegionID: "default",
+		Bucket: "b", Folder: "f",
+		MountServerID: "managed-compat-1",
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (S3Compatible with mount server): %v", err)
+	}
+}
+
 func TestSetSyslog(t *testing.T) {
 	mux := baseMux()
 	mux.HandleFunc("/api/v1/generalOptions/eventForwarding", func(w http.ResponseWriter, r *http.Request) {
