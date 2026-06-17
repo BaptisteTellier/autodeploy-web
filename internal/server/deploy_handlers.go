@@ -658,6 +658,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"wire_node_exporter_tls": r.FormValue("wire_node_exporter_tls") != "",
 		"wire_s3":                r.FormValue("wire_s3") != "",
 		"wire_s3_compatible":     r.FormValue("wire_s3_compatible") != "",
+		"wire_s3_overwrite":      r.FormValue("wire_s3_overwrite") != "",
 	}
 
 	nodeOutputs := make([]string, n)
@@ -866,6 +867,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 				SecretKey:       r.FormValue("wire_s3_secret_key"),
 				ImmutableDays:   atoiDefault(r.FormValue("wire_s3_immutable_days"), 0),
 				MountServerNode: strings.TrimSpace(r.FormValue("wire_s3_mount_node")),
+				OverwriteOwner:  r.FormValue("wire_s3_overwrite") != "",
 			}
 		}
 		wirer = wiring.New(wireCfg)

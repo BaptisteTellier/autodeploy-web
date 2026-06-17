@@ -63,6 +63,8 @@ type S3Config struct {
 	// applyAdvanced resolves its managed-server id and passes it to AddS3Repository.
 	// "" means let VBR choose automatically (existing behaviour).
 	MountServerNode string
+
+	OverwriteOwner bool // take over the bucket if already owned by another backup server
 }
 
 // Wirer registers a deployed topology into its VSA. It satisfies deploy.Wirer.
@@ -308,16 +310,17 @@ func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, nodes [
 		}
 
 		sess, err := client.AddS3Repository(ctx, veeam.S3RepoSpec{
-			Name:          s.Name,
-			Description:   "autodeploy object storage",
-			CredentialsID: credID,
-			Compatible:    s.Compatible,
-			ServicePoint:  s.ServicePoint,
-			RegionID:      s.Region,
-			Bucket:        s.Bucket,
-			Folder:        s.Folder,
-			ImmutableDays: s.ImmutableDays,
-			MountServerID: mountServerID,
+			Name:           s.Name,
+			Description:    "autodeploy object storage",
+			CredentialsID:  credID,
+			Compatible:     s.Compatible,
+			ServicePoint:   s.ServicePoint,
+			RegionID:       s.Region,
+			Bucket:         s.Bucket,
+			Folder:         s.Folder,
+			ImmutableDays:  s.ImmutableDays,
+			MountServerID:  mountServerID,
+			OverwriteOwner: s.OverwriteOwner,
 		})
 		if err != nil {
 			return fmt.Errorf("S3 repository: %w", err)

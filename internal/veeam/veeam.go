@@ -622,6 +622,8 @@ type S3RepoSpec struct {
 	// the Linux mount server instead of selecting one automatically.
 	MountServerID   string // managed-server UUID ("" = let VBR choose automatically)
 	MountWriteCache string // writeCacheFolder; defaults to "/tmp" when MountServerID is set but this is empty
+
+	OverwriteOwner bool // take over the bucket if already owned by another backup server (?overwriteOwner=true)
 }
 
 // AddS3Repository adds an Amazon S3 or S3-compatible object-storage repository
@@ -710,8 +712,12 @@ func (c *Client) AddS3Repository(ctx context.Context, spec S3RepoSpec) (string, 
 		}
 	}
 
+	path := "/api/v1/backupInfrastructure/repositories"
+	if spec.OverwriteOwner {
+		path += "?overwriteOwner=true"
+	}
 	var out idResponse
-	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/repositories", body, &out); err != nil {
+	if err := c.do(ctx, http.MethodPost, path, body, &out); err != nil {
 		return "", fmt.Errorf("veeam: AddS3Repository: %w", err)
 	}
 	return out.ID, nil

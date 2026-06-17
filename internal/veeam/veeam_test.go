@@ -675,6 +675,54 @@ func TestAddS3RepositoryMountServerAbsentWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestAddS3RepositoryOverwriteOwner(t *testing.T) {
+	// When OverwriteOwner is true the POST path must carry ?overwriteOwner=true;
+	// when false the query parameter must be absent. The mux ignores the query
+	// string, so both calls land on the same handler — we capture the raw query.
+	mux := baseMux()
+	var capturedQuery [2]string
+	call := 0
+	mux.HandleFunc("/api/v1/backupInfrastructure/repositories", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		capturedQuery[call] = r.URL.Query().Get("overwriteOwner")
+		call++
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-overwrite"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	// First call: OverwriteOwner true — query param must be "true".
+	_, err := c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "TakeOverRepo", Description: "overwrite test",
+		CredentialsID: "cred-ow", Compatible: true,
+		ServicePoint: "https://s3.lab.local", RegionID: "default",
+		Bucket: "taken-bucket", Folder: "vbr",
+		OverwriteOwner: true,
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (OverwriteOwner=true): %v", err)
+	}
+	if capturedQuery[0] != "true" {
+		t.Errorf("call 1: overwriteOwner query param = %q, want \"true\"", capturedQuery[0])
+	}
+
+	// Second call: OverwriteOwner false — query param must be absent ("").
+	_, err = c.AddS3Repository(context.Background(), S3RepoSpec{
+		Name: "NormalRepo", Description: "no overwrite",
+		CredentialsID: "cred-ow2", Compatible: true,
+		ServicePoint: "https://s3.lab.local", RegionID: "default",
+		Bucket: "normal-bucket", Folder: "vbr",
+		OverwriteOwner: false,
+	})
+	if err != nil {
+		t.Fatalf("AddS3Repository (OverwriteOwner=false): %v", err)
+	}
+	if capturedQuery[1] != "" {
+		t.Errorf("call 2: overwriteOwner query param = %q, want \"\" (absent)", capturedQuery[1])
+	}
+}
+
 func TestAddS3RepositoryCompatibleMountServer(t *testing.T) {
 	// S3Compatible branch must also carry the mountServer block when set.
 	mux := baseMux()
