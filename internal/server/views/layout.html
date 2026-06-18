@@ -44,6 +44,10 @@
            class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "deploy"}}bg-emerald-800 font-semibold{{end}}">
           {{t "nav.deploy"}}
         </a>
+        <a href="/craft-api"
+           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "craftapi"}}bg-emerald-800 font-semibold{{end}}">
+          🛠️ {{t "nav.craft"}}
+        </a>
         <a href="/admin"
            class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "admin"}}bg-emerald-800 font-semibold{{end}}"
            title="{{t "nav.settings"}}">

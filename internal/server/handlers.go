@@ -975,6 +975,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 			ns = "jobs"
 		case strings.HasPrefix(p, "/admin"):
 			ns = "admin"
+		case strings.HasPrefix(p, "/craft-api"):
+			ns = "craftapi"
 		}
 		m["NavSection"] = ns
 	}

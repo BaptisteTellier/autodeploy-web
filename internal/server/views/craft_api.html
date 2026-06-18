@@ -1,0 +1,505 @@
+{{define "views/craft_api.html"}}{{template "layout.html" .}}{{end}}
+
+{{define "content"}}
+<style>[x-cloak]{display:none}</style>
+<div class="max-w-3xl mx-auto space-y-6">
+
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800">🛠️ {{t "craft.title"}}</h1>
+    <p class="text-sm text-slate-500 mt-0.5">{{t "craft.subtitle"}}</p>
+  </div>
+
+  <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
+    {{t "craft.warning"}}
+  </div>
+
+  <script>
+    const CRAFT_CATALOG = {
+      {{range .Kinds}}"{{.Kind}}": [{{range .Roles}}{{jsonStr .}},{{end}}],{{end}}
+    };
+  </script>
+
+  <!-- Craft API templates — save / load / delete a named form snapshot -->
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs font-semibold uppercase text-slate-500">{{t "craft.tpl_load"}}</label>
+      <div class="flex gap-1">
+        <select id="craft_tpl_select"
+                class="border border-slate-300 rounded px-2 py-1 text-sm bg-white"
+                onchange="craftLoadTemplate(this.value)">
+          <option value="">{{t "craft.tpl_none"}}</option>
+          {{range .CraftPresets}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+        <button type="button" title="{{t "craft.tpl_delete"}}"
+                class="bg-red-100 text-red-700 hover:bg-red-200 rounded px-2 py-1 text-sm"
+                onclick="craftDeleteTemplate()">🗑</button>
+      </div>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold uppercase text-slate-500">{{t "craft.tpl_save"}}</label>
+      <div class="flex gap-1">
+        <input id="craft_tpl_name" type="text" placeholder="{{t "craft.tpl_name"}}"
+               class="border border-slate-300 rounded px-2 py-1 text-sm">
+        <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm"
+                onclick="craftSaveTemplate()">{{t "form.save"}}</button>
+      </div>
+    </div>
+    <p class="w-full text-xs text-slate-400">{{t "craft.secrets_note"}}</p>
+  </div>
+
+  <div id="craft-root"
+       x-data="{
+          kind: '',
+          extra: [],
+          advOpen: false,
+          licenseOpen: false,
+          wireNodeExp: false,
+          wireS3: false,
+          wireS3Compat: false,
+          wireS3Overwrite: false,
+          tab: 'ps',
+          result: null,
+          loading: false,
+          errMsg: '',
+          nodeHost: {},
+          nodeIp: {},
+          baseLen(){ return (CRAFT_CATALOG[this.kind]||[]).length; },
+          get roles(){ return [...(CRAFT_CATALOG[this.kind]||[]), ...this.extra]; },
+          groupRank(role){ if(!role) return 1; if(role.startsWith('VSA')) return 0; if(role.includes('HR')) return 2; return 1; },
+          get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
+          addVIA(role){ this.extra.push(role); },
+          removeNode(idx){ const b=this.baseLen(); if(idx<b) return; this.extra.splice(idx-b,1); },
+          get vsaCount(){ return this.roles.filter(r=>r.startsWith('VSA')).length; },
+          get proxyNodes(){
+            return this.displayOrder.map((idx,pos)=>({idx,pos}))
+              .filter(o=>(this.roles[o.idx]||'').includes('Proxy'))
+              .map(o=>({idx:o.idx, pos:o.pos}));
+          },
+          restoreFields(fields){
+            // Restore kind + extra nodes first, then fill inputs via $nextTick.
+            if(fields.kind && CRAFT_CATALOG[fields.kind]){
+              this.kind = fields.kind;
+              this.extra = [];
+              const base = (CRAFT_CATALOG[fields.kind]||[]).length;
+              for(let i=base; ; i++){
+                const role = fields['node_'+i+'_role'];
+                if(!role) break;
+                this.extra.push(role);
+              }
+            }
+            // Restore reactive nodeHost/nodeIp so the mount dropdown updates.
+            const newHost = {}, newIp = {};
+            Object.entries(fields).forEach(function([k,v]){
+              const mh = k.match(/^node_(\d+)_hostname$/);
+              if(mh) newHost[Number(mh[1])] = v || '';
+              const mi = k.match(/^node_(\d+)_ip$/);
+              if(mi) newIp[Number(mi[1])] = v || '';
+            });
+            this.nodeHost = newHost;
+            this.nodeIp   = newIp;
+            // Checkbox states.
+            this.advOpen        = !!(fields.license || fields.node_exporter || fields.syslog_server || fields.s3);
+            this.licenseOpen    = !!(fields.license);
+            this.wireNodeExp    = !!(fields.node_exporter);
+            this.wireS3         = !!(fields.s3);
+            this.wireS3Compat   = !!(fields.s3_compatible);
+            this.wireS3Overwrite= !!(fields.s3_overwrite);
+            this.$nextTick(function(){
+              const form = document.getElementById('craft-form');
+              if(!form) return;
+              // Restore all text/number/select inputs by name.
+              const skip = new Set(['password','s3_secret_key','node_exporter_pass']);
+              Object.entries(fields).forEach(function([k,v]){
+                if(skip.has(k)) return;
+                const el = form.querySelector('[name="'+k+'"]');
+                if(el && (el.tagName==='INPUT'||el.tagName==='SELECT'||el.tagName==='TEXTAREA')){
+                  if(el.type==='checkbox'){
+                    el.checked = !!v;
+                  } else {
+                    el.value = v;
+                  }
+                }
+              });
+            });
+          },
+          async generate(){
+            this.loading=true; this.errMsg=''; this.result=null;
+            try {
+              const fd = new FormData(document.getElementById('craft-form'));
+              const resp = await fetch('/craft-api/render', {method:'POST', body: fd});
+              const data = await resp.json();
+              if(data.error){ this.errMsg=data.error; } else { this.result=data; }
+            } catch(e){ this.errMsg=String(e); }
+            this.loading=false;
+          },
+          copy(){
+            const txt = this.tab==='ps' ? this.result.powershell : this.result.curl;
+            navigator.clipboard.writeText(txt).catch(()=>{});
+          },
+          download(){
+            const txt = this.tab==='ps' ? this.result.powershell : this.result.curl;
+            const name = this.tab==='ps' ? 'wire.ps1' : 'wire.sh';
+            const a=document.createElement('a');
+            a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(txt);
+            a.download=name; a.click();
+          }
+        }">
+
+  <form id="craft-form" class="space-y-6">
+
+    <!-- Topology preset picker -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+      <h2 class="font-semibold text-slate-800">{{t "craft.topology"}}</h2>
+      <select x-model="kind" @change="extra=[]"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        <option value="">{{t "craft.select_topology"}}</option>
+        {{range .Kinds}}<option value="{{.Kind}}">{{.Kind}}</option>{{end}}
+      </select>
+
+      <!-- Node cards -->
+      <div x-show="roles.length" x-cloak class="space-y-3">
+        <h3 class="text-sm font-medium text-slate-600">{{t "craft.nodes"}}</h3>
+        <template x-for="(idx, pos) in displayOrder" :key="idx">
+          <div>
+            <!-- Group header -->
+            <div x-show="pos===0 || groupRank(roles[displayOrder[pos-1]]) !== groupRank(roles[idx])"
+                 class="text-xs font-semibold uppercase tracking-wide text-slate-500 pt-2 pb-1 border-t border-slate-200 mt-2"
+                 x-text="roles[idx].startsWith('VSA') ? 'VSA' : (roles[idx].includes('HR') ? 'VIA — Hardened Repository' : 'VIA — Proxy')"></div>
+
+            <!-- Node card -->
+            <div class="border border-slate-200 rounded-lg p-4 space-y-3">
+              <!-- Hidden role input so it is submitted with the form -->
+              <input type="hidden" :name="'node_'+idx+'_role'" :value="roles[idx]">
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-semibold text-emerald-700" x-text="(pos+1)+'. '+roles[idx]"></div>
+                <div class="flex gap-1">
+                  <button type="button" x-show="(roles[idx]||'').includes('Proxy')" @click="addVIA(roles[idx])"
+                          title="{{t "craft.add_proxy"}}"
+                          class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold">＋ Proxy</button>
+                  <button type="button" x-show="(roles[idx]||'').includes('HR')" @click="addVIA(roles[idx])"
+                          title="{{t "craft.add_hr"}}"
+                          class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold">＋ HR</button>
+                  <button type="button" x-show="idx >= baseLen()" @click="removeNode(idx)"
+                          title="{{t "craft.remove_node"}}"
+                          class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-semibold">✕</button>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <label class="text-sm text-slate-600">{{t "craft.node_ip"}}
+                  <input :name="'node_'+idx+'_ip'" type="text" placeholder="192.168.1.10"
+                         x-model="nodeIp[idx]"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-sm text-slate-600">{{t "craft.node_hostname"}}
+                  <input :name="'node_'+idx+'_hostname'" type="text" placeholder="vsa-01"
+                         x-model="nodeHost[idx]"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+                <label class="text-sm text-slate-600" x-show="!roles[idx].startsWith('VSA')">{{t "craft.node_pairing"}}
+                  <input :name="'node_'+idx+'_pairing'" type="text" placeholder="000000" maxlength="6"
+                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </label>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Connection block -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+      <h2 class="font-semibold text-slate-800">{{t "craft.connection"}}</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="text-sm text-slate-600">{{t "craft.username"}}
+          <input name="username" type="text" value="veeamadmin"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "craft.password"}}
+          <input name="password" type="password" autocomplete="new-password"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "craft.api_version"}}
+          <input name="api_version" type="text" value="1.3-rev2"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "craft.repo_path"}}
+          <input name="repo_path" type="text" value="/var/lib/veeam/backups"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "craft.repo_immutable"}}
+          <input name="repo_immutable_days" type="number" min="0" value="7"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+      </div>
+    </div>
+
+    <!-- Advanced options panel -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+      <label class="flex items-center gap-2 text-sm font-semibold text-slate-800 cursor-pointer">
+        <input type="checkbox" x-model="advOpen" class="rounded border-slate-300">
+        {{t "craft.advanced"}}
+      </label>
+
+      <div x-show="advOpen" x-cloak class="space-y-5">
+
+        <!-- License -->
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="license" x-model="licenseOpen" class="rounded border-slate-300">
+            {{t "craft.license"}}
+          </label>
+          <div x-show="licenseOpen" x-cloak class="space-y-1 pl-6">
+            <label class="text-xs text-slate-600">{{t "craft.license_b64"}}
+              <textarea name="license_b64" rows="3" spellcheck="false"
+                        class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono bg-slate-50 focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
+            </label>
+            <p class="text-xs text-slate-400">{{t "craft.license_b64_hint"}}</p>
+          </div>
+        </div>
+
+        <!-- node_exporter -->
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="node_exporter" x-model="wireNodeExp" class="rounded border-slate-300">
+            {{t "deploy.wire_node_exporter"}}
+          </label>
+          <div x-show="wireNodeExp" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
+            <label class="flex items-center gap-2 text-xs text-slate-600 sm:col-span-2">
+              <input type="checkbox" name="node_exporter_tls" class="rounded border-slate-300">
+              {{t "deploy.wire_ne_tls"}}
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_ne_user"}}
+              <input name="node_exporter_user" autocomplete="off"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_ne_pass"}}
+              <input name="node_exporter_pass" type="password" autocomplete="new-password"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+          </div>
+        </div>
+
+        <!-- Syslog -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <label class="text-sm text-slate-600 sm:col-span-2">{{t "deploy.wire_syslog"}}
+            <input name="syslog_server" placeholder="syslog.lab.local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.wire_syslog_port"}}
+            <input name="syslog_port" type="number" value="514"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.wire_syslog_proto"}}
+            <select name="syslog_protocol"
+                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <option>Udp</option><option>Tcp</option><option>Tls</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- S3 -->
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="s3" x-model="wireS3" class="rounded border-slate-300">
+            {{t "deploy.wire_s3"}}
+          </label>
+          <div x-show="wireS3" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
+            <label class="flex items-center gap-2 text-xs text-slate-600 sm:col-span-2">
+              <input type="checkbox" name="s3_compatible" x-model="wireS3Compat" class="rounded border-slate-300">
+              {{t "deploy.wire_s3_compatible"}}
+            </label>
+            <label x-show="wireS3Compat" x-cloak class="text-xs text-slate-600 sm:col-span-2">{{t "deploy.wire_s3_endpoint"}}
+              <input name="s3_endpoint" placeholder="https://s3.lab.local"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_region"}}
+              <input name="s3_region" placeholder="us-east-1"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_name"}}
+              <input name="s3_name" placeholder="Object Storage"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_bucket"}}
+              <input name="s3_bucket"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_folder"}}
+              <input name="s3_folder" placeholder="backups"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_access"}}
+              <input name="s3_access_key" autocomplete="off"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_secret"}}
+              <input name="s3_secret_key" type="password" autocomplete="new-password"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-xs text-slate-600">{{t "deploy.wire_s3_immutable"}}
+              <input name="s3_immutable_days" type="number" min="0" value="0"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <!-- Mount server: list proxy nodes entered above by hostname -->
+            <label class="text-xs text-slate-600 sm:col-span-2">{{t "deploy.wire_s3_mount"}}
+              <select name="s3_mount_node"
+                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.wire_s3_mount_none"}}</option>
+                <template x-for="c in proxyNodes" :key="c.idx">
+                  <option :value="nodeHost[c.idx] || nodeIp[c.idx] || ''"
+                          x-text="nodeHost[c.idx] || nodeIp[c.idx] || ('Proxy '+(c.pos+1))"></option>
+                </template>
+              </select>
+            </label>
+            <label class="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+              <input type="checkbox" name="s3_overwrite" x-model="wireS3Overwrite" class="rounded border-slate-300">
+              {{t "deploy.wire_s3_overwrite"}}
+            </label>
+            <span x-show="wireS3Overwrite" x-cloak class="text-xs text-amber-600 sm:col-span-2">{{t "deploy.wire_s3_overwrite_hint"}}</span>
+          </div>
+        </div>
+
+        <!-- HA fields — shown when topology has >=2 VSA -->
+        <div x-show="vsaCount >= 2" x-cloak class="space-y-2">
+          <h3 class="text-sm font-semibold text-slate-700">{{t "craft.ha_section"}}</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label class="text-sm text-slate-600">{{t "craft.cluster_dns"}}
+              <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </label>
+            <label class="text-sm text-slate-600">{{t "craft.cluster_vip"}}
+              <input name="cluster_vip" placeholder="192.168.1.200"
+                     class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <span class="text-xs text-slate-400">{{t "deploy.cluster_endpoint_hint"}}</span>
+            </label>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Generate button -->
+    <div class="flex justify-end">
+      <button type="button" @click="generate()"
+              :disabled="loading"
+              class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+        <span x-show="!loading">{{t "craft.generate"}}</span>
+        <span x-show="loading" x-cloak>{{t "craft.generating"}}</span>
+      </button>
+    </div>
+
+  </form>
+
+  <!-- Result pane — sibling of the form inside the shared craft-root x-data scope -->
+  <div>
+    <template x-if="errMsg">
+      <div class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3"
+           x-text="errMsg"></div>
+    </template>
+
+    <template x-if="result">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+        <!-- Credentials warning -->
+        <div class="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2">
+          {{t "craft.creds_warning"}}
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="font-semibold text-slate-800">{{t "craft.output"}}</h2>
+          <div class="flex gap-2">
+            <button type="button"
+                    @click="tab='ps'"
+                    :class="tab==='ps' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
+                    class="px-3 py-1 rounded text-xs font-semibold transition-colors">
+              {{t "craft.tab_ps"}}
+            </button>
+            <button type="button"
+                    @click="tab='curl'"
+                    :class="tab==='curl' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
+                    class="px-3 py-1 rounded text-xs font-semibold transition-colors">
+              {{t "craft.tab_curl"}}
+            </button>
+            <button type="button"
+                    @click="copy()"
+                    class="px-3 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+              📋 {{t "craft.copy"}}
+            </button>
+            <button type="button"
+                    @click="download()"
+                    class="px-3 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+              ⬇️ {{t "craft.download"}}
+            </button>
+          </div>
+        </div>
+        <pre class="bg-slate-900 text-emerald-300 rounded-lg p-4 text-xs font-mono overflow-x-auto whitespace-pre max-h-[36rem] overflow-y-auto"
+             x-text="tab==='ps' ? result.powershell : result.curl"></pre>
+      </div>
+    </template>
+  </div>
+
+  </div>{{/* end #craft-root */}}
+
+  <script>
+  // --- Craft API template helpers ------------------------------------------
+  // These functions are called from the templates bar (plain onclick, outside
+  // Alpine scope). They talk to the /craft-api/presets endpoints and refresh
+  // the select or reload the form.
+
+  async function craftSaveTemplate() {
+    const nameEl = document.getElementById('craft_tpl_name');
+    const name = (nameEl ? nameEl.value : '').trim();
+    if (!name) { alert('{{t "craft.tpl_name_required"}}'); return; }
+    const form = document.getElementById('craft-form');
+    if (!form) return;
+    const fd = new FormData(form);
+    fd.set('name', name);
+    const res = await fetch('/craft-api/presets', { method: 'POST', body: fd });
+    if (res.ok) {
+      // Add to select if not already there, then select it.
+      const sel = document.getElementById('craft_tpl_select');
+      let opt = Array.from(sel.options).find(o => o.value === name);
+      if (!opt) {
+        opt = new Option(name, name);
+        sel.add(opt);
+        Array.from(sel.options).sort((a,b)=>a.value.localeCompare(b.value)).forEach((o,i)=>sel.options[i]=o);
+      }
+      sel.value = name;
+      if (nameEl) nameEl.value = name;
+    } else {
+      alert('Save failed: ' + (await res.text()));
+    }
+  }
+
+  async function craftLoadTemplate(name) {
+    if (!name) return;
+    const res = await fetch('/craft-api/presets/' + encodeURIComponent(name));
+    if (!res.ok) { alert('Load failed: ' + (await res.text())); return; }
+    const fields = await res.json();
+    // Delegate to Alpine's restoreFields method.
+    const root = document.getElementById('craft-root');
+    const alpine = root && (root._x_dataStack && root._x_dataStack[0] || (window.Alpine && Alpine.$data && Alpine.$data(root)));
+    if (alpine && typeof alpine.restoreFields === 'function') {
+      alpine.restoreFields(fields);
+    }
+    // Populate the template name input for easy re-save.
+    const nameEl = document.getElementById('craft_tpl_name');
+    if (nameEl) nameEl.value = name;
+  }
+
+  async function craftDeleteTemplate() {
+    const sel = document.getElementById('craft_tpl_select');
+    const name = sel ? sel.value : '';
+    if (!name) { alert('Select a template to delete first.'); return; }
+    if (!confirm('Delete template "' + name + '"?')) return;
+    const res = await fetch('/craft-api/presets/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (res.ok) {
+      const opt = Array.from(sel.options).find(o => o.value === name);
+      if (opt) sel.removeChild(opt);
+      sel.value = '';
+    } else {
+      alert('Delete failed: ' + (await res.text()));
+    }
+  }
+  </script>
+
+</div>
+{{end}}

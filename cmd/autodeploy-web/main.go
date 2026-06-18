@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
+	"github.com/BaptisteTellier/autodeploy-web/internal/craftapi"
 	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 	"github.com/BaptisteTellier/autodeploy-web/internal/job"
 	"github.com/BaptisteTellier/autodeploy-web/internal/server"
@@ -82,6 +83,7 @@ func main() {
 	deployMgr := deploy.NewManager(deployStore)
 	deployMgr.SetKeepCompleted(settings.MaxHistory)
 	deployPresets := deploy.NewPresetStore(filepath.Join(dataDir, "deploy-presets"))
+	craftPresets := craftapi.NewPresetStore(filepath.Join(dataDir, "craft-presets"))
 
 	srv := server.New(server.Deps{
 		Version:       version,
@@ -94,6 +96,7 @@ func main() {
 		JobManager:    mgr,
 		DeployManager: deployMgr,
 		DeployPresets: deployPresets,
+		CraftPresets:  craftPresets,
 	})
 
 	httpSrv := &http.Server{

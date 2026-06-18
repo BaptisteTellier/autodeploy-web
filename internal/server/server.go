@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/config"
+	"github.com/BaptisteTellier/autodeploy-web/internal/craftapi"
 	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 	"github.com/BaptisteTellier/autodeploy-web/internal/job"
 )
@@ -22,6 +23,7 @@ type Deps struct {
 	JobManager    *job.Manager
 	DeployManager *deploy.Manager
 	DeployPresets *deploy.PresetStore
+	CraftPresets  *craftapi.PresetStore
 }
 
 type Server struct {
@@ -54,6 +56,16 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /lang/{code}", s.handleSetLang)
 	mux.HandleFunc("GET /wizard", s.handleWizard)
 	mux.HandleFunc("GET /mode/{mode}", s.handleSetMode)
+
+	// Craft API = render-only REST call sequence generator.
+	mux.HandleFunc("GET /craft-api", s.handleCraftAPI)
+	mux.HandleFunc("POST /craft-api/render", s.handleCraftAPIRender)
+
+	// Craft API templates (saved form snapshots — secrets excluded).
+	mux.HandleFunc("GET /craft-api/presets", s.handleListCraftPresets)
+	mux.HandleFunc("POST /craft-api/presets", s.handleSaveCraftPreset)
+	mux.HandleFunc("GET /craft-api/presets/{name}", s.handleLoadCraftPreset)
+	mux.HandleFunc("DELETE /craft-api/presets/{name}", s.handleDeleteCraftPreset)
 
 	// Deploy = orchestrate a multi-VM Veeam topology onto a hypervisor.
 	mux.HandleFunc("GET /deploy", s.handleDeployPage)
