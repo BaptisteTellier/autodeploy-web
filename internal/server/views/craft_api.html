@@ -111,7 +111,7 @@
               const skip = new Set(['password','s3_secret_key','node_exporter_pass']);
               Object.entries(fields).forEach(function([k,v]){
                 if(skip.has(k)) return;
-                const el = form.querySelector('[name="'+k+'"]');
+                const el = form.querySelector('[name='+JSON.stringify(k)+']');
                 if(el && (el.tagName==='INPUT'||el.tagName==='SELECT'||el.tagName==='TEXTAREA')){
                   if(el.type==='checkbox'){
                     el.checked = !!v;
