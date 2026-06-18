@@ -37,8 +37,8 @@ async function deleteDeployment(id) {
           {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
         ">{{.State}}</span>
       </td>
-      <td class="text-xs" data-sort-value="{{if not .StartedAt.IsZero}}{{.StartedAt.Unix}}{{else}}0{{end}}">{{if not .StartedAt.IsZero}}{{.StartedAt.Format "15:04:05"}}{{end}}</td>
-      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .StartedAt.IsZero}}{{.StartedAt.Unix}}{{else}}0{{end}}">{{if not .StartedAt.IsZero}}{{.StartedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
       <td class="text-xs font-mono">{{.ExitCode}}</td>
       <td class="text-right">
         <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
@@ -85,8 +85,8 @@ async function deleteDeployment(id) {
           {{if or (eq (printf "%s" .State) "canceled") (eq (printf "%s" .State) "removed")}}bg-slate-200 text-slate-700{{end}}
         ">{{.State}}</span>
       </td>
-      <td class="text-xs" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{if not .CreatedAt.IsZero}}{{.CreatedAt.Format "15:04:05"}}{{end}}</td>
-      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{if not .CreatedAt.IsZero}}{{.CreatedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
+      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
       <td class="text-right">
         <a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
         {{$dst := printf "%s" .State}}

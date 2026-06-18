@@ -982,6 +982,32 @@ func TestNewS3CompatibleFolder(t *testing.T) {
 	}
 }
 
+func TestUpdateHostComponents(t *testing.T) {
+	mux := baseMux()
+	var gotIDs []any
+	mux.HandleFunc("/api/v1/backupInfrastructure/managedServers/updateComponents", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		body := decode(t, r)
+		ids, _ := body["ids"].([]any)
+		gotIDs = ids
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-x"})
+	})
+	c, _ := newTestClient(t, mux)
+
+	sess, err := c.UpdateHostComponents(context.Background(), []string{"host-uuid-1"})
+	if err != nil {
+		t.Fatalf("UpdateHostComponents: %v", err)
+	}
+	if sess != "sess-x" {
+		t.Errorf("session = %q, want sess-x", sess)
+	}
+	if len(gotIDs) != 1 || gotIDs[0] != "host-uuid-1" {
+		t.Errorf("request body ids = %v, want [host-uuid-1]", gotIDs)
+	}
+}
+
 // TestClientConcurrentReauth fires many goroutines that all hit a protected
 // endpoint simultaneously. The mock server returns 401 for any bearer token it
 // has seen before (simulating expiry), then 200 on subsequent calls with the

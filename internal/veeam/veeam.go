@@ -432,6 +432,18 @@ func (c *Client) DeleteBackup(ctx context.Context, backupID string) (string, err
 	return out.ID, nil
 }
 
+// UpdateHostComponents triggers a components update for the given managed-server
+// ids (POST /api/v1/backupInfrastructure/managedServers/updateComponents) and
+// returns the async session id to wait on. A freshly added host can report
+// "pending components update" until this completes.
+func (c *Client) UpdateHostComponents(ctx context.Context, ids []string) (string, error) {
+	var out idResponse
+	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/managedServers/updateComponents", map[string]any{"ids": ids}, &out); err != nil {
+		return "", fmt.Errorf("veeam: UpdateHostComponents: %w", err)
+	}
+	return out.ID, nil
+}
+
 // AddHardenedRepository adds a LinuxHardened repository on hostID with optional
 // XFS fast clone and immutability. Returns the async session id.
 func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, description string, xfsFastClone bool, immutabilityDays int) (string, error) {

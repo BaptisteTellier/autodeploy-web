@@ -23,8 +23,9 @@ import (
 const DefaultPairingCode = "000000"
 
 const (
-	maxS3Attempts = 5 // ~3 min ceiling for the object-storage subsystem to come up
-	s3RetryDelay  = 45 * time.Second
+	maxS3Attempts        = 5 // ~3 min ceiling for the object-storage subsystem to come up
+	s3RetryDelay         = 45 * time.Second
+	maxComponentAttempts = 3
 )
 
 // Config controls how the wiring connects to the VSA and shapes the topology.
@@ -252,13 +253,14 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 				}
 				if id == "" {
 					log(fmt.Sprintf("creating hardened repository on %s…", n.IP))
-					rs, err := client.AddHardenedRepository(fanCtx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
-					if err != nil {
+					if err := w.createWithComponents(fanCtx, client, hostID, "HR "+n.IP, log, func() error {
+						rs, e := client.AddHardenedRepository(fanCtx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
+						if e != nil {
+							return e
+						}
+						return client.WaitSession(fanCtx, rs, 10*time.Second, w.cfg.SessionTimeout)
+					}); err != nil {
 						fail(fmt.Errorf("add hardened repo %s: %w", n.IP, err))
-						return
-					}
-					if err := client.WaitSession(fanCtx, rs, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-						fail(fmt.Errorf("hardened repo %s: %w", n.IP, err))
 						return
 					}
 					if id, err = client.FindRepositoryByName(fanCtx, repoName); err != nil {
@@ -273,13 +275,14 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 				mu.Unlock()
 			case isProxy(n.Role):
 				log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
-				ps, err := client.AddVmwareProxy(fanCtx, hostID, 4)
-				if err != nil {
+				if err := w.createWithComponents(fanCtx, client, hostID, "proxy "+n.IP, log, func() error {
+					ps, e := client.AddVmwareProxy(fanCtx, hostID, 4)
+					if e != nil {
+						return e
+					}
+					return client.WaitSession(fanCtx, ps, 10*time.Second, w.cfg.SessionTimeout)
+				}); err != nil {
 					fail(fmt.Errorf("add proxy %s: %w", n.IP, err))
-					return
-				}
-				if err := client.WaitSession(fanCtx, ps, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-					fail(fmt.Errorf("proxy %s: %w", n.IP, err))
 					return
 				}
 			}
@@ -325,6 +328,25 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		return err
 	}
 	return nil
+}
+
+// createWithComponents runs create (a repo/proxy creation that uses the host as
+// a mount server). A freshly added host may still be updating its components
+// ("the host is pending components update"); on that error it triggers a
+// component update for the host, waits, and retries — up to maxComponentAttempts.
+func (w *Wirer) createWithComponents(ctx context.Context, client *veeam.Client, hostID, label string, log func(string), create func() error) error {
+	err := create()
+	for attempt := 1; attempt < maxComponentAttempts && err != nil && strings.Contains(err.Error(), "pending components update"); attempt++ {
+		log(fmt.Sprintf("%s: host components are updating — updating and retrying (%d/%d)…", label, attempt, maxComponentAttempts-1))
+		sess, uerr := client.UpdateHostComponents(ctx, []string{hostID})
+		if uerr != nil {
+			log(fmt.Sprintf("%s: trigger component update: %v", label, uerr))
+		} else if werr := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); werr != nil {
+			log(fmt.Sprintf("%s: component update session: %v", label, werr))
+		}
+		err = create()
+	}
+	return err
 }
 
 // s3Transient reports whether an S3 wiring error is the transient "object-storage
