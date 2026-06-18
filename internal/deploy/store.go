@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // register the "sqlite" driver
@@ -40,9 +41,10 @@ func OpenStore(path string) (*Store, error) {
 	return s, nil
 }
 
-// migrate creates the deployments table if it does not yet exist.
+// migrate creates the deployments table if it does not yet exist and additively
+// back-fills columns introduced after the initial schema.
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS deployments (
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS deployments (
 		id           TEXT    PRIMARY KEY,
 		kind         TEXT    NOT NULL,
 		state        TEXT    NOT NULL,
@@ -54,8 +56,24 @@ func (s *Store) migrate() error {
 		form_json    TEXT    NOT NULL,
 		log_json     TEXT    NOT NULL,
 		retried_from TEXT    NOT NULL DEFAULT ''
-	)`)
-	return err
+	)`); err != nil {
+		return err
+	}
+	// Additive migrations for databases created by older versions: CREATE TABLE
+	// IF NOT EXISTS leaves an existing table untouched, so a column added after
+	// the initial schema (e.g. retried_from, shipped in 2b1020d without it) must
+	// be back-filled with ALTER TABLE — otherwise every Save/LoadAll fails with
+	// "no such column" and deployments silently stop persisting. Re-running an
+	// ADD COLUMN that already exists errors with "duplicate column name", which
+	// we ignore so migrate stays idempotent.
+	for _, alter := range []string{
+		`ALTER TABLE deployments ADD COLUMN retried_from TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := s.db.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("deploy store migrate: %w", err)
+		}
+	}
+	return nil
 }
 
 // Close closes the underlying database connection.

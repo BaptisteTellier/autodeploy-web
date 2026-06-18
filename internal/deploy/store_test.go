@@ -1,6 +1,8 @@
 package deploy
 
 import (
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,6 +17,67 @@ func newTestDeployStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+// TestDeployStoreMigratesOldSchema reproduces the regression where a database
+// created by 2b1020d (deployments table WITHOUT retried_from) caused every
+// Save/LoadAll to fail with "no such column" after upgrading — so deployments
+// silently stopped persisting and were lost on every container redeploy.
+// OpenStore must ALTER the legacy table and restore both load and save.
+func TestDeployStoreMigratesOldSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "deployments.db")
+
+	// Create the pre-retried_from schema and a legacy row, exactly as the old version left it.
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", path)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE deployments (
+		id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL,
+		created_at INTEGER NOT NULL, finished_at INTEGER NOT NULL, error TEXT NOT NULL,
+		has_wirer INTEGER NOT NULL, nodes_json TEXT NOT NULL, form_json TEXT NOT NULL, log_json TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create legacy table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO deployments
+		(id,kind,state,created_at,finished_at,error,has_wirer,nodes_json,form_json,log_json)
+		VALUES ('old-1','vsa','done',1,2,'',0,'[]','{}','[]')`); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+	_ = db.Close()
+
+	// OpenStore must migrate (add retried_from), so the legacy row loads…
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore on legacy db: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	all, err := s.LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll after migrate: %v", err)
+	}
+	if len(all) != 1 || all[0].View.ID != "old-1" {
+		t.Fatalf("legacy row not loaded: %+v", all)
+	}
+	if all[0].View.RetriedFrom != "" {
+		t.Errorf("RetriedFrom should default to empty, got %q", all[0].View.RetriedFrom)
+	}
+
+	// …and new Saves persist (this was the failing path that lost deployments).
+	if err := s.Save(PersistedDeployment{View: View{
+		ID: "new-1", Kind: "vsa", State: StateDone, CreatedAt: time.Unix(0, 3), RetriedFrom: "old-1",
+	}}); err != nil {
+		t.Fatalf("Save after migrate: %v", err)
+	}
+	all2, err := s.LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll after save: %v", err)
+	}
+	if len(all2) != 2 {
+		t.Fatalf("want 2 records after save, got %d", len(all2))
+	}
 }
 
 func TestDeployStoreRoundTrip(t *testing.T) {
