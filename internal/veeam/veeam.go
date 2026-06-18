@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,9 +39,18 @@ type Config struct {
 
 // Client talks to one VBR REST endpoint.
 type Client struct {
-	cfg   Config
-	http  *http.Client
-	token string
+	cfg      Config
+	http     *http.Client
+	token    string
+	tokenMu  sync.RWMutex
+	reauthMu sync.Mutex
+}
+
+// currentToken returns the current bearer token with a read lock.
+func (c *Client) currentToken() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
 }
 
 // New builds a client. No network call happens until Authenticate. If
@@ -93,7 +103,9 @@ func (c *Client) Authenticate(ctx context.Context) error {
 	if out.AccessToken == "" {
 		return fmt.Errorf("veeam: empty access_token")
 	}
+	c.tokenMu.Lock()
 	c.token = out.AccessToken
+	c.tokenMu.Unlock()
 	return nil
 }
 
@@ -125,8 +137,9 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body, out any,
 	if err != nil {
 		return err
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	tok := c.currentToken()
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	if c.cfg.APIVersion != "" {
 		req.Header.Set("x-api-version", c.cfg.APIVersion)
@@ -143,7 +156,7 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body, out any,
 	if resp.StatusCode == http.StatusUnauthorized && allowReauth && c.cfg.Username != "" {
 		// Drain and discard the 401 body before re-authenticating.
 		_, _ = io.Copy(io.Discard, resp.Body)
-		if err := c.Authenticate(ctx); err != nil {
+		if err := c.reauthenticate(ctx, tok); err != nil {
 			return fmt.Errorf("veeam: re-authenticate after 401: %w", err)
 		}
 		return c.doOnce(ctx, method, path, body, out, false)
@@ -156,6 +169,20 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body, out any,
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+// reauthenticate coalesces concurrent re-auth attempts: if another goroutine
+// already refreshed the token (currentToken != staleToken), it returns
+// immediately. Otherwise it acquires the reauth mutex and calls Authenticate.
+// Authenticate must NOT hold tokenMu during the HTTP POST — only during the
+// field write — to prevent deadlock.
+func (c *Client) reauthenticate(ctx context.Context, staleToken string) error {
+	c.reauthMu.Lock()
+	defer c.reauthMu.Unlock()
+	if c.currentToken() != staleToken {
+		return nil // another goroutine already refreshed
+	}
+	return c.Authenticate(ctx)
 }
 
 func apiError(method, path string, resp *http.Response) error {

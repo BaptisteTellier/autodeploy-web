@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
@@ -20,6 +21,11 @@ import (
 // DefaultPairingCode is the appliance handshake code accepted for ~1h after a
 // VIA boots (the autodeploy default).
 const DefaultPairingCode = "000000"
+
+const (
+	maxS3Attempts = 5 // ~3 min ceiling for the object-storage subsystem to come up
+	s3RetryDelay  = 45 * time.Second
+)
 
 // Config controls how the wiring connects to the VSA and shapes the topology.
 type Config struct {
@@ -148,72 +154,150 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	// network (its unattended install must be finished before pairing works).
 	// Operations are idempotent (find-before-add), mirroring the reference, so
 	// the wiring can be safely re-run after a partial failure.
-	var hardenedRepoID string
+	// Per-node work is independent so we fan out up to maxParallelWiring at once.
+
+	// Part 2: precompute HR name counts to disambiguate colliding hostnames.
+	hrNameCount := map[string]int{}
 	for _, n := range vias {
-		if n.IP == "" {
-			return fmt.Errorf("node %q (%s) has no IP", n.Name, n.Role)
+		if isHR(n.Role) {
+			hrNameCount[n.Name]++
 		}
-		log(fmt.Sprintf("waiting for %s (%s) to come up…", n.IP, n.Role))
-		if err := waitNodeUp(ctx, n.IP, log); err != nil {
-			return fmt.Errorf("node %s not reachable: %w", n.IP, err)
-		}
+	}
 
-		hostID, err := client.FindManagedServerByName(ctx, n.IP)
-		if err != nil {
-			return fmt.Errorf("lookup managed server %s: %w", n.IP, err)
-		}
-		if hostID == "" {
-			log(fmt.Sprintf("adding Linux host %s (%s)…", n.IP, n.Role))
-			sess, err := client.AddLinuxHost(ctx, n.IP, n.Role, pairing(n), "")
-			if err != nil {
-				return fmt.Errorf("add host %s: %w", n.IP, err)
-			}
-			if err := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-				return fmt.Errorf("add host %s: %w", n.IP, err)
-			}
-			if hostID, err = client.FindManagedServerByName(ctx, n.IP); err != nil || hostID == "" {
-				return fmt.Errorf("resolve managed server %s: %v", n.IP, err)
-			}
-		} else {
-			log(fmt.Sprintf("Linux host %s already registered — skipping.", n.IP))
-		}
+	const maxParallelWiring = 4
 
-		switch {
-		case isHR(n.Role):
-			repoName := "HR-" + n.Name
-			id, err := client.FindRepositoryByName(ctx, repoName)
-			if err != nil {
-				return fmt.Errorf("lookup repo %s: %w", repoName, err)
+	type hrResult struct {
+		idx int
+		id  string
+	}
+	var (
+		wg        sync.WaitGroup
+		sem       = make(chan struct{}, maxParallelWiring)
+		mu        sync.Mutex
+		firstErr  error
+		hrResults []hrResult
+	)
+	fanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	fail := func(err error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+		mu.Unlock()
+	}
+
+	for i, n := range vias {
+		i, n := i, n
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-fanCtx.Done():
+				return
 			}
-			if id == "" {
-				log(fmt.Sprintf("creating hardened repository on %s…", n.IP))
-				rs, err := client.AddHardenedRepository(ctx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
+			defer func() { <-sem }()
+			if fanCtx.Err() != nil {
+				return
+			}
+
+			if n.IP == "" {
+				fail(fmt.Errorf("node %q (%s) has no IP", n.Name, n.Role))
+				return
+			}
+			log(fmt.Sprintf("waiting for %s (%s) to come up…", n.IP, n.Role))
+			if err := waitNodeUp(fanCtx, n.IP, log); err != nil {
+				fail(fmt.Errorf("node %s not reachable: %w", n.IP, err))
+				return
+			}
+
+			hostID, err := client.FindManagedServerByName(fanCtx, n.IP)
+			if err != nil {
+				fail(fmt.Errorf("lookup managed server %s: %w", n.IP, err))
+				return
+			}
+			if hostID == "" {
+				log(fmt.Sprintf("adding Linux host %s (%s)…", n.IP, n.Role))
+				sess, err := client.AddLinuxHost(fanCtx, n.IP, n.Role, pairing(n), "")
 				if err != nil {
-					return fmt.Errorf("add hardened repo %s: %w", n.IP, err)
+					fail(fmt.Errorf("add host %s: %w", n.IP, err))
+					return
 				}
-				if err := client.WaitSession(ctx, rs, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-					return fmt.Errorf("hardened repo %s: %w", n.IP, err)
+				if err := client.WaitSession(fanCtx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+					fail(fmt.Errorf("add host %s: %w", n.IP, err))
+					return
 				}
-				if id, err = client.FindRepositoryByName(ctx, repoName); err != nil {
-					return fmt.Errorf("resolve repo %s: %w", repoName, err)
+				if hostID, err = client.FindManagedServerByName(fanCtx, n.IP); err != nil || hostID == "" {
+					fail(fmt.Errorf("resolve managed server %s: %v", n.IP, err))
+					return
 				}
 			} else {
-				log(fmt.Sprintf("hardened repository %q already exists — skipping.", repoName))
+				log(fmt.Sprintf("Linux host %s already registered — skipping.", n.IP))
 			}
-			// First hardened repo in the topology becomes the HA config-backup
-			// target (keep the first, ignore any later ones).
-			if hardenedRepoID == "" {
-				hardenedRepoID = id
+
+			switch {
+			case isHR(n.Role):
+				// Part 2: append -IP suffix when multiple HR nodes share a hostname
+				// so each gets a unique repo name; idempotent for re-runs.
+				repoName := "HR-" + n.Name
+				if hrNameCount[n.Name] > 1 {
+					repoName += "-" + n.IP
+				}
+				id, err := client.FindRepositoryByName(fanCtx, repoName)
+				if err != nil {
+					fail(fmt.Errorf("lookup repo %s: %w", repoName, err))
+					return
+				}
+				if id == "" {
+					log(fmt.Sprintf("creating hardened repository on %s…", n.IP))
+					rs, err := client.AddHardenedRepository(fanCtx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
+					if err != nil {
+						fail(fmt.Errorf("add hardened repo %s: %w", n.IP, err))
+						return
+					}
+					if err := client.WaitSession(fanCtx, rs, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+						fail(fmt.Errorf("hardened repo %s: %w", n.IP, err))
+						return
+					}
+					if id, err = client.FindRepositoryByName(fanCtx, repoName); err != nil {
+						fail(fmt.Errorf("resolve repo %s: %w", repoName, err))
+						return
+					}
+				} else {
+					log(fmt.Sprintf("hardened repository %q already exists — skipping.", repoName))
+				}
+				mu.Lock()
+				hrResults = append(hrResults, hrResult{i, id})
+				mu.Unlock()
+			case isProxy(n.Role):
+				log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
+				ps, err := client.AddVmwareProxy(fanCtx, hostID, 4)
+				if err != nil {
+					fail(fmt.Errorf("add proxy %s: %w", n.IP, err))
+					return
+				}
+				if err := client.WaitSession(fanCtx, ps, 10*time.Second, w.cfg.SessionTimeout); err != nil {
+					fail(fmt.Errorf("proxy %s: %w", n.IP, err))
+					return
+				}
 			}
-		case isProxy(n.Role):
-			log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
-			ps, err := client.AddVmwareProxy(ctx, hostID, 4)
-			if err != nil {
-				return fmt.Errorf("add proxy %s: %w", n.IP, err)
-			}
-			if err := client.WaitSession(ctx, ps, 10*time.Second, w.cfg.SessionTimeout); err != nil {
-				return fmt.Errorf("proxy %s: %w", n.IP, err)
-			}
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+
+	// Pick the lowest-index HR as the HA config-backup target (preserves the
+	// original "first in topology" behaviour regardless of goroutine scheduling).
+	var hardenedRepoID string
+	best := -1
+	for _, r := range hrResults {
+		if best == -1 || r.idx < best {
+			best = r.idx
+			hardenedRepoID = r.id
 		}
 	}
 
@@ -241,6 +325,39 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		return err
 	}
 	return nil
+}
+
+// s3Transient reports whether an S3 wiring error is the transient "object-storage
+// subsystem not ready yet" failure seen right after a fresh VSA deploy.
+func s3Transient(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "establish connection") ||
+		strings.Contains(s, "Failed to load S3 configuration") ||
+		strings.Contains(s, "HTTP 500")
+}
+
+// retryS3 runs fn, retrying while it returns a transient S3 connection error
+// (the object-storage subsystem can take a minute or two to become reachable on
+// a freshly deployed VSA). Non-transient errors return immediately.
+func retryS3(ctx context.Context, log func(string), op string, fn func() error) error {
+	var err error
+	for attempt := 1; attempt <= maxS3Attempts; attempt++ {
+		if err = fn(); err == nil || !s3Transient(err) {
+			return err
+		}
+		if attempt < maxS3Attempts {
+			log(fmt.Sprintf("S3: %s not ready yet (attempt %d/%d): %v — retrying in %s…", op, attempt, maxS3Attempts, err, s3RetryDelay))
+			select {
+			case <-time.After(s3RetryDelay):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return err
 }
 
 // applyAdvanced applies the optional post-wiring settings on the primary VSA:
@@ -302,28 +419,35 @@ func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, nodes [
 		// browse/exists pre-check is needed. Any error is non-fatal: AddS3Repository
 		// will fail clearly afterwards if the folder truly can't be opened.
 		if s.Compatible && s.Folder != "" {
-			if err := client.NewS3CompatibleFolder(ctx, credID, s.ServicePoint, s.Region, s.Bucket, s.Folder); err != nil {
+			if err := retryS3(ctx, log, "create folder", func() error {
+				return client.NewS3CompatibleFolder(ctx, credID, s.ServicePoint, s.Region, s.Bucket, s.Folder)
+			}); err != nil {
 				log(fmt.Sprintf("S3: ensure folder %q: %v (continuing)", s.Folder, err))
 			} else {
 				log(fmt.Sprintf("S3: folder %q ready in bucket %s", s.Folder, s.Bucket))
 			}
 		}
 
-		sess, err := client.AddS3Repository(ctx, veeam.S3RepoSpec{
-			Name:           s.Name,
-			Description:    "autodeploy object storage",
-			CredentialsID:  credID,
-			Compatible:     s.Compatible,
-			ServicePoint:   s.ServicePoint,
-			RegionID:       s.Region,
-			Bucket:         s.Bucket,
-			Folder:         s.Folder,
-			ImmutableDays:  s.ImmutableDays,
-			MountServerID:  mountServerID,
-			OverwriteOwner: s.OverwriteOwner,
+		var sess string
+		rerr := retryS3(ctx, log, "create repository", func() error {
+			var e error
+			sess, e = client.AddS3Repository(ctx, veeam.S3RepoSpec{
+				Name:           s.Name,
+				Description:    "autodeploy object storage",
+				CredentialsID:  credID,
+				Compatible:     s.Compatible,
+				ServicePoint:   s.ServicePoint,
+				RegionID:       s.Region,
+				Bucket:         s.Bucket,
+				Folder:         s.Folder,
+				ImmutableDays:  s.ImmutableDays,
+				MountServerID:  mountServerID,
+				OverwriteOwner: s.OverwriteOwner,
+			})
+			return e
 		})
-		if err != nil {
-			return fmt.Errorf("S3 repository: %w", err)
+		if rerr != nil {
+			return fmt.Errorf("S3 repository: %w", rerr)
 		}
 		if err := client.WaitSession(ctx, sess, 10*time.Second, w.cfg.SessionTimeout); err != nil {
 			return fmt.Errorf("S3 repository: %w", err)

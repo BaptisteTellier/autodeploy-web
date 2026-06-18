@@ -6,10 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -976,6 +979,93 @@ func TestNewS3CompatibleFolder(t *testing.T) {
 		if gotBody[k] != want {
 			t.Errorf("body[%q] = %v, want %v", k, gotBody[k], want)
 		}
+	}
+}
+
+// TestClientConcurrentReauth fires many goroutines that all hit a protected
+// endpoint simultaneously. The mock server returns 401 for any bearer token it
+// has seen before (simulating expiry), then 200 on subsequent calls with the
+// newly issued token. The test asserts no data race (passes under -race) and
+// that the token endpoint was hit only a small number of times — proof that the
+// reauthenticate coalescing worked and not every goroutine re-authed.
+func TestClientConcurrentReauth(t *testing.T) {
+	const goroutines = 20
+
+	var tokenCalls atomic.Int32
+	// issuedToken holds the most-recently issued token value so the protected
+	// endpoint can know which token is "current".
+	var mu sync.Mutex
+	currentTok := "tok-init"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/oauth2/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if r.PostFormValue("grant_type") != "Password" {
+			http.Error(w, "bad grant", http.StatusBadRequest)
+			return
+		}
+		tokenCalls.Add(1)
+		mu.Lock()
+		newTok := fmt.Sprintf("tok-%d", tokenCalls.Load())
+		currentTok = newTok
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": newTok})
+	})
+	// Protected endpoint: returns 401 if the bearer token is NOT the current
+	// token (i.e. it's a stale token), 200 otherwise.
+	mux.HandleFunc("/api/v1/credentials", func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		mu.Lock()
+		cur := currentTok
+		mu.Unlock()
+		if bearer != cur {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "stale token"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "cred-ok"})
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c := New(Config{BaseURL: srv.URL, Username: "admin", Password: "pw"})
+	// Initial authenticate — sets the first token.
+	if err := c.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	initialTokenCalls := tokenCalls.Load()
+
+	// Now invalidate the token so all goroutines see a 401 on their first try.
+	mu.Lock()
+	currentTok = "tok-new-expected"
+	mu.Unlock()
+
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := c.CreateCredentials(context.Background(), "u", "p", "desc")
+			errs[i] = err
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	// The token endpoint should have been called only a small number of extra
+	// times (coalesced), not 20×. Any value <= goroutines/2 is fine; in practice
+	// the coalescing brings it to 1 or 2.
+	extra := tokenCalls.Load() - initialTokenCalls
+	if extra > int32(goroutines/2) {
+		t.Errorf("token endpoint called %d extra times after concurrent 401s; expected coalescing (want <= %d)", extra, goroutines/2)
 	}
 }
 
