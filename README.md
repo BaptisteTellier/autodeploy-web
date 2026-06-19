@@ -1,6 +1,6 @@
 # autodeploy-web
 
-> 🐳 Containerised web UI around [BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy) — generate customised Veeam Software Appliance ISOs from a browser, without PowerShell or WSL on the host.
+> 🐳 A containerised web UI for deploying Veeam — from customising a Software Appliance ISO, to provisioning a full multi-VM topology on a hypervisor, to generating the exact REST wiring script. Docker is the only dependency.
 
 [![CI](https://github.com/BaptisteTellier/autodeploy-web/actions/workflows/ci.yml/badge.svg)](https://github.com/BaptisteTellier/autodeploy-web/actions/workflows/ci.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-autodeploy--web-blue?logo=docker)](https://github.com/BaptisteTellier/autodeploy-web/pkgs/container/autodeploy-web)
@@ -11,15 +11,24 @@
 > [!WARNING]
 > **No authentication — LAN / trusted network use only.**
 >
-> autodeploy-web ships with **zero authentication**. Anyone who can reach the port can:
-> - create and trigger ISO build jobs,
-> - read and download all output files, including generated kickstart/config files that may contain **passwords and sensitive data**,
-> - manage uploaded media (ISOs, licence files, config archives).
+> autodeploy-web ships with **zero authentication**. Anyone who can reach the port can create build jobs, download all output files (including generated kickstart/config files that may contain **passwords**), manage uploaded media, and trigger deployments with hypervisor + appliance credentials.
 >
-> **Do NOT expose this service directly to the internet.**  
-> If internet access is ever required, place it behind a reverse proxy with strong authentication (e.g. Caddy, Traefik, Nginx) and, ideally, a VPN. The `inst.ks=` direct-link feature (see below) is particularly sensitive, as it serves raw config files to any unauthenticated caller — which is by design for PXE/Anaconda use on a trusted LAN, but dangerous on a public network.
+> **Do NOT expose this service directly to the internet.** If remote access is needed, put it behind a reverse proxy with strong auth (Caddy, Traefik, Nginx) and ideally a VPN. The `inst.ks=` direct-link feature serves raw config files to any unauthenticated caller by design (for PXE/Anaconda on a trusted LAN) — which is dangerous on a public network.
 
 ---
+
+## What it does
+
+autodeploy-web bundles three Veeam deployment workflows behind one web UI:
+
+1. **🛠️ Customise a Veeam ISO** — a browser front-end for the [BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy) PowerShell script. Fill a form (hostname, network, accounts, MFA, license, …) and generate a customised Veeam Software Appliance / VIA ISO with the kickstart and GRUB tweaks baked in — **no PowerShell or WSL on your host**, just Docker.
+
+2. **🚀 Deploy a topology** — provision a whole multi-VM Veeam architecture (VSA + VIA proxies + hardened repositories, optionally HA) onto **Proxmox, Hyper-V, vSphere, Nutanix AHV or XCP-ng**, with optional **remote kickstart** and automatic **Veeam REST wiring** (proxies, repositories, S3, license, HA cluster) — no Terraform, no Packer.
+
+3. **🔌 Craft the REST API** — describe a topology in a form and get the exact, **runnable Veeam REST wiring sequence as PowerShell or curl**. Render-only: copy/paste and run it yourself against appliances you deployed by hand. Same call sequence the Deploy page uses.
+
+---
+
 ## Preview
 <img width="1878" height="783" alt="image" src="https://github.com/user-attachments/assets/5fbb4dd4-b067-4cdb-8d63-4632ce437293" />
 <img width="989" height="750" alt="image" src="https://github.com/user-attachments/assets/a3eebd7c-dd69-48df-bc09-30d1143b79fd" />
@@ -35,7 +44,7 @@
 curl -O https://raw.githubusercontent.com/BaptisteTellier/autodeploy-web/main/docker-compose.yml
 
 # 2. Drop your Veeam source ISO into ./data/iso/
-#    (mkdir it if needed — the app creates the other sub-folders on first start)
+#    (the app creates the other sub-folders on first start)
 mkdir -p ./data/iso && cp /path/to/VeeamSoftwareAppliance_*.iso ./data/iso/
 
 # 3. Start
@@ -46,118 +55,27 @@ docker compose up -d
 
 > **That's it.** Fill the form, click **Generate ISO**, watch the live log, download the result.
 
-### `docker-compose.yml` — full content
+**Optional drop-in files:**
 
-You can copy-paste the file below directly instead of fetching it with `curl`:
-
-```yaml
-###############################################################################
-# autodeploy-web — Veeam ISO customisation web UI
-# https://github.com/BaptisteTellier/autodeploy-web
-#
-# QUICK START (only requirement: Docker with Compose plugin)
-#
-#   1. Copy your source Veeam ISO into  ./data/iso/
-#   2. (optional) Copy a .lic file into ./data/license/
-#   3. (optional) Copy unattended.xml + veeam_addsoconfpw.sh + conftoresto.bco
-#      into ./data/conf/ if you use the Restore Config feature
-#   4. docker compose up -d
-#   5. Open http://localhost:8080
-#
-###############################################################################
-
-services:
-  autodeploy-web:
-    # Pre-built image from GHCR (recommended — no build tools needed on the host).
-    # If the image is not yet available (first deploy before CI runs), comment
-    # the line below and uncomment the "build:" block instead.
-    image: ghcr.io/baptistetellier/autodeploy-web:latest
-
-    # ── Alternative: build locally from source ──────────────────────────────
-    # Requires git + Docker BuildKit on the host. Uncomment if GHCR is not
-    # yet available (e.g. before the first GitHub Actions run).
-    #
-    # image: autodeploy-web:local
-    # build:
-    #   context: https://github.com/BaptisteTellier/autodeploy-web.git
-    #   args:
-    #     AUTODEPLOY_VERSION: main
-    # ────────────────────────────────────────────────────────────────────────
-
-    container_name: autodeploy-web
-    restart: unless-stopped
-
-    ports:
-      # Change left side to expose on a different host port, e.g. "9090:8080"
-      - "${PORT:-8080}:8080"
-
-    environment:
-      LISTEN_ADDR: ":8080"
-      DATA_DIR: "/data"
-      # Maximum concurrent ISO builds — raise only if you have the disk IOPS
-      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
-
-    volumes:
-      # ── Persistent data root ──────────────────────────────────────────────
-      # Everything the app reads/writes lives under /data. Mounting the whole
-      # directory (instead of individual sub-folders) makes the SQLite job
-      # database (/data/jobs.db) and the autodeploy.ps1 override survive a
-      # container recreate / image rebuild — not just the ISOs and presets.
-      #
-      #   ./data/iso/      ← PUT YOUR VEEAM SOURCE ISOs HERE (15–20 GB each)
-      #   ./data/output/   ← generated customised ISOs (downloadable from the UI)
-      #   ./data/license/  ← Veeam .lic files (LicenseVBRTune / wiring install)
-      #   ./data/conf/     ← unattended config-restore files (RestoreConfig)
-      #   ./data/configs/  ← named JSON presets saved from the UI
-      #   ./data/jobs.db   ← SQLite job history (survives restarts)
-      - ./data:/data
-
-###############################################################################
-# FOLDER STRUCTURE — nothing to pre-create.
-#
-# The app creates these sub-folders (and the SQLite jobs.db) under ./data on
-# first start, so a bare ./data is enough:
-#
-#   ./data/
-#     iso/        ← PUT YOUR VEEAM SOURCE ISOs HERE
-#     output/     ← customised ISOs land here
-#     license/    ← optional: .lic files
-#     conf/       ← optional: restore config files
-#     configs/         ← UI presets (auto-managed)
-#     deploy-presets/  ← saved deploy templates (auto-managed)
-#     jobs.db          ← SQLite ISO-job history (survives restarts)
-#     deployments.db   ← SQLite deployment history (survives restarts)
-#     settings.json    ← app settings (history limit)
-###############################################################################
-```
-
-Optional files (drop and forget):
 | Folder | What to put there |
 |---|---|
-| `./data/license/` | Veeam `.lic` file — needed when *LicenseVBRTune* is enabled |
-| `./data/conf/` | `unattended.xml` + `veeam_addsoconfpw.sh` + `conftoresto.bco` — needed when *RestoreConfig* is enabled |
+| `./data/license/` | Veeam `.lic` file — needed for *LicenseVBRTune* and for license install during Deploy / Craft API |
+| `./data/conf/` | `unattended.xml` + `veeam_addsoconfpw.sh` + `conftoresto.bco` — needed for the *RestoreConfig* feature |
 
-Change the port or concurrency by copying `.env.example` → `.env` and editing it.
+Change the host port or build concurrency by copying `.env.example` → `.env`:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `8080` | Host port |
+| `WORKER_CONCURRENCY` | `1` | Parallel ISO builds — raise carefully (disk-bound) |
+
+To pull a new version later: `docker compose pull && docker compose up -d`.
 
 ---
 
-## What it does
+## How the project works
 
-`autodeploy-web` packages `autodeploy.ps1` inside a Linux container and exposes a web form to replace manual JSON editing. The two projects coexist and are kept in sync automatically:
-
-- **[`autodeploy`](https://github.com/BaptisteTellier/autodeploy)** — the PowerShell script, authoritative source of all logic.
-- **`autodeploy-web`** — Docker packaging + web UI. A daily workflow watches for new releases of the PS1 and opens a bump PR automatically.
-
-## Why
-
-- ✅ **No PowerShell / WSL on your host** — Docker is the only dependency.
-- ✅ **Web form** instead of editing JSON by hand — with live validation, password generators, GUID generator, preset save/load, import/export.
-- ✅ **Live build log** streamed in real time (SSE) — see xorriso progress line by line.
-- ✅ **JSON round-trip 100% compatible** with `autodeploy.ps1` — export the form as JSON and run it directly with the PS1 on Windows.
-- ✅ **Auto-Deploy** — provision a whole multi-VM Veeam topology (VSA + VIA proxies / hardened repos, optional HA) onto **Proxmox, Hyper-V, vSphere, Nutanix AHV or XCP-ng**, with optional **remote kickstart** and automatic **Veeam REST wiring** (proxies, repositories, S3, HA cluster, license) — no Terraform, no Packer.
-- ✅ **Auto-updated** — each new release of `autodeploy.ps1` triggers a new image automatically.
-
-## How it works
+The container packages the Go web server **and** the unmodified `autodeploy.ps1` together, so the PowerShell script runs identically to how it would on Windows + WSL:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -165,7 +83,7 @@ Change the port or concurrency by copying `.env.example` → `.env` and editing 
 │                                                              │
 │   ┌──────────┐  HTTP   ┌───────────┐  spawn   ┌────────────┐ │
 │   │ browser  │───────▶ │ Go binary │────────▶ │  pwsh +    │ │
-│   │  (form)  │  :8080  │  +HTMX UI │  exec    │ autodeploy │ │
+│   │  (form)  │  :8080  │  + web UI │  exec    │ autodeploy │ │
 │   │          │ ◀───SSE │           │ ◀─stdout │    .ps1    │ │
 │   └──────────┘         └───────────┘          └────────────┘ │
 │                              │                       │       │
@@ -175,342 +93,194 @@ Change the port or concurrency by copying `.env.example` → `.env` and editing 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The PS1 is **not modified** — it runs identically to on Windows + WSL. A tiny `/usr/local/bin/wsl` shim forwards `wsl xorriso ...` calls to the native binary.
+- **ISO customisation** is delegated to **[`autodeploy`](https://github.com/BaptisteTellier/autodeploy)** — the PowerShell script is the authoritative source of all build logic (kickstart, GRUB, MFA, VCSP, license). The Go server just renders the form, writes the JSON config, and spawns `pwsh autodeploy.ps1`, streaming its output to the browser over SSE. A tiny `/usr/local/bin/wsl` shim forwards the script's `wsl xorriso …` calls to the native `xorriso`. The PS1 is **never modified**, and the form's JSON export is **100 % compatible** with running the script directly on Windows.
+- **Deploy & Craft API** are pure-Go: the hypervisor drivers (`internal/hypervisor`) and the Veeam REST client (`internal/veeam`) + wiring orchestration (`internal/wiring`) talk directly to your infrastructure — no PowerShell involved.
+- **Auto-updated** — a daily workflow watches for new releases of `autodeploy.ps1` and opens a bump PR, which rebuilds the image automatically.
 
-## Volumes
+### Persistence — one bind mount
 
-A single bind mount — `./data:/data` — persists everything (including the job
-database and the autodeploy.ps1 override) across container recreates / rebuilds.
-The app organises it into these sub-paths:
+Everything lives under a single `./data:/data` mount, so all state survives a container recreate / image upgrade:
 
 | Path under `./data/` | Purpose |
 |---|---|
 | `iso/` | **Source ISOs** — drop your Veeam ISO here (15–20 GB each) |
-| `output/` | **Generated ISOs** — result of each build, downloadable from the UI |
-| `license/` | Veeam `.lic` files (for `LicenseVBRTune` / wiring license install) |
-| `conf/` | Restore config files (`unattended.xml`, `.bco`, …) |
-| `configs/` | Saved JSON presets — also drop PS1-compatible JSONs here directly |
-| `jobs.db` | SQLite **ISO-job history** — survives restarts; jobs can be deleted from the Jobs tab |
-| `deployments.db` | SQLite **deployment history** — survives restarts; rows can be retried, re-wired or deleted |
-| `deploy-presets/` | Saved **deploy** templates (topology + connection + advanced options) |
-| `settings.json` | App settings — currently the **history limit** (max finished entries kept) |
+| `output/` | **Generated ISOs** + per-job config/kickstart files, downloadable from the UI |
+| `license/` | Veeam `.lic` files |
+| `conf/` | Restore-config files (`unattended.xml`, `.bco`, …) |
+| `configs/` | Saved ISO-build JSON presets (drop PS1-compatible JSONs here too) |
+| `deploy-presets/` | Saved Deploy / Craft templates |
+| `jobs.db` | SQLite **ISO-job history** (survives restarts) |
+| `deployments.db` | SQLite **deployment history** (survives restarts) |
+| `settings.json` | App settings (history limit) |
 
-## Environment variables
+---
 
-Configurable via `.env` (copy `.env.example`):
+## Pages
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | Host port |
-| `WORKER_CONCURRENCY` | `1` | Parallel ISO builds — raise carefully (disk-bound) |
+The top navigation exposes everything the app does. Each page is detailed below.
 
-## Kickstart live (`inst.ks=`) — Packer-like mode
+### ✨ New job (`/`)
 
-autodeploy-web can act as a live kickstart server for network boots (PXE / Anaconda), turning it into a lightweight Packer alternative for Veeam appliance deployments.
+The main **ISO-build form** (expert mode) — every `autodeploy.ps1` configuration field on one page:
 
-### How it works
+- Appliance type (VSA / VIA-Proxy / VIA-HR / …), hostname, network (DHCP or static IP / subnet / gateway / DNS), NTP, timezone.
+- Veeam accounts (admin / SO) with **password generators** and complexity validation, **MFA**, GUID generator.
+- License baking (*LicenseVBRTune*), config restore (*RestoreConfig*), High-Availability, single-disk, GRUB timeout, and the rest of the PS1 options.
+- **Preset save/load**, **⬆️ Import / ⬇️ Export JSON** (round-trips with the PowerShell script), and live field validation.
+- Choose **full custom ISO** or **config-only** (just the `.cfg`/kickstart, no ISO rebuild). Click **Generate** → watch the **live build log** (SSE, `xorriso` line-by-line) → download from Output.
 
-On a job's output page (`/media/output/{jobid}`), every **text file** (e.g. a generated `.cfg` / kickstart file) gets a **🔗 Lien / Link** button next to the usual **DL** (download) button.
+### 🧙 Wizard (`/wizard`)
 
-Clicking it reveals the file's absolute direct URL and lets you copy it. The URL form is:
+A **guided, step-by-step** version of the same configuration, with inline help tips on every field. Produces the identical job as *New job* — friendlier for first-time users; switch to *New job* for the dense all-in-one form.
+
+### 📁 Workspace (`/media/workspace`)
+
+Manage the files the app works with: **upload source ISOs**, license files, and restore-config files into `./data`, and see what's present. Saves copying files onto the host by hand.
+
+### 📦 Output (`/media/output`)
+
+Browse and **download** every job's results — the generated ISO and all per-job config/kickstart files.
+
+It also doubles as a **live kickstart server** (a lightweight Packer alternative). Every text file gets a **🔗 Link** button exposing a no-auth direct URL:
 
 ```
 http://<server>/media/output/<jobid>/<filename>.cfg/content
 ```
 
-This endpoint serves the raw file as `text/plain` with no authentication required — making it directly consumable by a network bootloader.
-
-### Using it in a GRUB / Anaconda boot
-
-Append the URL to the kernel command line when booting the Veeam appliance installer over PXE:
+…which you append to an Anaconda boot to install over the network:
 
 ```
-# Modern Anaconda (RHEL 8+ based):
-inst.ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
-
-# Older Anaconda:
-ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
+# Modern Anaconda (RHEL 8+):  inst.ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
+# Older Anaconda:             ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
 ```
 
-Replace `<server>` with the hostname or IP of the machine running autodeploy-web (e.g. `192.168.1.10:8080`), and `<jobid>` with the job identifier shown in the UI.
-
-### Worked example — booting from the ISO's GRUB shell (UEFI)
-
-Boot the Veeam appliance ISO, press **`c`** at the GRUB menu to drop into the command shell, then type these **three** lines (press Enter after each):
+**Worked example — from the ISO's GRUB shell (UEFI):** boot the appliance ISO, press **`c`**, type three lines (Enter after each):
 
 ```
-linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.10:8080/media/output/bd68e20d-4c13-4fc6-a8e3-211fb6f15d6f/proxy-ks.cfg/content ip=dhcp quiet inst.assumeyes
+linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.10:8080/media/output/<jobid>/proxy-ks.cfg/content ip=dhcp quiet inst.assumeyes
 initrdefi /images/pxeboot/initrd.img
 boot
 ```
 
-Key points:
-- **`boot` on the third line is mandatory** — `linuxefi`/`initrdefi` only load the kernel and initrd into memory; nothing starts until you run `boot`. If "nothing happens", you almost certainly forgot it.
-- **`ip=dhcp`** brings the network up early so Anaconda can actually fetch the HTTP kickstart. Without it the fetch fails silently. For a static address use e.g. `ip=192.168.1.50::192.168.1.1:255.255.255.0:host::none`. In **Auto-Deploy** this is automatic: a node configured with a fixed IP gets a static `ip=<ip>::<gw>:<mask>:<host>::none` arg generated for it (no `ip=dhcp`), so remote kickstart works even on networks without DHCP.
-- `linuxefi`/`initrdefi` are the UEFI commands; on a legacy BIOS boot use `linux`/`initrd` instead.
-- Use the **🔗 Link** button in the UI to copy the exact URL (job ID + filename) and avoid typos.
+- **`boot` (line 3) is mandatory** — the first two lines only load kernel + initrd; nothing starts until `boot`.
+- **`ip=dhcp`** brings networking up so Anaconda can fetch the HTTP kickstart. For a static address use `ip=<ip>::<gw>:<mask>:<host>::none`. (The **Deploy** page generates this automatically for fixed-IP nodes.)
+- `linuxefi`/`initrdefi` are UEFI; on legacy BIOS use `linux`/`initrd`.
+- This endpoint is unauthenticated by design (so Anaconda can read it) — another reason to keep autodeploy-web on a trusted LAN.
 
-### Notes
+### 🔑 Licenses (`/media/license`)
 
-- Works regardless of job mode — whether the job ran in **config-only** mode (no ISO generated) or produced a **full custom ISO**, the output files always land in the same per-job folder and are reachable via the same URL pattern.
-- The kickstart file is generated fresh per job, so you can create a new job for each deployment target with its own parameters (hostname, IP, credentials) and hand out a unique `inst.ks=` URL per machine.
-- **Security reminder:** this endpoint intentionally requires no authentication, which is what makes it usable by Anaconda at boot time. This is safe on a trusted LAN and exactly why autodeploy-web must **never be exposed directly to the internet** (see the warning at the top of this page).
+Upload and manage Veeam `.lic` files. They're used when *LicenseVBRTune* bakes a license into an ISO, and picked from a dropdown for **license install over REST** during Deploy and Craft API.
 
----
+### 📋 Jobs (`/jobs`)
 
-## Auto-Deploy — multi-VM topologies on Proxmox
+Two histories, both persisted in SQLite and survive restarts:
 
-Beyond building a single ISO, autodeploy-web can **provision and wire up a complete
-Veeam topology** on a hypervisor in one shot — from the **Deploy** page (`/deploy`).
-You pick a topology, point it at a Proxmox host, choose where each VM's customised
-output came from, and click deploy. It is **Go-native** — no Terraform, no Packer.
+- **ISO-creation jobs** — every build with state, timestamps, and a per-row delete.
+- **Deployments** — every Auto-Deploy run, with **Created** / **Finished** date-time columns, a **↻ retry of …** link when a run is a retry of another, and per-row actions: **retry** (re-run end-to-end), **re-wire** (re-run only the REST wiring against existing VMs), and **🗑 delete** (removes the *record* only — does not touch the VMs). A run interrupted by a restart is reloaded as *failed ("interrupted by a restart")*. Opening a deployment shows its **live log** and a **node table with each machine's IP** (static IPs immediately; DHCP IPs stream in as they resolve).
 
-> [!NOTE]
-> **Proxmox VE and Microsoft Hyper-V are the production-validated targets.** The hypervisor layer is an
-> interface (`internal/hypervisor`) with five back-ends. A **Hypervisor** dropdown on
-> the Deploy page selects between them:
->
-> | Back-end | Status | Remote kickstart |
-> |---|---|---|
-> | **Proxmox VE** | ✅ validated | ✅ QEMU `sendkey` |
-> | **Microsoft Hyper-V** (WinRM) | ✅ validated | ✅ `Msvm_Keyboard` |
-> | **VMware vSphere / vCenter** | 🧪 experimental (untested on live infra) | ✅ USB scan codes |
-> | **Nutanix AHV** | 🧪 experimental (untested on live infra) | ❌ no key-injection API |
-> | **XCP-ng** | 🧪 experimental (untested on live infra) | ❌ no key-injection API |
->
-> The experimental back-ends compile and implement the full lifecycle but have **not**
-> been run against real infrastructure — treat them as beta. On **Nutanix AHV** and
-> **XCP-ng**, remote kickstart is unavailable (their APIs expose no console
-> key-injection), so deploy a **pre-customised ISO** (classic mode) there. Most of the
-> walkthrough below describes the Proxmox path; the other back-ends follow the same flow
-> with their own connection fields.
+### 🚀 Deploy (`/deploy`)
 
-### 1. Pick a topology
+Provision and wire a complete topology in one shot.
 
-| # | Topology | VMs created |
+**Hypervisor support** (a dropdown selects the back-end):
+
+| Back-end | Status | Remote kickstart |
 |---|---|---|
-| a | **VSA** | 1× VSA |
-| b | **VSA + VIA Proxy** | VSA + 1× VMware backup proxy |
-| c | **VSA + VIA HR** | VSA + 1× hardened repository |
-| d | **VSA + VIA Proxy + HR** | VSA + proxy + hardened repo |
-| e | **VSA HA + HR** | 2× VSA (HA pair) + hardened repo |
-| f | **VSA HA + Proxy + HR** | 2× VSA (HA pair) + proxy + hardened repo |
+| **Proxmox VE** | ✅ validated | ✅ QEMU `sendkey` |
+| **Microsoft Hyper-V** (WinRM) | ✅ validated | ✅ `Msvm_Keyboard` |
+| **VMware vSphere / vCenter** | 🧪 experimental | ✅ USB scan codes |
+| **Nutanix AHV** | 🧪 experimental | ❌ no key-injection API |
+| **XCP-ng** | 🧪 experimental | ❌ no key-injection API |
 
-### 2. Choose the destination Proxmox
+> The experimental back-ends implement the full lifecycle but haven't been validated on real infrastructure. On AHV / XCP-ng (no console key-injection) you must deploy a **pre-customised ISO** rather than remote kickstart.
 
-Connection settings are entered **in the Deploy form** (nothing is stored on disk):
+**Flow:**
+1. **Pick a topology** — VSA · VSA+Proxy · VSA+HR · VSA+Proxy+HR · VSA-HA+HR · VSA-HA+Proxy+HR. Click **＋** on any VIA slot to add more proxy/HR nodes.
+2. **Connection** — hypervisor host/credentials, entered in the form (nothing stored). VMs are created UEFI/OVMF (Secure Boot off for the unsigned ISO), with role-derived disks (VSA 2×256 GiB, VIA 2×128 GiB; single-disk 1×128 GiB) and editable CPU/RAM.
+3. **Per-node output** — choose which build output each VM uses; a summary card verifies the plan. Each node needs a distinct fixed IP (or DHCP) — the form blocks launch on duplicate IPs.
+4. **Boot mode** — *Customised ISO* (most robust; embedded kickstart self-runs) or *Remote kickstart* (boots an original ISO and injects the role-aware GRUB command over the console; fixed-IP nodes get a static `ip=` arg automatically).
+5. **Post-boot wiring (Veeam REST)** — registers every proxy & hardened repo, installs the license, and builds the HA cluster, waiting for each node to answer; bounded by a configurable timeout. VSA credentials come from the chosen output.
 
-| Field | Example | Notes |
-|---|---|---|
-| `pve_url` | `https://192.168.1.10:8006/api2/json` | Proxmox API base URL |
-| `pve_node` | `proxmox` | Target node name |
-| `pve_storage` | `local-lvm` | Where VM disks land |
-| `pve_iso_storage` | `local` | Where ISOs are uploaded / looked up |
-| `pve_bridge` | `vmbr0` | Network bridge (+ optional VLAN) |
-| auth | `root@pam` + password **or** API token (`root@pam!autodeploy` + secret) | API token recommended |
+**Pre-flight checks** warn before launch when config and options don't match (e.g. GRUB timeout ≤ boot-wait under remote kickstart; a VSA output not built with HA on an HA topology).
 
-VMs are created with **UEFI/OVMF + an EFI disk** (`pre-enrolled-keys=0` so the custom
-ISO boots without Secure Boot), `q35` machine type, and CPU/RAM you set in the form
-(defaults: 4 vCPU / 8 GiB).
-
-### 3. Pick each VM's output + verify
-
-For every VM in the topology you select **which build output folder** it uses (the
-customised ISO/config produced earlier by a normal job). A wizard-style **summary
-card** lets you verify the whole plan before launch.
-
-**Disks are derived from the role** (and can be raised above the minimum):
-
-| Role | Disks |
-|---|---|
-| VSA | 2 × 256 GiB |
-| VIA (proxy / HR) | 2 × 128 GiB |
-| VIA + *Single Disk* | 1 × 128 GiB |
-
-CPU / RAM / per-disk sizes are editable per node in each card.
-
-**Add more VIA nodes.** Click **＋** next to any VIA slot to append another proxy or
-hardened-repo node — as many as you want; the wiring step registers every one. Each
-node must resolve to a **distinct static IP** (or use DHCP) — the form **blocks launch**
-if two selected outputs share the same fixed IP.
-
-### 4. Two boot modes
-
-- **Customised ISO (classic, most robust).** The per-VM ISO is attached and booted;
-  the kickstart embedded in the ISO runs itself. **No keystrokes** are injected.
-- **Remote kickstart (Packer-like).** Tick *Remote kickstart* and pick an **original**
-  VSA/VIA ISO from the hypervisor library (it is uploaded automatically if missing).
-  At boot, autodeploy-web injects the **role-aware GRUB command** through the
-  hypervisor console (QEMU `sendkey` on Proxmox, USB scan codes on vSphere,
-  `Msvm_Keyboard` on Hyper-V — **not available on Nutanix AHV / XCP-ng**) so the
-  appliance fetches its kickstart over HTTP from autodeploy-web:
-  - VSA → `inst.stage2=hd:LABEL=VeeamSA fips=1 inst.ks=<HTTP> ip=dhcp …`
-  - VIA → `inst.stage2=hd:LABEL=VeeamJeOS inst.ks=<HTTP> ip=dhcp …`
-
-  `c` is sent first to halt the GRUB countdown and open the console; a configurable
-  **boot-wait** (default 10 s) gives slow OVMF POST time to reach GRUB before typing.
-  Console keystroke injection is inherently best-effort — the classic ISO mode stays
-  the most reliable choice when you don't want to avoid per-VM ISO uploads.
-
-### 5. Optional post-boot wiring (Veeam REST)
-
-If enabled, once the VMs are up autodeploy-web **registers the topology into the VSA**
-over the Veeam B&R REST API (`:9419`): adds every VIA backup proxy, every hardened
-repository, and — for HA topologies — builds the 2-node HA cluster.
-
-- It **waits for each node to answer** on the network before wiring (no blind firing).
-- Bounded by a **configurable timeout** (default **45 min**) so it never hangs forever.
-- VSA REST credentials are taken from the chosen output's own config
-  (`veeamadmin` + its admin password) — **never asked again** in the UI.
-- All added VIA nodes are registered; for HA the **config backup is redirected to the
-  first hardened repository** in the list (and the Default Backup Repository removed)
-  before the cluster is formed.
-
-**License install.** Under *Remote kickstart* the appliance boots **unlicensed** (the
-`.lic` can't ride inside the original ISO). Pick a license from the dropdown (files in
-`/data/license`) and the wiring step installs it over REST once the VSA answers.
-⚠️ A warning is shown if the chosen output was built with a license **baked into its
-config** — under kickstart that reference can break the install, so install over REST
-instead.
-
-**HA cluster (HA topologies only).** Two fields are required:
-- **HA cluster DNS name** — the cluster's DNS record.
-- **HA cluster IP (VIP)** — a free floating IP, distinct from both node IPs. VBR
-  requires it in standard (same-subnet) mode; wiring fails early with a clear message
-  if it's missing.
-
-**Advanced options** (under the *Advanced* toggle, applied on the primary VSA — the
-panel also renders a live **REST API preview** of every call):
-- **node_exporter** — enable the built-in Prometheus metrics endpoint (optional TLS + basic auth).
-- **Syslog** — forward VBR events to a syslog server (host / port / UDP·TCP·TLS).
-- **S3 / object-storage repository** — creates the cloud credential, then adds an
-  **Amazon S3** (region + bucket) or **S3-compatible** (endpoint + region + bucket + folder —
-  iDrive e2 / MinIO / Wasabi / Ceph …) repository, with optional immutability days.
-  For S3-compatible it mirrors the GUI exactly: the **endpoint is normalised to include
-  `https://`** (VBR rejects a bare host) and the **bucket folder is created first** via
-  the cloud-browser API (idempotent — safe if it already exists) before the repository is
-  added. Optionally **pin a Linux mount server** by selecting one of the VIA-Proxy nodes
-  added above (falls back to VBR auto-selection if left on *— auto —*).
-
-> Adding a Cloud Connect **service provider** is **not** exposed by the VBR REST API
-> (1.3-rev2) — use `Add-VBRCloudServiceProvider` on the appliance instead.
-
-### Pre-flight checks (config vs. deployment)
-
-Before launch, the form cross-checks each selected output against the chosen deploy
-options and shows an inline warning when they don't match:
-
-- ⚠️ **GRUB timeout vs. boot-wait** — under *Remote kickstart*, the output's **GRUB
-  timeout must exceed the boot-wait** below, or GRUB auto-boots before the keystrokes
-  are sent.
-- ⚠️ **HA not enabled** — on an **HA topology**, a VSA output that was **not built with
-  High Availability enabled** is flagged, because the HA-cluster wiring would fail.
-
-### Advanced features — what they do and how they behave
+**Advanced options & behaviour:**
 
 | Feature | Behaviour |
 |---|---|
-| **Boot mode: Customised ISO** | Per-VM ISO attached & booted; embedded kickstart self-runs; no keystrokes injected. Most robust. |
-| **Boot mode: Remote kickstart** | Injects a role-aware GRUB command over the console so the appliance fetches its kickstart over HTTP. `c` halts the GRUB countdown; a **boot-wait** (default 10 s) lets slow OVMF reach GRUB. Unavailable on Nutanix AHV / XCP-ng. |
-| **Static IP vs. DHCP** | Fixed-IP node → static `ip=<ip>::<gw>:<mask>:<host>::none` GRUB arg auto-generated (works without DHCP). DHCP node → IP resolved from the hypervisor guest agent before wiring. The form **blocks launch** if two outputs share the same fixed IP. |
-| **Add VIA nodes (＋)** | Append extra proxy / hardened-repo nodes to a topology; each is registered during wiring. New nodes group **directly under** their VIA-Proxy / VIA-HR slot. |
-| **Post-boot wiring** | Registers every VIA proxy & hardened repo into the VSA over REST (`:9419`). Waits for each node to answer first; bounded by a configurable timeout (default **45 min**); re-auths automatically on token expiry. |
-| **License install (REST)** | Installs a `/data/license/*.lic` on the VSA after boot (needed under remote kickstart, which boots unlicensed). Warns if the output baked a license into its config. |
-| **HA cluster** | HA topologies only — needs a **DNS name** + a free **VIP**. Config backup is redirected to the first hardened repository, the Default Backup Repository is removed, then the 2-node cluster is formed. |
-| **node_exporter** | Enables the Prometheus metrics endpoint on the VSA; optional TLS and basic auth. |
+| **Customised-ISO boot** | Per-VM ISO attached & booted; embedded kickstart self-runs; no keystrokes. Most robust. |
+| **Remote kickstart** | Injects a role-aware GRUB command over the console to fetch the kickstart over HTTP. `c` halts the GRUB countdown; a boot-wait (default 10 s) lets slow OVMF reach GRUB. Not on AHV/XCP-ng. |
+| **Static IP vs DHCP** | Fixed-IP → static `ip=<ip>::<gw>:<mask>:<host>::none` auto-generated (works without DHCP). DHCP → IP resolved from the guest agent before wiring. |
+| **Post-boot wiring** | Registers proxies & hardened repos over REST (`:9419`), waits per node, bounded timeout, re-auths on token expiry, parallelised across nodes. |
+| **License install (REST)** | Installs a `/data/license/*.lic` after boot (needed under remote kickstart, which boots unlicensed); warns if a license was baked into the output. |
+| **HA cluster** | HA topologies only — needs a DNS name + a free VIP. Config backup is redirected to the first hardened repo, the Default repo removed, then the 2-node cluster is formed. |
+| **node_exporter** | Enables the Prometheus metrics endpoint (optional TLS + basic auth). |
 | **Syslog** | Forwards VBR events to a syslog target (host / port / UDP·TCP·TLS). |
-| **S3 / object storage** | Creates the cloud credential, then the repo. S3-compatible: endpoint auto-prefixed with `https://`, bucket **folder created first** (idempotent), optional **Linux mount-server pin** (a VIA proxy) and immutability days. |
-| **History limit** | Caps the number of finished ISO jobs **and** deployments kept (default **20**, set in *Settings → History*); older finished entries are pruned automatically. |
-| **Retry / Re-wire** | A finished deployment can be **retried** (re-run end-to-end — the retry links back to the original) or **re-wired** (re-run only the Veeam REST wiring step against the existing VMs). |
-| **Delete row** | Removes a deployment **record only** — it does **not** destroy the VMs (that's the separate *Remove* action). Mirrors the ISO-job delete button. |
-| **Copy to deploy / presets** | Prefill the whole Deploy form from a past deployment (*Copy*) or a saved **deploy preset** (topology + connection + advanced options). |
+| **S3 / object storage** | Creates the cloud credential then the repo (Amazon S3 or S3-compatible). Endpoint auto-prefixed with `https://`; the bucket folder is created first (idempotent); optional **take-over** of a bucket already used by another server; optional **Linux mount-server pin** (one of the VIA-Proxy nodes). |
+| **Copy to deploy / presets** | Prefill the whole form from a past deployment (*Copy*) or a saved deploy template. |
 
-### Managing deployments
+> Adding a Cloud Connect **service provider** is not exposed by the VBR REST API (1.3-rev2) — use `Add-VBRCloudServiceProvider` on the appliance.
 
-The **Jobs** page lists ISO-creation jobs and, in a separate **Deployments** table,
-every Auto-Deploy run — with **Created** / **Finished** columns, a **↻ retry of …** link
-when a run is a retry of another, and a per-row **🗑 delete** (record only). Opening a
-deployment shows the live log plus a **node table with each machine's IP** (static IPs
-appear immediately; DHCP IPs stream in live as they're resolved) and persists across
-restarts.
+The deploy detail page streams a **live log** with a per-node step badge (`created` → `installing` → `ready` / `failed`).
 
-### Live status
+#### Hyper-V — enabling WinRM on the host
 
-The deploy detail page streams a **live log (SSE)** and shows a **per-node step badge**
-— `created` → `installing` → `ready`, or `failed` — so you can see exactly where each
-VM is.
-
-> [!WARNING]
-> The Deploy form posts **Proxmox credentials** (and triggers Veeam REST calls with
-> the appliance admin password). Like the rest of autodeploy-web this has **no
-> authentication** — keep it on a trusted LAN only.
-
-### Hyper-V — enabling WinRM on the host
-
-The Hyper-V back-end drives the host over **WinRM**. By default it connects over
-**HTTP on port 5985 using Basic auth**, so the host needs three things enabled. Run
-in an **elevated PowerShell on the Hyper-V host**:
+The Hyper-V back-end drives the host over **WinRM** (HTTP 5985, Basic auth by default). On the Hyper-V host, in an **elevated PowerShell**:
 
 ```powershell
-# 1. Enable WinRM + its inbound firewall rule
 Enable-PSRemoting -Force
-
-# 2. Allow Basic auth + unencrypted HTTP — REQUIRED, the client uses Basic over 5985.
-#    Without these the deploy fails with: 401 - invalid content type
+# Required — the client uses Basic over 5985 (without these: "401 - invalid content type"):
 winrm set winrm/config/service/auth '@{Basic="true"}'
 winrm set winrm/config/service '@{AllowUnencrypted="true"}'
 ```
 
-If the connection **times out** instead, a NIC is likely on the **Public** profile —
-WinRM's firewall rule only opens on Domain/Private:
+If the connection **times out**, a NIC is probably on the **Public** profile (WinRM's rule only opens on Domain/Private):
 
 ```powershell
-Get-NetConnectionProfile                       # look for NetworkCategory : Public
+Get-NetConnectionProfile                       # NetworkCategory : Public ?
 Set-NetConnectionProfile -InterfaceAlias "Ethernet" -NetworkCategory Private
 ```
 
-**Restrict access to autodeploy-web.** The container's traffic is NAT-ed to the **LAN
-IP of the Docker host** (not the container's internal `172.x`), so scope the WinRM
-rule to that IP:
+Scope the WinRM rule to the **Docker host's LAN IP** (container traffic is NAT-ed to it), and verify:
 
 ```powershell
-Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -RemoteAddress 192.168.1.50  # your Docker host
+Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -RemoteAddress 192.168.1.50   # your Docker host
+Test-NetConnection <hyperv-host> -Port 5985                                  # from the Docker host
 ```
 
-Verify it works (the listener is up, and the Docker host can reach it):
-
-```powershell
-winrm enumerate winrm/config/listener          # Transport = HTTP, Port = 5985, Enabled = true
-Test-NetConnection <hyperv-host> -Port 5985    # run from the Docker host → TcpTestSucceeded : True
-```
-
-Use a **local administrator** account in the Deploy form's user/password fields.
+Use a **local administrator** in the Deploy form.
 
 > [!WARNING]
-> `AllowUnencrypted="true"` sends the WinRM payload (including credentials) **in clear
-> text** over the LAN. It is acceptable on a trusted/isolated lab segment scoped to a
-> single source IP, but for anything else use **HTTPS (5986)** — tick *Use HTTPS* in the
-> form and configure an HTTPS WinRM listener with a certificate on the host.
+> `AllowUnencrypted="true"` sends WinRM payloads (incl. credentials) in clear text. Acceptable on an isolated lab segment scoped to one source IP; otherwise use **HTTPS (5986)** — tick *Use HTTPS* and configure an HTTPS listener with a certificate.
 
 > [!NOTE]
-> WinRM streams the 15–20 GB ISO as base64, which is slow. **Pre-stage** the original
-> ISO in the host's ISO path so `FindISO` finds it and skips the upload.
+> WinRM streams the 15–20 GB ISO as base64 (slow). **Pre-stage** the original ISO in the host's ISO path so `FindISO` skips the upload.
+
+### 🔌 Craft API (`/craft-api`)
+
+The same wiring as the Deploy page, but **render-only** — for appliances you deployed by hand. Fill a Deploy-style form (pick a topology, ＋ add proxy/HR nodes, enter each node's IP/hostname/pairing code, connection, and the advanced options), click **Generate**, and get the **exact REST call sequence as a runnable PowerShell or curl script** (toggle, copy, download `wire.ps1` / `wire.sh`).
+
+The generated script is genuinely runnable: OAuth token capture, wait-for-session loops, per-host `connectionCertificate` → computed SSH fingerprint → add-host, license install (paste base64 — normalised automatically; the field explains how to produce it), node_exporter / syslog / S3 / HA. It mirrors the live `internal/veeam` client call-for-call (guarded by tests). **Save/load templates** (secrets excluded) are stored in `/data/deploy-presets`.
+
+> Craft API never makes live requests itself — it only generates a script you run yourself. The script is one-shot (no idempotent re-runs); generate it against freshly deployed appliances.
+
+### ⚙️ Settings (`/admin`)
+
+App-wide settings: the **history limit** (max finished ISO jobs *and* deployments kept, default **20**, auto-pruned), updating the bundled `autodeploy.ps1` from GitHub, and language (EN / FR).
 
 ---
 
 ## Limitations
 
-- 🚫 **No authentication** — designed for LAN use. Add a reverse proxy (Caddy, Traefik) for public exposure.
-- 💾 **Jobs and deployments are persisted** in SQLite (`DATA_DIR/jobs.db` and `DATA_DIR/deployments.db`) and survive restarts; both can be deleted row-by-row from the UI. A run interrupted by a restart is reloaded as **failed** ("interrupted by a restart"). The number of finished entries kept is capped (default **20**) and pruned automatically — see *Settings → History*.
-- 🧪 **Auto-Deploy: Proxmox VE and Hyper-V are production-validated.** vSphere, Nutanix AHV and XCP-ng back-ends are implemented but **experimental / untested on live infrastructure** (see the Auto-Deploy note above). On AHV and XCP-ng, remote kickstart is unavailable — use a pre-customised ISO.
-- ⚠️ **Hyper-V ISO upload over WinRM is slow** for 15–20 GB ISOs (base64 streaming) — **pre-stage** the ISO in the host's ISO path so `FindISO` skips the upload.
-- ⚠️ **Remote-kickstart keystroke injection is best-effort** — there is no clean screenshot/console feedback over the Proxmox API, so the classic customised-ISO boot mode remains the most reliable.
-- The PS1 hard-coded behaviours (NTP failure aborts build, etc.) apply unchanged.
+- 🚫 **No authentication** — LAN use only; add a reverse proxy for any public exposure.
+- 🧪 **Deploy:** only **Proxmox VE** and **Hyper-V** are production-validated. vSphere / Nutanix AHV / XCP-ng are implemented but untested on live infrastructure; AHV/XCP-ng can't do remote kickstart (use a pre-customised ISO).
+- ⚠️ **Hyper-V ISO upload over WinRM is slow** (base64) — pre-stage the ISO so `FindISO` skips the upload.
+- ⚠️ **Remote-kickstart keystroke injection is best-effort** — no console feedback over the hypervisor API; the customised-ISO boot mode is the most reliable.
+- 🔌 **Craft API scripts are one-shot** — they don't include the live wiring's find-before-add idempotency, so run them against fresh appliances.
+- The PS1's hard-coded behaviours (e.g. NTP failure aborts the build) apply unchanged.
 
 ## Migrating from autodeploy (PS1)
 
-Already have JSON configs? **⬆️ Import JSON** in the UI — the schema is identical.  
-See [docs/migration-from-ps1.md](docs/migration-from-ps1.md).
+Already have JSON configs? **⬆️ Import JSON** in the UI — the schema is identical. See [docs/migration-from-ps1.md](docs/migration-from-ps1.md).
 
 ## Development
 
@@ -524,7 +294,7 @@ make dev-up    # docker compose up --build
 
 ## Acknowledgements
 
-All ISO customisation logic (kickstart, GRUB, MFA, VCSP, license) is done by **[BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy)**. This project is packaging only.
+All ISO customisation logic (kickstart, GRUB, MFA, VCSP, license) is done by **[BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy)**. This project provides the Docker packaging, web UI, and the Deploy / Craft API layers.
 
 ## License
 
