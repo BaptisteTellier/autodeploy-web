@@ -248,6 +248,7 @@ func craftFormFields(r *http.Request) map[string]string {
 		}
 	}
 	setIfNonEmpty(
+		"kind",
 		"username",
 		"api_version",
 		"repo_path",

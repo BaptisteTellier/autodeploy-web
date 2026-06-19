@@ -36,7 +36,7 @@ func RenderPowerShell(s Spec) (string, error) {
 	}
 	b.WriteString("# ===========================================================================\n\n")
 
-	// Preamble — base URL + TLS bypass + auth.
+	// Preamble — base URL + credentials.
 	baseURL := s.BaseURL
 	if baseURL == "" {
 		baseURL = "https://<VSA_IP>:9419"
@@ -57,43 +57,58 @@ func RenderPowerShell(s Spec) (string, error) {
 	}
 	b.WriteString("\n")
 
-	b.WriteString("# Common headers (added to every call below).\n")
-	b.WriteString("$Headers = @{\n")
-	b.WriteString("    'x-api-version' = $APIVersion\n")
-	b.WriteString("    'Accept'        = 'application/json'\n")
+	// Connect-Vbr (re)acquires a bearer token and refreshes $script:Headers.
+	// Wiring can run longer than the token's lifetime, so every call goes through
+	// Invoke-Vbr which re-authenticates and retries once on HTTP 401.
+	b.WriteString("# ---------------------------------------------------------------------------\n")
+	b.WriteString("# Auth helpers — token auto-refresh on 401 (wiring can outlive the token).\n")
+	b.WriteString("# ---------------------------------------------------------------------------\n")
+	b.WriteString("function Connect-Vbr {\n")
+	b.WriteString("    $r = Invoke-RestMethod -SkipCertificateCheck `\n")
+	b.WriteString("        -Method POST `\n")
+	b.WriteString("        -Uri \"$BaseURL/api/oauth2/token\" `\n")
+	b.WriteString("        -Headers @{ 'x-api-version' = $APIVersion; 'Accept' = 'application/json' } `\n")
+	b.WriteString("        -ContentType 'application/x-www-form-urlencoded' `\n")
+	b.WriteString("        -Body \"grant_type=Password&username=$Username&password=$Password\"\n")
+	b.WriteString("    $script:Headers = @{\n")
+	b.WriteString("        'x-api-version' = $APIVersion\n")
+	b.WriteString("        'Accept'        = 'application/json'\n")
+	b.WriteString("        'Authorization' = \"Bearer $($r.access_token)\"\n")
+	b.WriteString("    }\n")
 	b.WriteString("}\n\n")
 
-	b.WriteString("# ---------------------------------------------------------------------------\n")
-	b.WriteString("# Authenticate — OAuth2 password grant.\n")
-	b.WriteString("# ---------------------------------------------------------------------------\n")
-	b.WriteString("$TokenResponse = Invoke-RestMethod `\n")
-	b.WriteString("    -SkipCertificateCheck `\n")
-	b.WriteString("    -Method POST `\n")
-	b.WriteString("    -Uri \"$BaseURL/api/oauth2/token\" `\n")
-	b.WriteString("    -Headers $Headers `\n")
-	b.WriteString("    -ContentType 'application/x-www-form-urlencoded' `\n")
-	b.WriteString("    -Body \"grant_type=Password&username=$Username&password=$Password\"\n")
-	b.WriteString("$Headers['Authorization'] = \"Bearer $($TokenResponse.access_token)\"\n\n")
+	b.WriteString("function Invoke-Vbr {\n")
+	b.WriteString("    param([string]$Method, [string]$Uri, $Body)\n")
+	b.WriteString("    $p = @{ SkipCertificateCheck = $true; Method = $Method; Uri = $Uri; Headers = $script:Headers }\n")
+	b.WriteString("    if ($null -ne $Body) { $p.ContentType = 'application/json'; $p.Body = $Body }\n")
+	b.WriteString("    try { return Invoke-RestMethod @p }\n")
+	b.WriteString("    catch {\n")
+	b.WriteString("        if ($_.Exception.Response.StatusCode.value__ -eq 401) {\n")
+	b.WriteString("            Write-Host '    (token expired — re-authenticating)'\n")
+	b.WriteString("            Connect-Vbr\n")
+	b.WriteString("            $p.Headers = $script:Headers\n")
+	b.WriteString("            return Invoke-RestMethod @p\n")
+	b.WriteString("        }\n")
+	b.WriteString("        throw\n")
+	b.WriteString("    }\n")
+	b.WriteString("}\n\n")
 
-	// Wait-for-session helper.
-	b.WriteString("# ---------------------------------------------------------------------------\n")
-	b.WriteString("# Wait-VbrSession — polls an async session until it completes or fails.\n")
-	b.WriteString("# ---------------------------------------------------------------------------\n")
+	// Wait-for-session helper (uses Invoke-Vbr → re-auths on 401 mid-wait).
 	b.WriteString("function Wait-VbrSession {\n")
-	b.WriteString("    param([string]$SessionId, [int]$PollSeconds = 10, [int]$TimeoutSeconds = 900)\n")
+	b.WriteString("    param([string]$SessionId, [int]$PollSeconds = 10, [int]$TimeoutSeconds = 1800)\n")
 	b.WriteString("    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)\n")
 	b.WriteString("    do {\n")
 	b.WriteString("        Start-Sleep -Seconds $PollSeconds\n")
-	b.WriteString("        $s = Invoke-RestMethod -SkipCertificateCheck `\n")
-	b.WriteString("            -Method GET `\n")
-	b.WriteString("            -Uri \"$BaseURL/api/v1/sessions/$SessionId\" `\n")
-	b.WriteString("            -Headers $Headers\n")
+	b.WriteString("        $s = Invoke-Vbr -Method GET -Uri \"$BaseURL/api/v1/sessions/$SessionId\"\n")
 	b.WriteString("        if ($s.result.result -eq 'Failed') { throw \"Session $SessionId failed\" }\n")
 	b.WriteString("        if ($s.result.result -in 'Success','Warning') { return }\n")
 	b.WriteString("        if ($s.state -eq 'Stopped') { return }\n")
 	b.WriteString("    } while ((Get-Date) -lt $deadline)\n")
 	b.WriteString("    throw \"Session $SessionId did not finish within $TimeoutSeconds seconds\"\n")
 	b.WriteString("}\n\n")
+
+	b.WriteString("Write-Host '==> Authenticating'\n")
+	b.WriteString("Connect-Vbr\n\n")
 
 	// Render each step.
 	for _, st := range steps {
@@ -102,13 +117,21 @@ func RenderPowerShell(s Spec) (string, error) {
 		}
 	}
 
+	b.WriteString("Write-Host '==> Done.'\n")
 	return b.String(), nil
+}
+
+// psEcho emits a Write-Host progress line for a step comment (single-quoted,
+// apostrophe-escaped, no $ expansion).
+func psEcho(b *strings.Builder, comment string) {
+	fmt.Fprintf(b, "Write-Host '==> %s'\n", strings.ReplaceAll(comment, "'", "''"))
 }
 
 func renderPowerShellStep(b *strings.Builder, st Step) error {
 	b.WriteString("# ---------------------------------------------------------------------------\n")
 	b.WriteString("# " + st.Comment + "\n")
 	b.WriteString("# ---------------------------------------------------------------------------\n")
+	psEcho(b, st.Comment)
 
 	// configBackupRedirect is a special read-modify-write step.
 	if st.Kind == "configBackupRedirect" {
@@ -116,19 +139,9 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 	}
 
 	switch st.Method {
-	case "GET":
+	case "GET", "DELETE":
 		path := psExpandPath(st.Path)
-		b.WriteString("$resp = Invoke-RestMethod -SkipCertificateCheck `\n")
-		b.WriteString("    -Method GET `\n")
-		fmt.Fprintf(b, "    -Uri \"%s%s\" `\n", "$BaseURL", path)
-		b.WriteString("    -Headers $Headers\n")
-
-	case "DELETE":
-		path := psExpandPath(st.Path)
-		b.WriteString("$resp = Invoke-RestMethod -SkipCertificateCheck `\n")
-		b.WriteString("    -Method DELETE `\n")
-		fmt.Fprintf(b, "    -Uri \"%s%s\" `\n", "$BaseURL", path)
-		b.WriteString("    -Headers $Headers\n")
+		fmt.Fprintf(b, "$resp = Invoke-Vbr -Method %s -Uri \"%s%s\"\n", st.Method, "$BaseURL", path)
 
 	case "POST", "PUT":
 		path := psExpandPath(st.Path)
@@ -143,12 +156,7 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 		} else {
 			b.WriteString("'{}'\n")
 		}
-		b.WriteString("$resp = Invoke-RestMethod -SkipCertificateCheck `\n")
-		fmt.Fprintf(b, "    -Method %s `\n", st.Method)
-		fmt.Fprintf(b, "    -Uri \"%s%s\" `\n", "$BaseURL", path)
-		b.WriteString("    -Headers $Headers `\n")
-		b.WriteString("    -ContentType 'application/json' `\n")
-		b.WriteString("    -Body $body\n")
+		fmt.Fprintf(b, "$resp = Invoke-Vbr -Method %s -Uri \"%s%s\" -Body $body\n", st.Method, "$BaseURL", path)
 	}
 
 	// Extract captures from $resp.
@@ -180,37 +188,26 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 // /api/v1/configBackup. It GETs the current settings, patches
 // backupRepositoryId + notifications.SNMPEnabled=false, then PUTs back.
 func renderPSConfigBackupRedirect(b *strings.Builder, st Step) error {
-	// Extract the repo id expression from the Body map.
 	repoIDExpr := "$repo0_id"
 	if m, ok := st.Body.(map[string]any); ok {
 		if v, ok2 := m["backupRepositoryId"].(string); ok2 {
 			repoIDExpr = v
 		}
 	}
-	// Expand $var -> PowerShell form (already valid for double-quoted strings).
 	repoIDExpanded := psExpandPath(repoIDExpr)
 
-	b.WriteString("$cfg = Invoke-RestMethod -SkipCertificateCheck `\n")
-	b.WriteString("    -Method GET `\n")
-	b.WriteString("    -Uri \"$BaseURL/api/v1/configBackup\" `\n")
-	b.WriteString("    -Headers $Headers\n")
+	b.WriteString("$cfg = Invoke-Vbr -Method GET -Uri \"$BaseURL/api/v1/configBackup\"\n")
 	fmt.Fprintf(b, "$cfg.backupRepositoryId = \"%s\"\n", repoIDExpanded)
 	b.WriteString("if ($cfg.notifications) { $cfg.notifications.SNMPEnabled = $false }\n")
 	b.WriteString("$body = $cfg | ConvertTo-Json -Depth 30\n")
-	b.WriteString("$resp = Invoke-RestMethod -SkipCertificateCheck `\n")
-	b.WriteString("    -Method PUT `\n")
-	b.WriteString("    -Uri \"$BaseURL/api/v1/configBackup\" `\n")
-	b.WriteString("    -Headers $Headers `\n")
-	b.WriteString("    -ContentType 'application/json' `\n")
-	b.WriteString("    -Body $body\n")
+	b.WriteString("$resp = Invoke-Vbr -Method PUT -Uri \"$BaseURL/api/v1/configBackup\" -Body $body\n")
 	b.WriteString("\n")
 	return nil
 }
 
 // psExpandPath converts $var_id style references in a path string so they
 // expand inside a PowerShell double-quoted string. The references are already
-// valid PS variable syntax ($ident) so no transformation is needed; the
-// function exists to make the intent explicit.
+// valid PS variable syntax ($ident) so no transformation is needed.
 func psExpandPath(path string) string {
 	return path
 }
@@ -266,7 +263,6 @@ func psValue(v any) (string, error) {
 	case nil:
 		return "$null", nil
 	default:
-		// Fallback: JSON-marshal and emit as quoted string.
 		b, err := json.Marshal(val)
 		if err != nil {
 			return "", err
@@ -276,8 +272,7 @@ func psValue(v any) (string, error) {
 }
 
 // isPSVarExpr returns true if s is a PowerShell variable reference that is
-// safe to emit bare (no quoting needed). Pattern: $ident optionally followed
-// by .member or [n] chains.
+// safe to emit bare. Pattern: $ident optionally followed by .member or [n] chains.
 func isPSVarExpr(s string) bool {
 	if len(s) < 2 || s[0] != '$' {
 		return false
@@ -391,11 +386,8 @@ func RenderCurl(s Spec) (string, error) {
 	}
 	fmt.Fprintf(&b, "BASE_URL=%q\n", baseURL)
 	fmt.Fprintf(&b, "USERNAME=%q\n", s.Username)
-	// Single-quote password so $, backslash etc. are literal.
 	fmt.Fprintf(&b, "PASSWORD='%s'\n", strings.ReplaceAll(s.Password, "'", `'\''`))
-	// Alias used in body placeholders to mirror the PowerShell $Password name.
 	b.WriteString("Password=${PASSWORD}\n")
-
 	if s.S3.Enabled {
 		fmt.Fprintf(&b, "S3AccessKey='%s'\n", strings.ReplaceAll(s.S3.AccessKey, "'", `'\''`))
 		fmt.Fprintf(&b, "S3SecretKey='%s'\n", strings.ReplaceAll(s.S3.SecretKey, "'", `'\''`))
@@ -403,39 +395,47 @@ func RenderCurl(s Spec) (string, error) {
 	if s.NodeExporter && s.NodeExporterUser != "" {
 		fmt.Fprintf(&b, "NeBasicPass='%s'\n", strings.ReplaceAll(s.NodeExporterPass, "'", `'\''`))
 	}
+	fmt.Fprintf(&b, "API_VERSION=%q\n", s.APIVersion)
+	b.WriteString("TOKEN=\"\"\n\n")
 
-	fmt.Fprintf(&b, "API_VERSION=%q\n\n", s.APIVersion)
+	// Auth helpers — token auto-refresh on 401.
+	b.WriteString("# ---------------------------------------------------------------------------\n")
+	b.WriteString("# Auth helpers — token auto-refresh on 401 (wiring can outlive the token).\n")
+	b.WriteString("# ---------------------------------------------------------------------------\n")
+	b.WriteString("get_token() {\n")
+	b.WriteString("  TOKEN=$(curl -sk -X POST \"${BASE_URL}/api/oauth2/token\" \\\n")
+	b.WriteString("    -H \"x-api-version: ${API_VERSION}\" -H 'Accept: application/json' \\\n")
+	b.WriteString("    -H 'Content-Type: application/x-www-form-urlencoded' \\\n")
+	b.WriteString("    --data-urlencode \"grant_type=Password\" \\\n")
+	b.WriteString("    --data-urlencode \"username=${USERNAME}\" \\\n")
+	b.WriteString("    --data-urlencode \"password=${PASSWORD}\" | jq -r '.access_token')\n")
+	b.WriteString("}\n\n")
 
-	// Authenticate.
-	b.WriteString("# ---------------------------------------------------------------------------\n")
-	b.WriteString("# Authenticate — OAuth2 password grant.\n")
-	b.WriteString("# ---------------------------------------------------------------------------\n")
-	b.WriteString("TOKEN=$(curl -sk \\\n")
-	b.WriteString("  -X POST \"${BASE_URL}/api/oauth2/token\" \\\n")
-	b.WriteString("  -H \"x-api-version: ${API_VERSION}\" \\\n")
-	b.WriteString("  -H 'Accept: application/json' \\\n")
-	b.WriteString("  -H 'Content-Type: application/x-www-form-urlencoded' \\\n")
-	b.WriteString("  --data-urlencode \"grant_type=Password\" \\\n")
-	b.WriteString("  --data-urlencode \"username=${USERNAME}\" \\\n")
-	b.WriteString("  --data-urlencode \"password=${PASSWORD}\" \\\n")
-	b.WriteString("  | jq -r '.access_token')\n\n")
+	// vbr METHOD URL [extra curl args...] — call, re-auth + retry once on HTTP 401.
+	b.WriteString("vbr() {\n")
+	b.WriteString("  local method=$1 url=$2; shift 2\n")
+	b.WriteString("  local out code\n")
+	b.WriteString("  out=$(curl -sk -w $'\\n%{http_code}' -X \"$method\" \"$url\" \\\n")
+	b.WriteString("    -H \"x-api-version: ${API_VERSION}\" -H \"Authorization: Bearer ${TOKEN}\" -H 'Accept: application/json' \"$@\")\n")
+	b.WriteString("  code=${out##*$'\\n'}; out=${out%$'\\n'*}\n")
+	b.WriteString("  if [ \"$code\" = 401 ]; then\n")
+	b.WriteString("    echo '    (token expired — re-authenticating)' >&2\n")
+	b.WriteString("    get_token\n")
+	b.WriteString("    out=$(curl -sk -w $'\\n%{http_code}' -X \"$method\" \"$url\" \\\n")
+	b.WriteString("      -H \"x-api-version: ${API_VERSION}\" -H \"Authorization: Bearer ${TOKEN}\" -H 'Accept: application/json' \"$@\")\n")
+	b.WriteString("    out=${out%$'\\n'*}\n")
+	b.WriteString("  fi\n")
+	b.WriteString("  printf '%s' \"$out\"\n")
+	b.WriteString("}\n\n")
 
-	// wait_session helper.
-	b.WriteString("# ---------------------------------------------------------------------------\n")
-	b.WriteString("# wait_session <session_id> — polls until the session completes or fails.\n")
-	b.WriteString("# ---------------------------------------------------------------------------\n")
+	// wait_session helper (uses vbr → re-auths on 401 mid-wait).
 	b.WriteString("wait_session() {\n")
-	b.WriteString("  local sid=$1 poll=${2:-10} timeout=${3:-900} elapsed=0\n")
+	b.WriteString("  local sid=$1 poll=${2:-10} timeout=${3:-1800} elapsed=0\n")
 	b.WriteString("  while [ $elapsed -lt $timeout ]; do\n")
 	b.WriteString("    sleep $poll\n")
 	b.WriteString("    elapsed=$((elapsed + poll))\n")
-	b.WriteString("    local resp\n")
-	b.WriteString("    resp=$(curl -sk \\\n")
-	b.WriteString("      -X GET \"${BASE_URL}/api/v1/sessions/${sid}\" \\\n")
-	b.WriteString("      -H \"x-api-version: ${API_VERSION}\" \\\n")
-	b.WriteString("      -H \"Authorization: Bearer ${TOKEN}\" \\\n")
-	b.WriteString("      -H 'Accept: application/json')\n")
-	b.WriteString("    local result state\n")
+	b.WriteString("    local resp result state\n")
+	b.WriteString("    resp=$(vbr GET \"${BASE_URL}/api/v1/sessions/${sid}\")\n")
 	b.WriteString("    result=$(echo \"$resp\" | jq -r '.result.result // empty')\n")
 	b.WriteString("    state=$(echo  \"$resp\" | jq -r '.state // empty')\n")
 	b.WriteString("    [ \"$result\" = 'Failed'  ] && { echo \"Session $sid FAILED\" >&2; exit 1; }\n")
@@ -446,95 +446,73 @@ func RenderCurl(s Spec) (string, error) {
 	b.WriteString("  echo \"Session $sid timed out after ${timeout}s\" >&2; exit 1\n")
 	b.WriteString("}\n\n")
 
+	b.WriteString("echo '==> Authenticating'\n")
+	b.WriteString("get_token\n\n")
+
 	// Render each step.
 	for _, st := range steps {
-		if err := renderCurlStep(&b, st, s.APIVersion); err != nil {
+		if err := renderCurlStep(&b, st); err != nil {
 			return "", err
 		}
 	}
 
+	b.WriteString("echo '==> Done.'\n")
 	return b.String(), nil
 }
 
-func renderCurlStep(b *strings.Builder, st Step, apiVersion string) error {
+// curlEcho emits an echo progress line for a step comment (single-quoted).
+func curlEcho(b *strings.Builder, comment string) {
+	fmt.Fprintf(b, "echo '==> %s'\n", strings.ReplaceAll(comment, "'", `'\''`))
+}
+
+func renderCurlStep(b *strings.Builder, st Step) error {
 	b.WriteString("# ---------------------------------------------------------------------------\n")
 	b.WriteString("# " + st.Comment + "\n")
 	b.WriteString("# ---------------------------------------------------------------------------\n")
+	curlEcho(b, st.Comment)
 
 	// configBackupRedirect is a special read-modify-write step.
 	if st.Kind == "configBackupRedirect" {
 		return renderCurlConfigBackupRedirect(b, st)
 	}
 
-	commonHeaders := "  -H \"x-api-version: ${API_VERSION}\" \\\n" +
-		"  -H \"Authorization: Bearer ${TOKEN}\" \\\n" +
-		"  -H 'Accept: application/json'"
-
 	path := curlExpandPath(st.Path)
 
 	switch st.Method {
-	case "GET":
-		b.WriteString("resp=$(curl -sk \\\n")
-		fmt.Fprintf(b, "  -X GET \"${BASE_URL}%s\" \\\n", path)
-		b.WriteString(commonHeaders + "\n")
-		b.WriteString(")\n")
-		if st.Kind == "certFingerprint" {
-			// API returns a certificate, not a fingerprint; compute SHA-256 (uppercase
-			// hex) of the decoded cert, matching veeam.ConnectionCertificate.
-			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '.certificateUpload.certificate' | base64 -d | sha256sum | awk '{print toupper($1)}')\n", st.Captures[0].Var)
-		} else {
-			for _, cap := range st.Captures {
-				jqExpr := curlCapExpr(cap.Expr)
-				fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
-			}
-		}
-
-	case "DELETE":
-		b.WriteString("resp=$(curl -sk \\\n")
-		fmt.Fprintf(b, "  -X DELETE \"${BASE_URL}%s\" \\\n", path)
-		b.WriteString(commonHeaders + "\n")
-		b.WriteString(")\n")
+	case "GET", "DELETE":
+		fmt.Fprintf(b, "resp=$(vbr %s \"${BASE_URL}%s\")\n", st.Method, path)
 
 	case "POST", "PUT":
 		if st.Body != nil {
-			// Emit body via an unquoted heredoc so ${vars} expand.
+			// Build the body via an unquoted heredoc so ${vars} expand, then pass it.
 			bodyBytes, err := json.MarshalIndent(st.Body, "", "  ")
 			if err != nil {
 				return fmt.Errorf("marshal body for %s %s: %w", st.Method, st.Path, err)
 			}
 			bodyStr := curlExpandBody(string(bodyBytes))
-			b.WriteString("resp=$(curl -sk \\\n")
-			fmt.Fprintf(b, "  -X %s \"${BASE_URL}%s\" \\\n", st.Method, path)
-			b.WriteString(commonHeaders + " \\\n")
-			b.WriteString("  -H 'Content-Type: application/json' \\\n")
-			b.WriteString("  --data @- <<JSON\n")
+			b.WriteString("body=$(cat <<JSON\n")
 			b.WriteString(bodyStr + "\n")
 			b.WriteString("JSON\n")
 			b.WriteString(")\n")
+			fmt.Fprintf(b, "resp=$(vbr %s \"${BASE_URL}%s\" -H 'Content-Type: application/json' --data \"$body\")\n", st.Method, path)
 		} else {
-			b.WriteString("resp=$(curl -sk \\\n")
-			fmt.Fprintf(b, "  -X %s \"${BASE_URL}%s\" \\\n", st.Method, path)
-			b.WriteString(commonHeaders + " \\\n")
-			b.WriteString("  -H 'Content-Type: application/json' \\\n")
-			b.WriteString("  -d '{}'\n")
-			b.WriteString(")\n")
+			fmt.Fprintf(b, "resp=$(vbr %s \"${BASE_URL}%s\" -H 'Content-Type: application/json' --data '{}')\n", st.Method, path)
 		}
-		if st.Kind == "certFingerprint" {
-			// API returns a certificate, not a fingerprint; compute SHA-256 (uppercase
-			// hex) of the decoded cert, matching veeam.ConnectionCertificate.
-			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '.certificateUpload.certificate' | base64 -d | sha256sum | awk '{print toupper($1)}')\n", st.Captures[0].Var)
-		} else {
-			for _, cap := range st.Captures {
-				jqExpr := curlCapExpr(cap.Expr)
-				fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
-			}
+	}
+
+	// Captures.
+	if st.Kind == "certFingerprint" {
+		fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '.certificateUpload.certificate' | base64 -d | sha256sum | awk '{print toupper($1)}')\n", st.Captures[0].Var)
+	} else {
+		for _, cap := range st.Captures {
+			jqExpr := curlCapExpr(cap.Expr)
+			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
 		}
 	}
 
 	// Wait for async session.
 	if st.WaitSession && st.WaitVar != "" {
 		if st.OptionalWait {
-			// Subshell so wait_session's exit does not abort the script.
 			fmt.Fprintf(b, "( wait_session \"${%s}\" ) || echo \"optional step did not complete (continuing)\" >&2\n", st.WaitVar)
 		} else {
 			fmt.Fprintf(b, "wait_session \"${%s}\"\n", st.WaitVar)
@@ -546,31 +524,17 @@ func renderCurlStep(b *strings.Builder, st Step, apiVersion string) error {
 }
 
 // renderCurlConfigBackupRedirect emits the read-modify-write pattern for
-// /api/v1/configBackup using curl + jq.
+// /api/v1/configBackup using vbr + jq.
 func renderCurlConfigBackupRedirect(b *strings.Builder, st Step) error {
 	repoIDExpr := "${repo0_id}"
 	if m, ok := st.Body.(map[string]any); ok {
 		if v, ok2 := m["backupRepositoryId"].(string); ok2 {
-			// Expand $var -> ${var} for bash.
 			repoIDExpr = curlExpandPath(v)
 		}
 	}
-
-	b.WriteString("cfg=$(curl -sk \\\n")
-	b.WriteString("  -X GET \"${BASE_URL}/api/v1/configBackup\" \\\n")
-	b.WriteString("  -H \"x-api-version: ${API_VERSION}\" \\\n")
-	b.WriteString("  -H \"Authorization: Bearer ${TOKEN}\" \\\n")
-	b.WriteString("  -H 'Accept: application/json'\n")
-	b.WriteString(")\n")
+	b.WriteString("cfg=$(vbr GET \"${BASE_URL}/api/v1/configBackup\")\n")
 	fmt.Fprintf(b, "body=$(echo \"$cfg\" | jq --arg r \"%s\" '.backupRepositoryId=$r | .notifications.SNMPEnabled=false')\n", repoIDExpr)
-	b.WriteString("resp=$(curl -sk \\\n")
-	b.WriteString("  -X PUT \"${BASE_URL}/api/v1/configBackup\" \\\n")
-	b.WriteString("  -H \"x-api-version: ${API_VERSION}\" \\\n")
-	b.WriteString("  -H \"Authorization: Bearer ${TOKEN}\" \\\n")
-	b.WriteString("  -H 'Accept: application/json' \\\n")
-	b.WriteString("  -H 'Content-Type: application/json' \\\n")
-	b.WriteString("  --data \"$body\"\n")
-	b.WriteString(")\n")
+	b.WriteString("resp=$(vbr PUT \"${BASE_URL}/api/v1/configBackup\" -H 'Content-Type: application/json' --data \"$body\")\n")
 	b.WriteString("\n")
 	return nil
 }
@@ -605,10 +569,6 @@ func curlExpandBody(body string) string {
 }
 
 // curlCapExpr converts a capture expression to a jq path string.
-// "id"                          -> ".id"
-// "data[0].id"                  -> ".data[0].id"
-// "certificateUpload.certificate" -> ".certificateUpload.certificate"
-// "__object__"                  -> "."
 func curlCapExpr(expr string) string {
 	if expr == "__object__" || expr == "" {
 		return "."

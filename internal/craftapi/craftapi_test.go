@@ -789,7 +789,10 @@ func TestRenderedScriptsHaveNoDanglingVars(t *testing.T) {
 			"BaseURL": true, "Username": true, "Password": true,
 			"APIVersion": true, "Headers": true, "TokenResponse": true,
 			"S3AccessKey": true, "S3SecretKey": true, "NeBasicPass": true,
-			// function parameters and locals
+			// Invoke-Vbr / Connect-Vbr helpers (params, locals, scope prefix).
+			"Method": true, "Uri": true, "Body": true, "r": true, "p": true,
+			"script": true, "global": true, "local": true,
+			// Wait-VbrSession parameters and locals.
 			"SessionId": true, "PollSeconds": true, "TimeoutSeconds": true,
 			"deadline": true, "s": true, "cfg": true, "resp": true, "body": true,
 			// misc builtins

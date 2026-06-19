@@ -150,7 +150,7 @@
     <!-- Topology preset picker -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
       <h2 class="font-semibold text-slate-800">{{t "craft.topology"}}</h2>
-      <select x-model="kind" @change="extra=[]"
+      <select name="kind" x-model="kind" @change="extra=[]"
               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         <option value="">{{t "craft.select_topology"}}</option>
         {{range .Kinds}}<option value="{{.Kind}}">{{.Kind}}</option>{{end}}
