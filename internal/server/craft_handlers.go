@@ -35,7 +35,11 @@ func (s *Server) handleCraftAPI(w http.ResponseWriter, r *http.Request) {
 // handleCraftAPIRender parses the POSTed form into a craftapi.Spec, renders
 // both PowerShell and curl scripts, and returns them as JSON.
 func (s *Server) handleCraftAPIRender(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+	// The page submits via FormData → multipart/form-data, so ParseMultipartForm
+	// is required: r.ParseForm() does NOT read a multipart body and (by setting
+	// r.Form) would stop r.FormValue from lazily parsing it, leaving every field
+	// empty. ErrNotMultipart is tolerated so a urlencoded POST still works.
+	if err := r.ParseMultipartForm(32 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "bad form: " + err.Error()})
