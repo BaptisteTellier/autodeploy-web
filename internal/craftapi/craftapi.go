@@ -7,6 +7,8 @@
 // in sync with the real deployer.
 package craftapi
 
+import "github.com/BaptisteTellier/autodeploy-web/internal/veeam"
+
 // Node is one appliance in the topology.
 type Node struct {
 	// Role is one of "VSA", "VSA-2", "VIA-HR", "VIA-Proxy", etc.
@@ -184,9 +186,16 @@ func Plan(s Spec) []Step {
 			Method:  "GET",
 			Path:    "/api/v1/license",
 		})
-		licB64 := s.LicenseB64
-		if licB64 == "" {
-			licB64 = licenseB64Placeholder
+		licB64 := licenseB64Placeholder
+		if s.LicenseB64 != "" {
+			// Normalise exactly like the live wiring: raw XML → base64, line-wrapped
+			// base64 → canonical, BOM/whitespace stripped. Embedding the pasted value
+			// verbatim is what causes VBR's "Data at the root level is invalid".
+			if norm, err := veeam.EncodeLicensePayload([]byte(s.LicenseB64)); err == nil {
+				licB64 = norm
+			} else {
+				licB64 = s.LicenseB64
+			}
 		}
 		add(Step{
 			Comment: "Install the Veeam license (base64-encoded .lic file content).",

@@ -2,6 +2,7 @@ package craftapi_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -883,4 +884,28 @@ func TestRenderedScriptsHaveNoDanglingVars(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestPlanNormalizesLicense verifies the license install body is normalised to
+// canonical base64 (raw XML gets encoded), not embedded verbatim — the verbatim
+// bug produced VBR "Data at the root level is invalid".
+func TestPlanNormalizesLicense(t *testing.T) {
+	xml := `<?xml version="1.0"?><Licenses><License>x</License></Licenses>`
+	want := base64.StdEncoding.EncodeToString([]byte(xml))
+	steps := craftapi.Plan(craftapi.Spec{
+		License: true, LicenseB64: xml,
+		Nodes: []craftapi.Node{{Role: "VSA", IP: "10.0.0.1"}},
+	})
+	var got string
+	for _, st := range steps {
+		if st.Path == "/api/v1/license/install" {
+			got, _ = st.Body.(map[string]any)["license"].(string)
+		}
+	}
+	if got == xml {
+		t.Fatal("license embedded raw XML verbatim (the bug)")
+	}
+	if got != want {
+		t.Errorf("license = %q, want canonical base64 %q", got, want)
+	}
 }

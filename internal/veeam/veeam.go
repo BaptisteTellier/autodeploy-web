@@ -553,6 +553,14 @@ func encodeLicensePayload(licenseBytes []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString([]byte(s)), nil
 }
 
+// EncodeLicensePayload normalises a .lic file's content (raw XML or possibly
+// line-wrapped base64) into the canonical base64 the license/install API expects.
+// Exported for the Craft API renderer so a generated script embeds a valid
+// license value (the same normalisation the live wiring uses).
+func EncodeLicensePayload(licenseBytes []byte) (string, error) {
+	return encodeLicensePayload(licenseBytes)
+}
+
 // InstallLicense installs a Veeam license on the VBR server. The license file is
 // normalised to canonical base64 of its XML (see encodeLicensePayload). This
 // endpoint is reachable even on an unlicensed server (NoLicense role), i.e. the
