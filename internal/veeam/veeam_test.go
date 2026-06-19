@@ -129,6 +129,7 @@ func TestEncodeLicensePayload(t *testing.T) {
 	cases := map[string][]byte{
 		"raw XML":                  []byte(xml),
 		"raw XML with BOM + space": []byte("\xef\xbb\xbf  " + xml + "\n"),
+		"base64 of BOM+XML":        []byte(base64.StdEncoding.EncodeToString([]byte("\xef\xbb\xbf" + xml))),
 		"canonical base64":         []byte(want),
 		"line-wrapped base64":      []byte(want[:8] + "\r\n" + want[8:16] + "\n" + want[16:] + "\n"),
 	}

@@ -546,6 +546,11 @@ func encodeLicensePayload(licenseBytes []byte) (string, error) {
 	}, s)
 	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding} {
 		if xml, err := enc.DecodeString(compact); err == nil {
+			// The decoded content may itself carry a UTF-8 BOM (e.g. base64 of a
+			// BOM-prefixed .lic, as produced by ToBase64String(ReadAllBytes(...))).
+			// VBR's XML parser rejects it ("Data at the root level is invalid"), so
+			// strip it before re-encoding.
+			xml = bytes.TrimPrefix(xml, []byte(utf8BOM))
 			return base64.StdEncoding.EncodeToString(xml), nil
 		}
 	}
