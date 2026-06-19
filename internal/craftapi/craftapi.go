@@ -243,15 +243,26 @@ func Plan(s Spec) []Step {
 			Captures: []Capture{{Var: certFPVar}},
 		})
 
-		// 2b. Add the Linux managed server (pairing handshake).
+		// 2b. Add the Linux managed server (pairing handshake). The POST returns an
+		// async SESSION id, not the managed-server id — wait on it, then resolve the
+		// real host id with a nameFilter GET (mirrors FindManagedServerByName in the
+		// live wiring). Using the session id as hostId fails "Cannot find the
+		// specified server" on the proxy/repo calls.
+		hostSessVar := hostVar + "_sess"
 		add(Step{
 			Comment:     "Add Linux managed server: " + n.IP + " (" + n.Role + "). Pairing code shown on the appliance at boot.",
 			Method:      "POST",
 			Path:        "/api/v1/backupInfrastructure/managedServers",
 			Body:        addLinuxHostBody(n, "$"+certFPVar),
-			Captures:    []Capture{{Var: hostVar + "_id", Expr: "id"}},
+			Captures:    []Capture{{Var: hostSessVar, Expr: "id"}},
 			WaitSession: true,
-			WaitVar:     hostVar + "_id",
+			WaitVar:     hostSessVar,
+		})
+		add(Step{
+			Comment:  "Resolve the managed-server id for " + n.IP + " (the add-host response is a session id, not the host id).",
+			Method:   "GET",
+			Path:     "/api/v1/backupInfrastructure/managedServers?nameFilter=" + n.IP + "&limit=10",
+			Captures: []Capture{{Var: hostVar + "_id", Expr: "data[0].id"}},
 		})
 
 		// 2c. Update host components — best-effort. A freshly added host usually
@@ -275,15 +286,23 @@ func Plan(s Spec) []Step {
 		switch {
 		case isHR(n.Role):
 			repoName := "HR-" + nodeName(n)
-			repoIDVar := repoVarName(i) + "_id"
+			repoSessVar := repoVarName(i) + "_sess"
 			add(Step{
 				Comment:     "Create hardened repository on " + n.IP + ".",
 				Method:      "POST",
 				Path:        "/api/v1/backupInfrastructure/repositories",
 				Body:        addHardenedRepoBody(repoName, "$"+hostVar+"_id", s.RepoPath, s.ImmutableDays),
-				Captures:    []Capture{{Var: repoIDVar, Expr: "id"}},
+				Captures:    []Capture{{Var: repoSessVar, Expr: "id"}},
 				WaitSession: true,
-				WaitVar:     repoIDVar,
+				WaitVar:     repoSessVar,
+			})
+			// Resolve the repository id (the POST returned a session id) — needed by
+			// the HA config-backup redirect below.
+			add(Step{
+				Comment:  "Resolve the hardened repository id for " + repoName + ".",
+				Method:   "GET",
+				Path:     "/api/v1/backupInfrastructure/repositories?nameFilter=" + repoName + "&limit=50",
+				Captures: []Capture{{Var: repoVarName(i) + "_id", Expr: "data[0].id"}},
 			})
 		case isProxy(n.Role):
 			proxySessVar := "proxy" + itoa(i) + "_sess"

@@ -947,3 +947,38 @@ func TestCertFingerprintComputed(t *testing.T) {
 		t.Error("curl: fingerprint not computed via sha256sum")
 	}
 }
+
+// TestHostIdResolvedFromGet guards the bug where the add-host SESSION id was used
+// as the managed-server id (causing "Cannot find the specified server" on the
+// proxy/repo calls). The host id must come from a managedServers nameFilter GET.
+func TestHostIdResolvedFromGet(t *testing.T) {
+	steps := craftapi.Plan(craftapi.Spec{Nodes: []craftapi.Node{
+		{Role: "VSA", IP: "10.0.0.1"}, {Role: "VIA-Proxy", IP: "10.0.0.2"},
+	}})
+	addHostCap, hostIdCap, sawProxy := "", "", false
+	for _, st := range steps {
+		if st.Method == "POST" && st.Path == "/api/v1/backupInfrastructure/managedServers" && len(st.Captures) > 0 {
+			addHostCap = st.Captures[0].Var
+		}
+		if st.Method == "GET" && strings.Contains(st.Path, "managedServers?nameFilter=10.0.0.2") && len(st.Captures) > 0 && st.Captures[0].Expr == "data[0].id" {
+			hostIdCap = st.Captures[0].Var
+		}
+		if st.Path == "/api/v1/backupInfrastructure/proxies" {
+			sawProxy = true
+			b, _ := st.Body.(map[string]any)
+			srv, _ := b["server"].(map[string]any)
+			if srv["hostId"] != "$host0_id" {
+				t.Errorf("proxy hostId = %v, want $host0_id", srv["hostId"])
+			}
+		}
+	}
+	if addHostCap == "host0_id" {
+		t.Error("add-host still captures the session into host0_id (the bug)")
+	}
+	if hostIdCap != "host0_id" {
+		t.Errorf("host id not resolved via managedServers GET (got %q)", hostIdCap)
+	}
+	if !sawProxy {
+		t.Error("no proxy step found")
+	}
+}
