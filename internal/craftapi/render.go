@@ -165,7 +165,11 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 
 	// Wait for async session.
 	if st.WaitSession && st.WaitVar != "" {
-		fmt.Fprintf(b, "Wait-VbrSession -SessionId $%s\n", st.WaitVar)
+		if st.OptionalWait {
+			fmt.Fprintf(b, "try { Wait-VbrSession -SessionId $%s } catch { Write-Warning \"optional step did not complete (continuing): $_\" }\n", st.WaitVar)
+		} else {
+			fmt.Fprintf(b, "Wait-VbrSession -SessionId $%s\n", st.WaitVar)
+		}
 	}
 
 	b.WriteString("\n")
@@ -529,7 +533,12 @@ func renderCurlStep(b *strings.Builder, st Step, apiVersion string) error {
 
 	// Wait for async session.
 	if st.WaitSession && st.WaitVar != "" {
-		fmt.Fprintf(b, "wait_session \"${%s}\"\n", st.WaitVar)
+		if st.OptionalWait {
+			// Subshell so wait_session's exit does not abort the script.
+			fmt.Fprintf(b, "( wait_session \"${%s}\" ) || echo \"optional step did not complete (continuing)\" >&2\n", st.WaitVar)
+		} else {
+			fmt.Fprintf(b, "wait_session \"${%s}\"\n", st.WaitVar)
+		}
 	}
 
 	b.WriteString("\n")

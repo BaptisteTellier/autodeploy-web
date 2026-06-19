@@ -78,13 +78,14 @@ type Capture struct {
 
 // Step is one REST call in the ordered sequence.
 type Step struct {
-	Comment     string    // human explanation, emitted as a script comment
-	Method      string    // GET / POST / PUT / DELETE
-	Path        string    // /api/v1/...  (may include ?query)
-	Body        any       // JSON body or nil
-	Captures    []Capture // variables to extract from the response
-	WaitSession bool      // response carries an async session id — emit a wait loop
-	WaitVar     string    // variable holding the session id to wait on (e.g. "host0_id")
+	Comment      string    // human explanation, emitted as a script comment
+	Method       string    // GET / POST / PUT / DELETE
+	Path         string    // /api/v1/...  (may include ?query)
+	Body         any       // JSON body or nil
+	Captures     []Capture // variables to extract from the response
+	WaitSession  bool      // response carries an async session id — emit a wait loop
+	WaitVar      string    // variable holding the session id to wait on (e.g. "host0_id")
+	OptionalWait bool      // when true, a failed session is logged but does not abort the script
 	// Kind marks special rendering modes.
 	// "configBackupRedirect" — rendered as a read-modify-write (GET+PUT).
 	// "" — normal step.
@@ -253,16 +254,21 @@ func Plan(s Spec) []Step {
 			WaitVar:     hostVar + "_id",
 		})
 
-		// 2c. Update host components — required before repo/proxy creation.
+		// 2c. Update host components — best-effort. A freshly added host usually
+		// already has current components, so this upgrade is often a no-op that the
+		// API reports as a failed session; the live wiring only updates components
+		// reactively. Mark the wait OPTIONAL so a failed/no-op upgrade never aborts
+		// the script — the subsequent repo/proxy creation proceeds regardless.
 		updSessVar := "upd" + itoa(i) + "_sess"
 		add(Step{
-			Comment:     "Update components on " + n.IP + " (required before creating a repo or proxy on this host).",
-			Method:      "POST",
-			Path:        "/api/v1/backupInfrastructure/managedServers/updateComponents",
-			Body:        map[string]any{"ids": []string{"$" + hostVar + "_id"}},
-			Captures:    []Capture{{Var: updSessVar, Expr: "id"}},
-			WaitSession: true,
-			WaitVar:     updSessVar,
+			Comment:      "Update components on " + n.IP + " (best-effort; skipped if already current).",
+			Method:       "POST",
+			Path:         "/api/v1/backupInfrastructure/managedServers/updateComponents",
+			Body:         map[string]any{"ids": []string{"$" + hostVar + "_id"}},
+			Captures:     []Capture{{Var: updSessVar, Expr: "id"}},
+			WaitSession:  true,
+			WaitVar:      updSessVar,
+			OptionalWait: true,
 		})
 
 		// 2d. Role-specific creation.
