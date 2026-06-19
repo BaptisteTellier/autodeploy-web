@@ -152,9 +152,15 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 	}
 
 	// Extract captures from $resp.
-	for _, cap := range st.Captures {
-		expr := psCapExpr(cap.Expr)
-		fmt.Fprintf(b, "$%s = $resp%s\n", cap.Var, expr)
+	if st.Kind == "certFingerprint" {
+		// The API returns a certificate, not a fingerprint; compute SHA-256
+		// (uppercase hex) of the decoded cert, matching veeam.ConnectionCertificate.
+		fmt.Fprintf(b, "$%s = [BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([Convert]::FromBase64String($resp.certificateUpload.certificate))).Replace('-','')\n", st.Captures[0].Var)
+	} else {
+		for _, cap := range st.Captures {
+			expr := psCapExpr(cap.Expr)
+			fmt.Fprintf(b, "$%s = $resp%s\n", cap.Var, expr)
+		}
 	}
 
 	// Wait for async session.
@@ -468,9 +474,15 @@ func renderCurlStep(b *strings.Builder, st Step, apiVersion string) error {
 		fmt.Fprintf(b, "  -X GET \"${BASE_URL}%s\" \\\n", path)
 		b.WriteString(commonHeaders + "\n")
 		b.WriteString(")\n")
-		for _, cap := range st.Captures {
-			jqExpr := curlCapExpr(cap.Expr)
-			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
+		if st.Kind == "certFingerprint" {
+			// API returns a certificate, not a fingerprint; compute SHA-256 (uppercase
+			// hex) of the decoded cert, matching veeam.ConnectionCertificate.
+			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '.certificateUpload.certificate' | base64 -d | sha256sum | awk '{print toupper($1)}')\n", st.Captures[0].Var)
+		} else {
+			for _, cap := range st.Captures {
+				jqExpr := curlCapExpr(cap.Expr)
+				fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
+			}
 		}
 
 	case "DELETE":
@@ -503,9 +515,15 @@ func renderCurlStep(b *strings.Builder, st Step, apiVersion string) error {
 			b.WriteString("  -d '{}'\n")
 			b.WriteString(")\n")
 		}
-		for _, cap := range st.Captures {
-			jqExpr := curlCapExpr(cap.Expr)
-			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
+		if st.Kind == "certFingerprint" {
+			// API returns a certificate, not a fingerprint; compute SHA-256 (uppercase
+			// hex) of the decoded cert, matching veeam.ConnectionCertificate.
+			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '.certificateUpload.certificate' | base64 -d | sha256sum | awk '{print toupper($1)}')\n", st.Captures[0].Var)
+		} else {
+			for _, cap := range st.Captures {
+				jqExpr := curlCapExpr(cap.Expr)
+				fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, jqExpr)
+			}
 		}
 	}
 

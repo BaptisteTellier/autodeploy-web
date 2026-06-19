@@ -125,6 +125,17 @@ func applyDefaults(s *Spec) {
 	if s.SyslogProtocol == "" {
 		s.SyslogProtocol = defaultSyslogProto
 	}
+	// Derive BaseURL from the first VSA node so every caller (Plan AND the
+	// renderers) sees it — Plan operating on a by-value copy must not be the only
+	// place this happens, or RenderPowerShell/RenderCurl emit the placeholder.
+	if s.BaseURL == "" {
+		for _, n := range s.Nodes {
+			if isVSA(n.Role) && n.IP != "" {
+				s.BaseURL = "https://" + n.IP + ":9419"
+				break
+			}
+		}
+	}
 }
 
 func isVSA(role string) bool {
@@ -162,16 +173,6 @@ func pairingCode(n Node) string {
 // rendered by RenderPowerShell or RenderCurl.
 func Plan(s Spec) []Step {
 	applyDefaults(&s)
-
-	// Derive BaseURL from the first VSA node when not supplied.
-	if s.BaseURL == "" {
-		for _, n := range s.Nodes {
-			if isVSA(n.Role) && n.IP != "" {
-				s.BaseURL = "https://" + n.IP + ":9419"
-				break
-			}
-		}
-	}
 
 	var steps []Step
 
@@ -228,12 +229,17 @@ func Plan(s Spec) []Step {
 		certFPVar := "cert" + itoa(i) + "_fp"
 
 		// 2a. Fetch the SSH fingerprint via connectionCertificate (required by AddLinuxHost).
+		// The API does not return a fingerprint for a Linux host — it returns the
+		// certificate, and the fingerprint is SHA-256(hex,upper) of the decoded cert
+		// (matching internal/veeam ConnectionCertificate). The renderer computes it;
+		// Captures[0].Var names the variable to populate.
 		add(Step{
 			Comment:  "Fetch SSH fingerprint for " + n.IP + " — required by the add-host call.",
 			Method:   "POST",
 			Path:     "/api/v1/connectionCertificate",
 			Body:     map[string]any{"serverName": n.IP, "type": "LinuxHost"},
-			Captures: []Capture{{Var: certFPVar, Expr: "fingerprint"}},
+			Kind:     "certFingerprint",
+			Captures: []Capture{{Var: certFPVar}},
 		})
 
 		// 2b. Add the Linux managed server (pairing handshake).

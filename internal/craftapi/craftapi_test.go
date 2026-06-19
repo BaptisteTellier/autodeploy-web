@@ -909,3 +909,41 @@ func TestPlanNormalizesLicense(t *testing.T) {
 		t.Errorf("license = %q, want canonical base64 %q", got, want)
 	}
 }
+
+// TestRenderDerivesBaseURL guards the bug where the renderers emitted the
+// <VSA_IP> placeholder because BaseURL derivation lived only in Plan's by-value copy.
+func TestRenderDerivesBaseURL(t *testing.T) {
+	s := craftapi.Spec{Nodes: []craftapi.Node{{Role: "VSA", IP: "10.1.2.3"}}}
+	for name, render := range map[string]func(craftapi.Spec) (string, error){
+		"powershell": craftapi.RenderPowerShell, "curl": craftapi.RenderCurl,
+	} {
+		out, err := render(s)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.Contains(out, "https://10.1.2.3:9419") {
+			t.Errorf("%s: BaseURL not derived from VSA node", name)
+		}
+		if strings.Contains(out, "<VSA_IP>") {
+			t.Errorf("%s: still emits <VSA_IP> placeholder", name)
+		}
+	}
+}
+
+// TestCertFingerprintComputed guards that the per-host fingerprint is COMPUTED
+// (SHA-256 of the decoded cert) rather than read from a nonexistent .fingerprint
+// field — the latter sent an empty sshFingerprint and add-host rejected it.
+func TestCertFingerprintComputed(t *testing.T) {
+	s := craftapi.Spec{Nodes: []craftapi.Node{{Role: "VSA", IP: "10.0.0.1"}, {Role: "VIA-Proxy", IP: "10.0.0.2"}}}
+	ps, _ := craftapi.RenderPowerShell(s)
+	if !strings.Contains(ps, "SHA256") || !strings.Contains(ps, "certificateUpload.certificate") {
+		t.Error("PowerShell: fingerprint not computed via SHA-256 of the cert")
+	}
+	if strings.Contains(ps, "= $resp.fingerprint") {
+		t.Error("PowerShell: still reads .fingerprint (the bug)")
+	}
+	curl, _ := craftapi.RenderCurl(s)
+	if !strings.Contains(curl, "sha256sum") {
+		t.Error("curl: fingerprint not computed via sha256sum")
+	}
+}
