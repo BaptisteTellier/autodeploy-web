@@ -157,46 +157,57 @@ func TestPlanSequence(t *testing.T) {
 		}
 	}
 
-	// 2a. connectionCertificate must appear before managedServers POST.
-	iCertFetch := indexOf(func(s craftapi.Step) bool {
-		return s.Method == "POST" && s.Path == "/api/v1/connectionCertificate"
+	// 2a. wireViaHr step must be present (find-before-add + repo with component-update retry).
+	iWireHR := indexOf(func(s craftapi.Step) bool {
+		return s.Kind == "wireViaHr"
 	})
-	if iCertFetch < 0 {
-		t.Error("missing POST /api/v1/connectionCertificate before addHost")
+	if iWireHR < 0 {
+		t.Error("missing wireViaHr step for VIA-HR node")
+	} else {
+		st := steps[iWireHR]
+		if st.IP == "" {
+			t.Error("wireViaHr step missing IP")
+		}
+		if st.HostVar == "" {
+			t.Error("wireViaHr step missing HostVar")
+		}
+		if st.RepoVar == "" {
+			t.Error("wireViaHr step missing RepoVar")
+		}
+		if st.RepoName == "" {
+			t.Error("wireViaHr step missing RepoName")
+		}
+		if st.Pairing == "" {
+			t.Error("wireViaHr step missing Pairing")
+		}
 	}
 
-	// 3. managedServers POST (add host) must appear before updateComponents.
-	iAddHost := indexOf(func(s craftapi.Step) bool {
-		return s.Method == "POST" && s.Path == "/api/v1/backupInfrastructure/managedServers"
+	// 2b. wireViaProxy step must be present.
+	iWireProxy := indexOf(func(s craftapi.Step) bool {
+		return s.Kind == "wireViaProxy"
 	})
-	iUpdateComp := indexOf(func(s craftapi.Step) bool {
-		return s.Method == "POST" && strings.HasSuffix(s.Path, "/managedServers/updateComponents")
-	})
-	if iAddHost < 0 {
-		t.Error("missing POST managedServers")
-	}
-	if iUpdateComp < 0 {
-		t.Error("missing POST managedServers/updateComponents")
-	}
-	if iCertFetch >= 0 && iAddHost >= 0 && iAddHost < iCertFetch {
-		t.Error("connectionCertificate must come before addHost")
-	}
-	if iAddHost >= 0 && iUpdateComp >= 0 && iUpdateComp < iAddHost {
-		t.Error("updateComponents must come after addHost")
+	if iWireProxy < 0 {
+		t.Error("missing wireViaProxy step for VIA-Proxy node")
+	} else {
+		st := steps[iWireProxy]
+		if st.IP == "" {
+			t.Error("wireViaProxy step missing IP")
+		}
+		if st.HostVar == "" {
+			t.Error("wireViaProxy step missing HostVar")
+		}
+		if st.Pairing == "" {
+			t.Error("wireViaProxy step missing Pairing")
+		}
 	}
 
-	// 4. updateComponents must precede repo and proxy creation.
-	iRepo := indexOf(func(s craftapi.Step) bool {
-		return s.Method == "POST" && s.Path == "/api/v1/backupInfrastructure/repositories"
-	})
-	iProxy := indexOf(func(s craftapi.Step) bool {
-		return s.Method == "POST" && s.Path == "/api/v1/backupInfrastructure/proxies"
-	})
-	if iUpdateComp >= 0 && iRepo >= 0 && iRepo < iUpdateComp {
-		t.Error("repository creation must come after updateComponents")
+	// 2c. License steps must come before the first VIA wiring step.
+	firstVia := iWireHR
+	if iWireProxy >= 0 && (firstVia < 0 || iWireProxy < firstVia) {
+		firstVia = iWireProxy
 	}
-	if iUpdateComp >= 0 && iProxy >= 0 && iProxy < iUpdateComp {
-		t.Error("proxy creation must come after updateComponents")
+	if iLicPost >= 0 && firstVia >= 0 && firstVia < iLicPost {
+		t.Error("license install must come before VIA wiring steps")
 	}
 
 	// 5. S3 steps: cloudCredentials → newFolder → repositories?overwriteOwner=true.
@@ -473,7 +484,9 @@ func assertBodyField(t *testing.T, label, field string, realBody, planBody map[s
 }
 
 // --------------------------------------------------------------------------
-// AddLinuxHost drift guard.
+// AddLinuxHost drift guard — now asserted via the wireViaHr/wireViaProxy step
+// fields and the rendered script content, since Plan emits high-level Kind steps
+// instead of individual REST steps.
 // --------------------------------------------------------------------------
 func TestPlanMatchesVeeamClient_AddLinuxHost(t *testing.T) {
 	srv, rec := newRecorder(t)
@@ -486,6 +499,11 @@ func TestPlanMatchesVeeamClient_AddLinuxHost(t *testing.T) {
 	handshake := "000000"
 	_, _ = c.AddLinuxHost(context.Background(), ip, role, handshake, "FAKEFP")
 
+	// Verify the real client uses /api/v1/backupInfrastructure/managedServers.
+	if !strings.Contains(rec.path, "/backupInfrastructure/managedServers") {
+		t.Errorf("AddLinuxHost: real client path %q does not contain managedServers", rec.path)
+	}
+
 	spec := craftapi.Spec{
 		BaseURL:  srv.URL,
 		Username: "veeamadmin",
@@ -496,26 +514,54 @@ func TestPlanMatchesVeeamClient_AddLinuxHost(t *testing.T) {
 		},
 	}
 
-	st := planStepForPath(spec, "/backupInfrastructure/managedServers")
-	if st == nil {
-		t.Fatal("Plan: no managedServers step found")
+	// The wireViaHr step carries the IP and pairing code used to build the add-host call.
+	var wireStep *craftapi.Step
+	for _, s := range craftapi.Plan(spec) {
+		if s.Kind == "wireViaHr" && s.IP == ip {
+			cp := s
+			wireStep = &cp
+			break
+		}
+	}
+	if wireStep == nil {
+		t.Fatal("Plan: no wireViaHr step found for IP " + ip)
+	}
+	if wireStep.Pairing != handshake {
+		t.Errorf("wireViaHr step pairing = %q, want %q", wireStep.Pairing, handshake)
+	}
+	if wireStep.Role != role {
+		t.Errorf("wireViaHr step role = %q, want %q", wireStep.Role, role)
 	}
 
-	assertPathEqual(t, "AddLinuxHost", rec.path, st.Path)
+	// The rendered PS script must reference managedServers (via Register-ViaHost).
+	ps, err := craftapi.RenderPowerShell(spec)
+	if err != nil {
+		t.Fatalf("RenderPowerShell: %v", err)
+	}
+	if !strings.Contains(ps, "managedServers") {
+		t.Error("RenderPowerShell: managedServers not referenced in script")
+	}
+	if !strings.Contains(ps, "Register-ViaHost") {
+		t.Error("RenderPowerShell: Register-ViaHost not called")
+	}
 
+	// The real client body must have the expected type and credentialsStorageType.
 	if rec.body == nil {
 		t.Fatal("veeam client sent no body")
 	}
-	planBody := jsonMarshal(t, st.Body)
-
-	// sshFingerprint is now a $cert0_fp variable reference — skip asserting it.
-	for _, field := range []string{"type", "credentialsStorageType", "handshakeCode"} {
-		assertBodyField(t, "AddLinuxHost", field, rec.body, planBody)
+	if rec.body["type"] != "LinuxHost" {
+		t.Errorf("AddLinuxHost: real body type=%v, want LinuxHost", rec.body["type"])
+	}
+	if rec.body["credentialsStorageType"] != "Certificate" {
+		t.Errorf("AddLinuxHost: real body credentialsStorageType=%v, want Certificate", rec.body["credentialsStorageType"])
 	}
 }
 
 // --------------------------------------------------------------------------
-// UpdateHostComponents drift guard.
+// UpdateHostComponents drift guard — the component-update retry is now embedded
+// in the New-VbrHardenedRepo / New-VbrProxy helper functions rather than a
+// standalone Plan step. We verify the real client uses the right path and body,
+// and that the rendered script references updateComponents.
 // --------------------------------------------------------------------------
 func TestPlanMatchesVeeamClient_UpdateHostComponents(t *testing.T) {
 	srv, rec := newRecorder(t)
@@ -525,6 +571,19 @@ func TestPlanMatchesVeeamClient_UpdateHostComponents(t *testing.T) {
 
 	_, _ = c.UpdateHostComponents(context.Background(), []string{"host-uuid-1"})
 
+	// Real client must POST to updateComponents with an "ids" field.
+	if !strings.Contains(rec.path, "updateComponents") {
+		t.Errorf("UpdateHostComponents: real client path %q does not contain updateComponents", rec.path)
+	}
+	if rec.body == nil {
+		t.Fatal("veeam client sent no body")
+	}
+	if _, ok := rec.body["ids"]; !ok {
+		t.Error("UpdateHostComponents: real body missing 'ids' field")
+	}
+
+	// The rendered PS and bash scripts must reference updateComponents
+	// (inside the helper functions, which do the reactive retry).
 	spec := craftapi.Spec{
 		BaseURL:  srv.URL,
 		Username: "veeamadmin",
@@ -534,28 +593,26 @@ func TestPlanMatchesVeeamClient_UpdateHostComponents(t *testing.T) {
 			{Role: "VIA-HR", IP: "192.168.1.20"},
 		},
 	}
-	st := planStepForPath(spec, "updateComponents")
-	if st == nil {
-		t.Fatal("Plan: no updateComponents step found")
+	ps, err := craftapi.RenderPowerShell(spec)
+	if err != nil {
+		t.Fatalf("RenderPowerShell: %v", err)
 	}
-
-	assertPathEqual(t, "UpdateHostComponents", rec.path, st.Path)
-
-	if rec.body == nil {
-		t.Fatal("veeam client sent no body")
+	if !strings.Contains(ps, "updateComponents") {
+		t.Error("RenderPowerShell: updateComponents not referenced in script")
 	}
-	// Both must have an "ids" field.
-	if _, ok := rec.body["ids"]; !ok {
-		t.Error("UpdateHostComponents: real body missing 'ids' field")
+	curl, err := craftapi.RenderCurl(spec)
+	if err != nil {
+		t.Fatalf("RenderCurl: %v", err)
 	}
-	planBody := jsonMarshal(t, st.Body)
-	if _, ok := planBody["ids"]; !ok {
-		t.Error("UpdateHostComponents: plan body missing 'ids' field")
+	if !strings.Contains(curl, "updateComponents") {
+		t.Error("RenderCurl: updateComponents not referenced in script")
 	}
 }
 
 // --------------------------------------------------------------------------
-// AddHardenedRepository drift guard.
+// AddHardenedRepository drift guard — the repo creation is now embedded inside
+// the New-VbrHardenedRepo helper function. We verify the real client body and
+// that the wireViaHr step carries the correct repo fields.
 // --------------------------------------------------------------------------
 func TestPlanMatchesVeeamClient_AddHardenedRepository(t *testing.T) {
 	srv, rec := newRecorder(t)
@@ -565,6 +622,17 @@ func TestPlanMatchesVeeamClient_AddHardenedRepository(t *testing.T) {
 
 	_, _ = c.AddHardenedRepository(context.Background(),
 		"HR-hr1", "host-uuid", "/var/lib/veeam/backups", "", true, 7)
+
+	// Real client must POST to repositories with LinuxHardened type.
+	if !strings.Contains(rec.path, "/backupInfrastructure/repositories") {
+		t.Errorf("AddHardenedRepository: real client path %q does not contain repositories", rec.path)
+	}
+	if rec.body == nil {
+		t.Fatal("veeam client sent no body")
+	}
+	if rec.body["type"] != "LinuxHardened" {
+		t.Errorf("AddHardenedRepository: real body type=%v, want LinuxHardened", rec.body["type"])
+	}
 
 	spec := craftapi.Spec{
 		BaseURL:       srv.URL,
@@ -577,32 +645,46 @@ func TestPlanMatchesVeeamClient_AddHardenedRepository(t *testing.T) {
 			{Role: "VIA-HR", IP: "192.168.1.20", Hostname: "hr1"},
 		},
 	}
-	st := planStepForPath(spec, "/backupInfrastructure/repositories")
-	if st == nil {
-		t.Fatal("Plan: no repositories step found")
+
+	// The wireViaHr step must carry the repo name, path, and immutability days.
+	var wireStep *craftapi.Step
+	for _, s := range craftapi.Plan(spec) {
+		if s.Kind == "wireViaHr" {
+			cp := s
+			wireStep = &cp
+			break
+		}
+	}
+	if wireStep == nil {
+		t.Fatal("Plan: no wireViaHr step found")
+	}
+	if wireStep.RepoName != "HR-hr1" {
+		t.Errorf("wireViaHr RepoName = %q, want HR-hr1", wireStep.RepoName)
+	}
+	if wireStep.RepoPath != "/var/lib/veeam/backups" {
+		t.Errorf("wireViaHr RepoPath = %q, want /var/lib/veeam/backups", wireStep.RepoPath)
+	}
+	if wireStep.ImmutableDays != 7 {
+		t.Errorf("wireViaHr ImmutableDays = %d, want 7", wireStep.ImmutableDays)
 	}
 
-	assertPathEqual(t, "AddHardenedRepository", rec.path, st.Path)
-
-	if rec.body == nil {
-		t.Fatal("veeam client sent no body")
+	// The rendered PS script must reference repositories and LinuxHardened.
+	ps, err := craftapi.RenderPowerShell(spec)
+	if err != nil {
+		t.Fatalf("RenderPowerShell: %v", err)
 	}
-	planBody := jsonMarshal(t, st.Body)
-
-	for _, field := range []string{"type", "name"} {
-		assertBodyField(t, "AddHardenedRepository", field, rec.body, planBody)
+	if !strings.Contains(ps, "repositories") {
+		t.Error("RenderPowerShell: repositories not referenced in script")
 	}
-	// Verify "type" is "LinuxHardened" in both.
-	if rec.body["type"] != "LinuxHardened" {
-		t.Errorf("AddHardenedRepository: real body type=%v, want LinuxHardened", rec.body["type"])
-	}
-	if planBody["type"] != "LinuxHardened" {
-		t.Errorf("AddHardenedRepository: plan body type=%v, want LinuxHardened", planBody["type"])
+	if !strings.Contains(ps, "LinuxHardened") {
+		t.Error("RenderPowerShell: LinuxHardened not referenced in script")
 	}
 }
 
 // --------------------------------------------------------------------------
-// AddVmwareProxy drift guard.
+// AddVmwareProxy drift guard — the proxy creation is now embedded inside the
+// New-VbrProxy helper function. We verify the real client body and that the
+// wireViaProxy step is emitted and the rendered script references proxies.
 // --------------------------------------------------------------------------
 func TestPlanMatchesVeeamClient_AddVmwareProxy(t *testing.T) {
 	srv, rec := newRecorder(t)
@@ -611,6 +693,26 @@ func TestPlanMatchesVeeamClient_AddVmwareProxy(t *testing.T) {
 	mustAuthenticate(t, c)
 
 	_, _ = c.AddVmwareProxy(context.Background(), "host-uuid", 4)
+
+	// Real client must POST to proxies with ViProxy type and server.maxTaskCount=4.
+	if !strings.Contains(rec.path, "/backupInfrastructure/proxies") {
+		t.Errorf("AddVmwareProxy: real client path %q does not contain proxies", rec.path)
+	}
+	if rec.body == nil {
+		t.Fatal("veeam client sent no body")
+	}
+	if rec.body["type"] != "ViProxy" {
+		t.Errorf("AddVmwareProxy: real body type=%v, want ViProxy", rec.body["type"])
+	}
+	realServer, _ := rec.body["server"].(map[string]any)
+	if realServer == nil {
+		t.Error("AddVmwareProxy: real body missing server object")
+	} else {
+		mt, _ := json.Marshal(realServer["maxTaskCount"])
+		if string(mt) != "4" {
+			t.Errorf("AddVmwareProxy: real body server.maxTaskCount=%s, want 4", mt)
+		}
+	}
 
 	spec := craftapi.Spec{
 		BaseURL:  srv.URL,
@@ -621,30 +723,33 @@ func TestPlanMatchesVeeamClient_AddVmwareProxy(t *testing.T) {
 			{Role: "VIA-Proxy", IP: "192.168.1.30", Hostname: "proxy1"},
 		},
 	}
-	st := planStepForPath(spec, "/backupInfrastructure/proxies")
-	if st == nil {
-		t.Fatal("Plan: no proxies step found")
-	}
 
-	assertPathEqual(t, "AddVmwareProxy", rec.path, st.Path)
-
-	if rec.body == nil {
-		t.Fatal("veeam client sent no body")
-	}
-	planBody := jsonMarshal(t, st.Body)
-
-	for _, field := range []string{"type", "description"} {
-		assertBodyField(t, "AddVmwareProxy", field, rec.body, planBody)
-	}
-	// Check nested server.maxTaskCount.
-	realServer, rOK := rec.body["server"].(map[string]any)
-	planServer, pOK := planBody["server"].(map[string]any)
-	if rOK && pOK {
-		rb, _ := json.Marshal(realServer["maxTaskCount"])
-		pb, _ := json.Marshal(planServer["maxTaskCount"])
-		if string(rb) != string(pb) {
-			t.Errorf("AddVmwareProxy: server.maxTaskCount mismatch: real=%s plan=%s", rb, pb)
+	// The wireViaProxy step must be present.
+	var wireStep *craftapi.Step
+	for _, s := range craftapi.Plan(spec) {
+		if s.Kind == "wireViaProxy" {
+			cp := s
+			wireStep = &cp
+			break
 		}
+	}
+	if wireStep == nil {
+		t.Fatal("Plan: no wireViaProxy step found")
+	}
+	if wireStep.IP != "192.168.1.30" {
+		t.Errorf("wireViaProxy IP = %q, want 192.168.1.30", wireStep.IP)
+	}
+
+	// The rendered PS script must reference proxies and ViProxy.
+	ps, err := craftapi.RenderPowerShell(spec)
+	if err != nil {
+		t.Fatalf("RenderPowerShell: %v", err)
+	}
+	if !strings.Contains(ps, "proxies") {
+		t.Error("RenderPowerShell: proxies not referenced in script")
+	}
+	if !strings.Contains(ps, "ViProxy") {
+		t.Error("RenderPowerShell: ViProxy not referenced in script")
 	}
 }
 
@@ -795,6 +900,10 @@ func TestRenderedScriptsHaveNoDanglingVars(t *testing.T) {
 			// Wait-VbrSession parameters and locals.
 			"SessionId": true, "PollSeconds": true, "TimeoutSeconds": true,
 			"deadline": true, "s": true, "cfg": true, "resp": true, "body": true,
+			// VIA-node helper function params and locals.
+			"Ip": true, "Role": true, "Pairing": true,
+			"HostId": true, "Name": true, "Path": true, "ImmutableDays": true,
+			"id": true, "fp": true, "m": true, "a": true, "c": true, "u": true,
 			// misc builtins
 			"true": true, "false": true, "null": true, "_": true,
 		}
@@ -952,36 +1061,57 @@ func TestCertFingerprintComputed(t *testing.T) {
 }
 
 // TestHostIdResolvedFromGet guards the bug where the add-host SESSION id was used
-// as the managed-server id (causing "Cannot find the specified server" on the
-// proxy/repo calls). The host id must come from a managedServers nameFilter GET.
+// as the managed-server id. Now the host id is resolved via a nameFilter GET
+// inside Register-ViaHost (find-before-add pattern). The wireViaProxy step must
+// be present, carry a HostVar, and the rendered script must call Register-ViaHost
+// (which does the find-or-add with a GET to resolve the id).
 func TestHostIdResolvedFromGet(t *testing.T) {
-	steps := craftapi.Plan(craftapi.Spec{Nodes: []craftapi.Node{
+	spec := craftapi.Spec{Nodes: []craftapi.Node{
 		{Role: "VSA", IP: "10.0.0.1"}, {Role: "VIA-Proxy", IP: "10.0.0.2"},
-	}})
-	addHostCap, hostIdCap, sawProxy := "", "", false
+	}}
+	steps := craftapi.Plan(spec)
+
+	var wireStep *craftapi.Step
 	for _, st := range steps {
-		if st.Method == "POST" && st.Path == "/api/v1/backupInfrastructure/managedServers" && len(st.Captures) > 0 {
-			addHostCap = st.Captures[0].Var
-		}
-		if st.Method == "GET" && strings.Contains(st.Path, "managedServers?nameFilter=10.0.0.2") && len(st.Captures) > 0 && st.Captures[0].Expr == "data[0].id" {
-			hostIdCap = st.Captures[0].Var
-		}
-		if st.Path == "/api/v1/backupInfrastructure/proxies" {
-			sawProxy = true
-			b, _ := st.Body.(map[string]any)
-			srv, _ := b["server"].(map[string]any)
-			if srv["hostId"] != "$host0_id" {
-				t.Errorf("proxy hostId = %v, want $host0_id", srv["hostId"])
-			}
+		if st.Kind == "wireViaProxy" && st.IP == "10.0.0.2" {
+			cp := st
+			wireStep = &cp
+			break
 		}
 	}
-	if addHostCap == "host0_id" {
-		t.Error("add-host still captures the session into host0_id (the bug)")
+	if wireStep == nil {
+		t.Fatal("no wireViaProxy step found")
 	}
-	if hostIdCap != "host0_id" {
-		t.Errorf("host id not resolved via managedServers GET (got %q)", hostIdCap)
+	if wireStep.HostVar == "" {
+		t.Error("wireViaProxy step missing HostVar (host id variable)")
 	}
-	if !sawProxy {
-		t.Error("no proxy step found")
+
+	// The rendered PS script must contain Find-VbrManagedServer (the find-before-add GET)
+	// and Register-ViaHost (which wraps the whole find-or-add flow).
+	ps, err := craftapi.RenderPowerShell(spec)
+	if err != nil {
+		t.Fatalf("RenderPowerShell: %v", err)
+	}
+	if !strings.Contains(ps, "Find-VbrManagedServer") {
+		t.Error("PowerShell: Find-VbrManagedServer not present — host id not resolved via nameFilter GET")
+	}
+	if !strings.Contains(ps, "Register-ViaHost") {
+		t.Error("PowerShell: Register-ViaHost not called")
+	}
+	// The proxy call must reference the host var, not a session id directly.
+	if !strings.Contains(ps, "$"+wireStep.HostVar) {
+		t.Errorf("PowerShell: $%s not referenced near proxy creation", wireStep.HostVar)
+	}
+
+	// The curl script must contain find_managed_server and register_via_host.
+	curl, err := craftapi.RenderCurl(spec)
+	if err != nil {
+		t.Fatalf("RenderCurl: %v", err)
+	}
+	if !strings.Contains(curl, "find_managed_server") {
+		t.Error("curl: find_managed_server not present")
+	}
+	if !strings.Contains(curl, "register_via_host") {
+		t.Error("curl: register_via_host not called")
 	}
 }

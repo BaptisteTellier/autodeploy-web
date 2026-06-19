@@ -107,6 +107,89 @@ func RenderPowerShell(s Spec) (string, error) {
 	b.WriteString("    throw \"Session $SessionId did not finish within $TimeoutSeconds seconds\"\n")
 	b.WriteString("}\n\n")
 
+	// VIA-node wiring helpers — Wait-VbrNode, Find-VbrManagedServer, Find-VbrRepository,
+	// Get-VbrFingerprint, Update-VbrComponents, Register-ViaHost, New-VbrHardenedRepo,
+	// New-VbrProxy. These mirror the per-node control flow in internal/wiring/wiring.go
+	// (waitNodeUp, FindManagedServerByName, FindRepositoryByName, createWithComponents)
+	// and the JSON bodies in internal/veeam/veeam.go (AddLinuxHost, AddHardenedRepository,
+	// AddVmwareProxy). Invoke-WithComponents is inlined into the create funcs to avoid
+	// scriptblock-scoping issues.
+	b.WriteString("function Wait-VbrNode {\n")
+	b.WriteString("    param([string]$Ip, [int]$TimeoutSeconds = 1800)\n")
+	b.WriteString("    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)\n")
+	b.WriteString("    while ((Get-Date) -lt $deadline) {\n")
+	b.WriteString("        foreach ($p in 6160,443,22) {\n")
+	b.WriteString("            try { $c = [Net.Sockets.TcpClient]::new(); $c.Connect($Ip,$p); $c.Close(); return } catch { }\n")
+	b.WriteString("        }\n")
+	b.WriteString("        Write-Host \"    ...$Ip still installing/booting\"\n")
+	b.WriteString("        Start-Sleep -Seconds 15\n")
+	b.WriteString("    }\n")
+	b.WriteString("    throw \"Node $Ip not reachable within $TimeoutSeconds seconds\"\n")
+	b.WriteString("}\n")
+	b.WriteString("function Find-VbrManagedServer {\n")
+	b.WriteString("    param([string]$Ip)\n")
+	b.WriteString("    $r = Invoke-Vbr -Method GET -Uri \"$BaseURL/api/v1/backupInfrastructure/managedServers?nameFilter=$Ip&limit=10\"\n")
+	b.WriteString("    ($r.data | Where-Object { $_.name -eq $Ip } | Select-Object -First 1).id\n")
+	b.WriteString("}\n")
+	b.WriteString("function Find-VbrRepository {\n")
+	b.WriteString("    param([string]$Name)\n")
+	b.WriteString("    $r = Invoke-Vbr -Method GET -Uri \"$BaseURL/api/v1/backupInfrastructure/repositories?nameFilter=$Name&limit=50\"\n")
+	b.WriteString("    ($r.data | Where-Object { $_.name -eq $Name } | Select-Object -First 1).id\n")
+	b.WriteString("}\n")
+	b.WriteString("function Get-VbrFingerprint {\n")
+	b.WriteString("    param([string]$Ip)\n")
+	b.WriteString("    $body = @{ serverName = $Ip; type = 'LinuxHost' } | ConvertTo-Json\n")
+	b.WriteString("    $r = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/connectionCertificate\" -Body $body\n")
+	b.WriteString("    [BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([Convert]::FromBase64String($r.certificateUpload.certificate))).Replace('-','')\n")
+	b.WriteString("}\n")
+	b.WriteString("function Update-VbrComponents {\n")
+	b.WriteString("    param([string]$HostId)\n")
+	b.WriteString("    Write-Host '    host components are updating - re-running update and retrying'\n")
+	b.WriteString("    try { $u = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/backupInfrastructure/managedServers/updateComponents\" -Body (@{ ids = @($HostId) } | ConvertTo-Json); Wait-VbrSession -SessionId $u.id } catch { }\n")
+	b.WriteString("}\n")
+	b.WriteString("function Register-ViaHost {\n")
+	b.WriteString("    param([string]$Ip, [string]$Role, [string]$Pairing)\n")
+	b.WriteString("    $id = Find-VbrManagedServer -Ip $Ip\n")
+	b.WriteString("    if ($id) { Write-Host \"    $Ip already registered - skipping add\"; return $id }\n")
+	b.WriteString("    Write-Host \"    adding Linux host $Ip\"\n")
+	b.WriteString("    $fp = Get-VbrFingerprint -Ip $Ip\n")
+	b.WriteString("    $body = @{ type = 'LinuxHost'; name = $Ip; description = $Role; credentialsStorageType = 'Certificate'; handshakeCode = $Pairing; sshFingerprint = $fp } | ConvertTo-Json\n")
+	b.WriteString("    $r = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/backupInfrastructure/managedServers\" -Body $body\n")
+	b.WriteString("    Wait-VbrSession -SessionId $r.id\n")
+	b.WriteString("    $id = Find-VbrManagedServer -Ip $Ip\n")
+	b.WriteString("    if (-not $id) { throw \"Failed to resolve managed server $Ip after add\" }\n")
+	b.WriteString("    return $id\n")
+	b.WriteString("}\n")
+	b.WriteString("function New-VbrHardenedRepo {\n")
+	b.WriteString("    param([string]$HostId, [string]$Name, [string]$Path, [int]$ImmutableDays)\n")
+	b.WriteString("    $id = Find-VbrRepository -Name $Name\n")
+	b.WriteString("    if ($id) { Write-Host \"    repository $Name already exists - skipping\"; return $id }\n")
+	b.WriteString("    Write-Host \"    creating hardened repository $Name\"\n")
+	b.WriteString("    $body = @{ type = 'LinuxHardened'; name = $Name; description = ''; hostId = $HostId; repository = @{ path = $Path; useFastCloningOnXFSVolumes = $true; makeRecentBackupsImmutableDays = $ImmutableDays } } | ConvertTo-Json -Depth 12\n")
+	b.WriteString("    for ($a = 1; $a -le 3; $a++) {\n")
+	b.WriteString("        try { $r = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/backupInfrastructure/repositories\" -Body $body; Wait-VbrSession -SessionId $r.id; break }\n")
+	b.WriteString("        catch {\n")
+	b.WriteString("            $m = \"$($_.ErrorDetails.Message) $($_.Exception.Message)\"\n")
+	b.WriteString("            if ($a -lt 3 -and $m -like '*pending components update*') { Update-VbrComponents -HostId $HostId; continue }\n")
+	b.WriteString("            throw\n")
+	b.WriteString("        }\n")
+	b.WriteString("    }\n")
+	b.WriteString("    return (Find-VbrRepository -Name $Name)\n")
+	b.WriteString("}\n")
+	b.WriteString("function New-VbrProxy {\n")
+	b.WriteString("    param([string]$HostId)\n")
+	b.WriteString("    Write-Host '    registering VMware backup proxy'\n")
+	b.WriteString("    $body = @{ type = 'ViProxy'; description = ''; server = @{ hostId = $HostId; maxTaskCount = 4 } } | ConvertTo-Json -Depth 12\n")
+	b.WriteString("    for ($a = 1; $a -le 3; $a++) {\n")
+	b.WriteString("        try { $r = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/backupInfrastructure/proxies\" -Body $body; Wait-VbrSession -SessionId $r.id; break }\n")
+	b.WriteString("        catch {\n")
+	b.WriteString("            $m = \"$($_.ErrorDetails.Message) $($_.Exception.Message)\"\n")
+	b.WriteString("            if ($a -lt 3 -and $m -like '*pending components update*') { Update-VbrComponents -HostId $HostId; continue }\n")
+	b.WriteString("            throw\n")
+	b.WriteString("        }\n")
+	b.WriteString("    }\n")
+	b.WriteString("}\n\n")
+
 	b.WriteString("Write-Host '==> Authenticating'\n")
 	b.WriteString("Connect-Vbr\n\n")
 
@@ -131,6 +214,15 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 	b.WriteString("# ---------------------------------------------------------------------------\n")
 	b.WriteString("# " + st.Comment + "\n")
 	b.WriteString("# ---------------------------------------------------------------------------\n")
+
+	// High-level VIA-node wiring steps — delegate to helper functions.
+	if st.Kind == "wireViaHr" {
+		return renderPSWireViaHr(b, st)
+	}
+	if st.Kind == "wireViaProxy" {
+		return renderPSWireViaProxy(b, st)
+	}
+
 	psEcho(b, st.Comment)
 
 	// configBackupRedirect is a special read-modify-write step.
@@ -180,6 +272,38 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 		}
 	}
 
+	b.WriteString("\n")
+	return nil
+}
+
+// renderPSWireViaHr emits the high-level HR-node wiring block using the
+// helper functions defined in the script preamble.
+func renderPSWireViaHr(b *strings.Builder, st Step) error {
+	fmt.Fprintf(b, "Write-Host '==> Wire %s %s'\n", strings.ReplaceAll(st.Role, "'", "''"), st.IP)
+	fmt.Fprintf(b, "Wait-VbrNode -Ip '%s'\n", st.IP)
+	fmt.Fprintf(b, "$%s = Register-ViaHost -Ip '%s' -Role '%s' -Pairing '%s'\n",
+		st.HostVar, st.IP,
+		strings.ReplaceAll(st.Role, "'", "''"),
+		strings.ReplaceAll(st.Pairing, "'", "''"))
+	fmt.Fprintf(b, "$%s = New-VbrHardenedRepo -HostId $%s -Name '%s' -Path '%s' -ImmutableDays %d\n",
+		st.RepoVar, st.HostVar,
+		strings.ReplaceAll(st.RepoName, "'", "''"),
+		strings.ReplaceAll(st.RepoPath, "'", "''"),
+		st.ImmutableDays)
+	b.WriteString("\n")
+	return nil
+}
+
+// renderPSWireViaProxy emits the high-level proxy-node wiring block using the
+// helper functions defined in the script preamble.
+func renderPSWireViaProxy(b *strings.Builder, st Step) error {
+	fmt.Fprintf(b, "Write-Host '==> Wire %s %s'\n", strings.ReplaceAll(st.Role, "'", "''"), st.IP)
+	fmt.Fprintf(b, "Wait-VbrNode -Ip '%s'\n", st.IP)
+	fmt.Fprintf(b, "$%s = Register-ViaHost -Ip '%s' -Role '%s' -Pairing '%s'\n",
+		st.HostVar, st.IP,
+		strings.ReplaceAll(st.Role, "'", "''"),
+		strings.ReplaceAll(st.Pairing, "'", "''"))
+	fmt.Fprintf(b, "New-VbrProxy -HostId $%s\n", st.HostVar)
 	b.WriteString("\n")
 	return nil
 }
@@ -446,6 +570,101 @@ func RenderCurl(s Spec) (string, error) {
 	b.WriteString("  echo \"Session $sid timed out after ${timeout}s\" >&2; exit 1\n")
 	b.WriteString("}\n\n")
 
+	// VIA-node wiring helpers — wait_node, find_managed_server, find_repository,
+	// get_fingerprint, update_components, register_via_host, new_hardened_repo,
+	// new_proxy. These mirror the per-node control flow in internal/wiring/wiring.go
+	// and the JSON bodies in internal/veeam/veeam.go.
+	b.WriteString("wait_node() {\n")
+	b.WriteString("  local ip=$1 timeout=${2:-1800} elapsed=0\n")
+	b.WriteString("  while [ $elapsed -lt $timeout ]; do\n")
+	b.WriteString("    for port in 6160 443 22; do\n")
+	b.WriteString("      if (exec 3<>\"/dev/tcp/$ip/$port\") 2>/dev/null; then exec 3>&-; return 0; fi\n")
+	b.WriteString("    done\n")
+	b.WriteString("    echo \"    ...$ip still installing/booting\" >&2\n")
+	b.WriteString("    sleep 15; elapsed=$((elapsed + 15))\n")
+	b.WriteString("  done\n")
+	b.WriteString("  echo \"Node $ip not reachable within ${timeout}s\" >&2; exit 1\n")
+	b.WriteString("}\n")
+	b.WriteString("find_managed_server() {\n")
+	b.WriteString("  local ip=$1\n")
+	b.WriteString("  vbr GET \"${BASE_URL}/api/v1/backupInfrastructure/managedServers?nameFilter=${ip}&limit=10\" \\\n")
+	b.WriteString("    | jq -r --arg n \"$ip\" '.data[]|select(.name==$n)|.id' | head -n1\n")
+	b.WriteString("}\n")
+	b.WriteString("find_repository() {\n")
+	b.WriteString("  local name=$1\n")
+	b.WriteString("  vbr GET \"${BASE_URL}/api/v1/backupInfrastructure/repositories?nameFilter=${name}&limit=50\" \\\n")
+	b.WriteString("    | jq -r --arg n \"$name\" '.data[]|select(.name==$n)|.id' | head -n1\n")
+	b.WriteString("}\n")
+	b.WriteString("get_fingerprint() {\n")
+	b.WriteString("  local ip=$1\n")
+	b.WriteString("  local body; body=$(printf '{\"serverName\":\"%s\",\"type\":\"LinuxHost\"}' \"$ip\")\n")
+	b.WriteString("  vbr POST \"${BASE_URL}/api/v1/connectionCertificate\" -H 'Content-Type: application/json' --data \"$body\" \\\n")
+	b.WriteString("    | jq -r '.certificateUpload.certificate' | base64 -d | sha256sum | awk '{print toupper($1)}'\n")
+	b.WriteString("}\n")
+	b.WriteString("update_components() {\n")
+	b.WriteString("  local host_id=$1\n")
+	b.WriteString("  echo '    host components are updating - re-running update and retrying' >&2\n")
+	b.WriteString("  local body; body=$(printf '{\"ids\":[\"%s\"]}' \"$host_id\")\n")
+	b.WriteString("  local resp; resp=$(vbr POST \"${BASE_URL}/api/v1/backupInfrastructure/managedServers/updateComponents\" \\\n")
+	b.WriteString("    -H 'Content-Type: application/json' --data \"$body\") || true\n")
+	b.WriteString("  local sid; sid=$(printf '%s' \"$resp\" | jq -r '.id // empty')\n")
+	b.WriteString("  [ -n \"$sid\" ] && wait_session \"$sid\" || true\n")
+	b.WriteString("}\n")
+	b.WriteString("register_via_host() {\n")
+	b.WriteString("  local ip=$1 role=$2 pairing=$3\n")
+	b.WriteString("  local id; id=$(find_managed_server \"$ip\")\n")
+	b.WriteString("  if [ -n \"$id\" ]; then echo \"    $ip already registered - skipping add\" >&2; printf '%s' \"$id\"; return; fi\n")
+	b.WriteString("  echo \"    adding Linux host $ip\" >&2\n")
+	b.WriteString("  local fp; fp=$(get_fingerprint \"$ip\")\n")
+	b.WriteString("  local body; body=$(printf '{\"type\":\"LinuxHost\",\"name\":\"%s\",\"description\":\"%s\",\"credentialsStorageType\":\"Certificate\",\"handshakeCode\":\"%s\",\"sshFingerprint\":\"%s\"}' \\\n")
+	b.WriteString("    \"$ip\" \"$role\" \"$pairing\" \"$fp\")\n")
+	b.WriteString("  local resp; resp=$(vbr POST \"${BASE_URL}/api/v1/backupInfrastructure/managedServers\" \\\n")
+	b.WriteString("    -H 'Content-Type: application/json' --data \"$body\")\n")
+	b.WriteString("  local sid; sid=$(printf '%s' \"$resp\" | jq -r '.id')\n")
+	b.WriteString("  wait_session \"$sid\"\n")
+	b.WriteString("  id=$(find_managed_server \"$ip\")\n")
+	b.WriteString("  [ -n \"$id\" ] || { echo \"Failed to resolve managed server $ip after add\" >&2; exit 1; }\n")
+	b.WriteString("  printf '%s' \"$id\"\n")
+	b.WriteString("}\n")
+	b.WriteString("new_hardened_repo() {\n")
+	b.WriteString("  local host_id=$1 name=$2 path=$3 days=$4\n")
+	b.WriteString("  local id; id=$(find_repository \"$name\")\n")
+	b.WriteString("  if [ -n \"$id\" ]; then echo \"    repository $name already exists - skipping\" >&2; printf '%s' \"$id\"; return; fi\n")
+	b.WriteString("  echo \"    creating hardened repository $name\" >&2\n")
+	b.WriteString("  local body; body=$(printf '{\"type\":\"LinuxHardened\",\"name\":\"%s\",\"description\":\"\",\"hostId\":\"%s\",\"repository\":{\"path\":\"%s\",\"useFastCloningOnXFSVolumes\":true,\"makeRecentBackupsImmutableDays\":%s}}' \\\n")
+	b.WriteString("    \"$name\" \"$host_id\" \"$path\" \"$days\")\n")
+	b.WriteString("  local a resp sid msg\n")
+	b.WriteString("  for a in 1 2 3; do\n")
+	b.WriteString("    resp=$(vbr POST \"${BASE_URL}/api/v1/backupInfrastructure/repositories\" \\\n")
+	b.WriteString("      -H 'Content-Type: application/json' --data \"$body\") && true\n")
+	b.WriteString("    msg=$(printf '%s' \"$resp\" | jq -r '.message // empty')\n")
+	b.WriteString("    sid=$(printf '%s' \"$resp\" | jq -r '.id // empty')\n")
+	b.WriteString("    if [ -n \"$sid\" ]; then wait_session \"$sid\"; break; fi\n")
+	b.WriteString("    if [ $a -lt 3 ] && echo \"$msg\" | grep -qi 'pending components update'; then\n")
+	b.WriteString("      update_components \"$host_id\"; continue\n")
+	b.WriteString("    fi\n")
+	b.WriteString("    echo \"new_hardened_repo failed: $resp\" >&2; exit 1\n")
+	b.WriteString("  done\n")
+	b.WriteString("  printf '%s' \"$(find_repository \"$name\")\"\n")
+	b.WriteString("}\n")
+	b.WriteString("new_proxy() {\n")
+	b.WriteString("  local host_id=$1\n")
+	b.WriteString("  echo '    registering VMware backup proxy' >&2\n")
+	b.WriteString("  local body; body=$(printf '{\"type\":\"ViProxy\",\"description\":\"\",\"server\":{\"hostId\":\"%s\",\"maxTaskCount\":4}}' \"$host_id\")\n")
+	b.WriteString("  local a resp sid msg\n")
+	b.WriteString("  for a in 1 2 3; do\n")
+	b.WriteString("    resp=$(vbr POST \"${BASE_URL}/api/v1/backupInfrastructure/proxies\" \\\n")
+	b.WriteString("      -H 'Content-Type: application/json' --data \"$body\") && true\n")
+	b.WriteString("    msg=$(printf '%s' \"$resp\" | jq -r '.message // empty')\n")
+	b.WriteString("    sid=$(printf '%s' \"$resp\" | jq -r '.id // empty')\n")
+	b.WriteString("    if [ -n \"$sid\" ]; then wait_session \"$sid\"; return; fi\n")
+	b.WriteString("    if [ $a -lt 3 ] && echo \"$msg\" | grep -qi 'pending components update'; then\n")
+	b.WriteString("      update_components \"$host_id\"; continue\n")
+	b.WriteString("    fi\n")
+	b.WriteString("    echo \"new_proxy failed: $resp\" >&2; exit 1\n")
+	b.WriteString("  done\n")
+	b.WriteString("}\n\n")
+
 	b.WriteString("echo '==> Authenticating'\n")
 	b.WriteString("get_token\n\n")
 
@@ -469,6 +688,15 @@ func renderCurlStep(b *strings.Builder, st Step) error {
 	b.WriteString("# ---------------------------------------------------------------------------\n")
 	b.WriteString("# " + st.Comment + "\n")
 	b.WriteString("# ---------------------------------------------------------------------------\n")
+
+	// High-level VIA-node wiring steps — delegate to helper functions.
+	if st.Kind == "wireViaHr" {
+		return renderCurlWireViaHr(b, st)
+	}
+	if st.Kind == "wireViaProxy" {
+		return renderCurlWireViaProxy(b, st)
+	}
+
 	curlEcho(b, st.Comment)
 
 	// configBackupRedirect is a special read-modify-write step.
@@ -519,6 +747,38 @@ func renderCurlStep(b *strings.Builder, st Step) error {
 		}
 	}
 
+	b.WriteString("\n")
+	return nil
+}
+
+// renderCurlWireViaHr emits the high-level HR-node wiring block using the
+// helper functions defined in the script preamble.
+func renderCurlWireViaHr(b *strings.Builder, st Step) error {
+	roleEsc := strings.ReplaceAll(st.Role, "'", `'\''`)
+	fmt.Fprintf(b, "echo '==> Wire %s %s'\n", roleEsc, st.IP)
+	fmt.Fprintf(b, "wait_node '%s'\n", st.IP)
+	fmt.Fprintf(b, "%s=$(register_via_host '%s' '%s' '%s')\n",
+		st.HostVar, st.IP, roleEsc,
+		strings.ReplaceAll(st.Pairing, "'", `'\''`))
+	fmt.Fprintf(b, "%s=$(new_hardened_repo \"${%s}\" '%s' '%s' '%d')\n",
+		st.RepoVar, st.HostVar,
+		strings.ReplaceAll(st.RepoName, "'", `'\''`),
+		strings.ReplaceAll(st.RepoPath, "'", `'\''`),
+		st.ImmutableDays)
+	b.WriteString("\n")
+	return nil
+}
+
+// renderCurlWireViaProxy emits the high-level proxy-node wiring block using the
+// helper functions defined in the script preamble.
+func renderCurlWireViaProxy(b *strings.Builder, st Step) error {
+	roleEsc := strings.ReplaceAll(st.Role, "'", `'\''`)
+	fmt.Fprintf(b, "echo '==> Wire %s %s'\n", roleEsc, st.IP)
+	fmt.Fprintf(b, "wait_node '%s'\n", st.IP)
+	fmt.Fprintf(b, "%s=$(register_via_host '%s' '%s' '%s')\n",
+		st.HostVar, st.IP, roleEsc,
+		strings.ReplaceAll(st.Pairing, "'", `'\''`))
+	fmt.Fprintf(b, "new_proxy \"${%s}\"\n", st.HostVar)
 	b.WriteString("\n")
 	return nil
 }

@@ -88,8 +88,20 @@ type Step struct {
 	OptionalWait bool      // when true, a failed session is logged but does not abort the script
 	// Kind marks special rendering modes.
 	// "configBackupRedirect" — rendered as a read-modify-write (GET+PUT).
-	// "" — normal step.
+	// "wireViaHr"            — high-level HR node wiring via helper functions.
+	// "wireViaProxy"         — high-level proxy node wiring via helper functions.
+	// ""                     — normal step.
 	Kind string
+
+	// Fields used by wireViaHr / wireViaProxy kinds.
+	HostVar       string // PS/bash variable to assign the resolved managed-server id
+	RepoVar       string // PS/bash variable to assign the resolved repo id (HR only)
+	IP            string // node IP address
+	Role          string // node role label (used as description on managed-server add)
+	Pairing       string // handshake/pairing code
+	RepoName      string // hardened repo name (HR only)
+	RepoPath      string // repo filesystem path (HR only)
+	ImmutableDays int    // immutability days (HR only)
 }
 
 // licenseB64Placeholder is emitted in the install body when LicenseB64 is
@@ -208,7 +220,10 @@ func Plan(s Spec) []Step {
 	}
 
 	// -------------------------------------------------------------------------
-	// 2. Per VIA node: connectionCertificate → add host (async) → updateComponents (async) → repo/proxy.
+	// 2. Per VIA node — one high-level step per node, mirroring the per-node
+	//    goroutine in Wire(): waitNodeUp → find-or-add managed server →
+	//    (HR) find-or-create repo with createWithComponents retry
+	//    (Proxy) createWithComponents retry.
 	// -------------------------------------------------------------------------
 	// Separate VSA and VIA nodes, mirroring the wiring split.
 	var vsas, vias []Node
@@ -220,100 +235,52 @@ func Plan(s Spec) []Step {
 		}
 	}
 
-	// Track variable names for per-node host captures so dependent steps can
-	// reference them. We use indexed names: host0, host1, …
-	hostVars := make([]string, len(vias))
+	// Precompute HR hostname counts to reproduce wiring.go's disambiguation:
+	// when >1 HR nodes share a hostname, append -IP to make the repo name unique.
+	hrNameCount := map[string]int{}
+	for _, n := range vias {
+		if isHR(n.Role) {
+			hrNameCount[nodeName(n)]++
+		}
+	}
+
+	// Track the first HR node's vias index so the HA configBackup step can
+	// reference its repo var — mirrors wiring.go's "lowest-index HR" logic.
+	firstHRIdx := -1
 
 	for i, n := range vias {
 		hostVar := hostVarName(i)
-		hostVars[i] = hostVar
-		certFPVar := "cert" + itoa(i) + "_fp"
 
-		// 2a. Fetch the SSH fingerprint via connectionCertificate (required by AddLinuxHost).
-		// The API does not return a fingerprint for a Linux host — it returns the
-		// certificate, and the fingerprint is SHA-256(hex,upper) of the decoded cert
-		// (matching internal/veeam ConnectionCertificate). The renderer computes it;
-		// Captures[0].Var names the variable to populate.
-		add(Step{
-			Comment:  "Fetch SSH fingerprint for " + n.IP + " — required by the add-host call.",
-			Method:   "POST",
-			Path:     "/api/v1/connectionCertificate",
-			Body:     map[string]any{"serverName": n.IP, "type": "LinuxHost"},
-			Kind:     "certFingerprint",
-			Captures: []Capture{{Var: certFPVar}},
-		})
-
-		// 2b. Add the Linux managed server (pairing handshake). The POST returns an
-		// async SESSION id, not the managed-server id — wait on it, then resolve the
-		// real host id with a nameFilter GET (mirrors FindManagedServerByName in the
-		// live wiring). Using the session id as hostId fails "Cannot find the
-		// specified server" on the proxy/repo calls.
-		hostSessVar := hostVar + "_sess"
-		add(Step{
-			Comment:     "Add Linux managed server: " + n.IP + " (" + n.Role + "). Pairing code shown on the appliance at boot.",
-			Method:      "POST",
-			Path:        "/api/v1/backupInfrastructure/managedServers",
-			Body:        addLinuxHostBody(n, "$"+certFPVar),
-			Captures:    []Capture{{Var: hostSessVar, Expr: "id"}},
-			WaitSession: true,
-			WaitVar:     hostSessVar,
-		})
-		add(Step{
-			Comment:  "Resolve the managed-server id for " + n.IP + " (the add-host response is a session id, not the host id).",
-			Method:   "GET",
-			Path:     "/api/v1/backupInfrastructure/managedServers?nameFilter=" + n.IP + "&limit=10",
-			Captures: []Capture{{Var: hostVar + "_id", Expr: "data[0].id"}},
-		})
-
-		// 2c. Update host components — best-effort. A freshly added host usually
-		// already has current components, so this upgrade is often a no-op that the
-		// API reports as a failed session; the live wiring only updates components
-		// reactively. Mark the wait OPTIONAL so a failed/no-op upgrade never aborts
-		// the script — the subsequent repo/proxy creation proceeds regardless.
-		updSessVar := "upd" + itoa(i) + "_sess"
-		add(Step{
-			Comment:      "Update components on " + n.IP + " (best-effort; skipped if already current).",
-			Method:       "POST",
-			Path:         "/api/v1/backupInfrastructure/managedServers/updateComponents",
-			Body:         map[string]any{"ids": []string{"$" + hostVar + "_id"}},
-			Captures:     []Capture{{Var: updSessVar, Expr: "id"}},
-			WaitSession:  true,
-			WaitVar:      updSessVar,
-			OptionalWait: true,
-		})
-
-		// 2d. Role-specific creation.
 		switch {
 		case isHR(n.Role):
+			// Disambiguate repo name exactly like wiring.go.
 			repoName := "HR-" + nodeName(n)
-			repoSessVar := repoVarName(i) + "_sess"
+			if hrNameCount[nodeName(n)] > 1 {
+				repoName += "-" + n.IP
+			}
 			add(Step{
-				Comment:     "Create hardened repository on " + n.IP + ".",
-				Method:      "POST",
-				Path:        "/api/v1/backupInfrastructure/repositories",
-				Body:        addHardenedRepoBody(repoName, "$"+hostVar+"_id", s.RepoPath, s.ImmutableDays),
-				Captures:    []Capture{{Var: repoSessVar, Expr: "id"}},
-				WaitSession: true,
-				WaitVar:     repoSessVar,
+				Comment:       "Wire " + n.Role + " " + n.IP + " — wait for node, register host (find-before-add), create hardened repo (with component-update retry).",
+				Kind:          "wireViaHr",
+				HostVar:       hostVar + "_id",
+				RepoVar:       repoVarName(i) + "_id",
+				IP:            n.IP,
+				Role:          n.Role,
+				Pairing:       pairingCode(n),
+				RepoName:      repoName,
+				RepoPath:      s.RepoPath,
+				ImmutableDays: s.ImmutableDays,
 			})
-			// Resolve the repository id (the POST returned a session id) — needed by
-			// the HA config-backup redirect below.
-			add(Step{
-				Comment:  "Resolve the hardened repository id for " + repoName + ".",
-				Method:   "GET",
-				Path:     "/api/v1/backupInfrastructure/repositories?nameFilter=" + repoName + "&limit=50",
-				Captures: []Capture{{Var: repoVarName(i) + "_id", Expr: "data[0].id"}},
-			})
+			if firstHRIdx == -1 {
+				firstHRIdx = i
+			}
 		case isProxy(n.Role):
-			proxySessVar := "proxy" + itoa(i) + "_sess"
 			add(Step{
-				Comment:     "Register VMware backup proxy on " + n.IP + ".",
-				Method:      "POST",
-				Path:        "/api/v1/backupInfrastructure/proxies",
-				Body:        addVmwareProxyBody("$" + hostVar + "_id"),
-				Captures:    []Capture{{Var: proxySessVar, Expr: "id"}},
-				WaitSession: true,
-				WaitVar:     proxySessVar,
+				Comment: "Wire " + n.Role + " " + n.IP + " — wait for node, register host (find-before-add), register VMware proxy (with component-update retry).",
+				Kind:    "wireViaProxy",
+				HostVar: hostVar + "_id",
+				IP:      n.IP,
+				Role:    n.Role,
+				Pairing: pairingCode(n),
 			})
 		}
 	}
@@ -325,6 +292,13 @@ func Plan(s Spec) []Step {
 		primary := vsas[0]
 		secondary := vsas[1]
 
+		// Config backup target is the FIRST (lowest-index) HR repo var,
+		// matching wiring.go's "pick the lowest-index HR as the HA config-backup target".
+		haRepoVar := "$repo0_id" // fallback (should not happen if HR nodes exist)
+		if firstHRIdx >= 0 {
+			haRepoVar = "$" + repoVarName(firstHRIdx) + "_id"
+		}
+
 		// Config backup redirect — rendered as read-modify-write.
 		add(Step{
 			Comment: "Redirect VBR configuration backup to the hardened repository (read-modify-write).",
@@ -332,7 +306,7 @@ func Plan(s Spec) []Step {
 			Method:  "PUT",
 			Path:    "/api/v1/configBackup",
 			// Body holds the target repo id expression for use by the renderer.
-			Body: map[string]any{"backupRepositoryId": "$repo0_id"},
+			Body: map[string]any{"backupRepositoryId": haRepoVar},
 		})
 
 		// Find & delete Default Backup Repository.
