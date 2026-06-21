@@ -511,19 +511,18 @@ func buildHypervisor(provider hypervisor.Provider, r *http.Request) (hypervisor.
 		})
 	case hypervisor.ProviderWorkstation:
 		return hypervisor.NewWorkstation(hypervisor.WorkstationConfig{
-			Host:             get("ws_host"),
-			Port:             atoiDefault(r.FormValue("ws_port"), 0),
-			Username:         get("ws_user"),
-			Password:         r.FormValue("ws_password"),
-			HTTPS:            r.FormValue("ws_https") != "",
-			Insecure:         r.FormValue("ws_insecure") != "",
-			VMRunPath:        get("ws_vmrun"),
-			VDiskManagerPath: get("ws_vdiskmanager"),
-			VMBaseDir:        get("ws_vm_dir"),
-			ISODir:           get("ws_iso_dir"),
-			VNet:             get("ws_vnet"),
-			VNCHost:          get("ws_vnc_host"),
-			VNCPortBase:      atoiDefault(r.FormValue("ws_vnc_port_base"), 0),
+			Host:        get("ws_host"),
+			Port:        atoiDefault(r.FormValue("ws_port"), 0),
+			Username:    get("ws_user"),
+			Password:    r.FormValue("ws_password"),
+			HTTPS:       r.FormValue("ws_https") != "",
+			Insecure:    r.FormValue("ws_insecure") != "",
+			InstallDir:  get("ws_install_dir"),
+			VMBaseDir:   get("ws_vm_dir"),
+			ISODir:      get("ws_iso_dir"),
+			VNet:        get("ws_vnet"),
+			VNCHost:     get("ws_vnc_host"),
+			VNCPortBase: atoiDefault(r.FormValue("ws_vnc_port_base"), 0),
 		})
 	case hypervisor.ProviderNutanix:
 		return hypervisor.NewNutanix(hypervisor.NutanixConfig{
@@ -661,6 +660,8 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"nx_endpoint", "nx_port", "nx_user", "nx_cluster", "nx_storage", "nx_subnet",
 		// XCP-ng
 		"xen_host", "xen_user", "xen_sr", "xen_iso_sr", "xen_network",
+		// VMware Workstation (ws_password is a secret — deliberately excluded)
+		"ws_host", "ws_port", "ws_user", "ws_install_dir", "ws_vm_dir", "ws_iso_dir", "ws_vnet", "ws_vnc_host", "ws_vnc_port_base",
 	)
 
 	checks := map[string]bool{
@@ -670,6 +671,8 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"hv_https":               r.FormValue("hv_https") != "",
 		"nx_insecure":            r.FormValue("nx_insecure") != "",
 		"xen_insecure":           r.FormValue("xen_insecure") != "",
+		"ws_https":               r.FormValue("ws_https") != "",
+		"ws_insecure":            r.FormValue("ws_insecure") != "",
 		"wire_node_exporter":     r.FormValue("wire_node_exporter") != "",
 		"wire_node_exporter_tls": r.FormValue("wire_node_exporter_tls") != "",
 		"wire_s3":                r.FormValue("wire_s3") != "",

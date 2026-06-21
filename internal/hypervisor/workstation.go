@@ -27,10 +27,11 @@ type WorkstationConfig struct {
 	HTTPS    bool // use HTTPS WinRM transport
 	Insecure bool // skip TLS verification when HTTPS
 
-	// Paths to VMware executables on the Windows host.
-	// Defaults are applied by NewWorkstation when empty.
-	VMRunPath        string // default: C:\Program Files\VMware\VMware Workstation\vmrun.exe
-	VDiskManagerPath string // default: C:\Program Files\VMware\VMware Workstation\vmware-vdiskmanager.exe
+	// InstallDir is the VMware Workstation install directory on the Windows
+	// host. vmrun.exe and vmware-vdiskmanager.exe live side by side in it, so
+	// a single directory is enough — the executables are derived from it.
+	// Default is applied by NewWorkstation when empty.
+	InstallDir string // default: C:\Program Files (x86)\VMware\VMware Workstation
 
 	// Storage layout on the Windows host.
 	VMBaseDir string // parent dir where per-VM folders are created, e.g. C:\VMs
@@ -63,11 +64,8 @@ var _ Hypervisor = (*Workstation)(nil)
 // and validating required fields.
 func NewWorkstation(cfg WorkstationConfig) (*Workstation, error) {
 	// Apply defaults.
-	if cfg.VMRunPath == "" {
-		cfg.VMRunPath = `C:\Program Files\VMware\VMware Workstation\vmrun.exe`
-	}
-	if cfg.VDiskManagerPath == "" {
-		cfg.VDiskManagerPath = `C:\Program Files\VMware\VMware Workstation\vmware-vdiskmanager.exe`
+	if cfg.InstallDir == "" {
+		cfg.InstallDir = `C:\Program Files (x86)\VMware\VMware Workstation`
 	}
 	if cfg.VNCPortBase == 0 {
 		cfg.VNCPortBase = 5910
@@ -92,6 +90,25 @@ func NewWorkstation(cfg WorkstationConfig) (*Workstation, error) {
 		vncPorts: make(map[string]int),
 		nextPort: cfg.VNCPortBase,
 	}, nil
+}
+
+// vmRun returns the full path to vmrun.exe on the Windows host, derived from
+// the configured install directory.
+func (w *Workstation) vmRun() string {
+	return joinWin(w.cfg.InstallDir, "vmrun.exe")
+}
+
+// vdiskManager returns the full path to vmware-vdiskmanager.exe on the Windows
+// host, derived from the configured install directory.
+func (w *Workstation) vdiskManager() string {
+	return joinWin(w.cfg.InstallDir, "vmware-vdiskmanager.exe")
+}
+
+// joinWin joins a Windows directory and filename with a single backslash,
+// trimming any trailing separators from dir. filepath.Join is unsafe here
+// because the container runs on Linux and would use "/".
+func joinWin(dir, name string) string {
+	return strings.TrimRight(dir, `\/`) + `\` + name
 }
 
 // winrmPort returns the WinRM port to connect on.
@@ -326,7 +343,8 @@ func (w *Workstation) patchVMXLine(ctx context.Context, vmxPath, key, value stri
 			"$content = Get-Content -LiteralPath $path -Raw\n"+
 			"$line = $key + ' = \"' + $val + '\"'\n"+
 			"if ($content -match [regex]::Escape($key + ' =')) {\n"+
-			"    $content = $content -replace ('^' + [regex]::Escape($key) + '\\s*=.*'), $line, 'Multiline'\n"+
+			"    $pattern = '(?m)^' + [regex]::Escape($key) + '\\s*=.*'\n"+
+			"    $content = [regex]::Replace($content, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $line })\n"+
 			"} else {\n"+
 			"    $content = $content.TrimEnd() + \"`r`n\" + $line + \"`r`n\"\n"+
 			"}\n"+
@@ -359,9 +377,7 @@ func (w *Workstation) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) 
 
 	// Build per-disk vmdk creation commands.
 	var diskCmds strings.Builder
-	vmrun := w.cfg.VMRunPath
-	vdisk := w.cfg.VDiskManagerPath
-	_ = vmrun // used later
+	vdisk := w.vdiskManager()
 	for i, gib := range spec.Disks {
 		diskPath := vmDir + `\disk` + strconv.Itoa(i) + `.vmdk`
 		fmt.Fprintf(&diskCmds,
@@ -445,7 +461,7 @@ func (w *Workstation) PowerOn(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 & '%s' -T ws start '%s' nogui
-`, w.cfg.VMRunPath, vm.ID)
+`, w.vmRun(), vm.ID)
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: PowerOn VM %s: %w", vm.ID, err)
 	}
@@ -457,7 +473,7 @@ $ErrorActionPreference = 'Stop'
 func (w *Workstation) PowerOff(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 & '%s' -T ws stop '%s' hard 2>&1 | Out-Null
-`, w.cfg.VMRunPath, vm.ID)
+`, w.vmRun(), vm.ID)
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: PowerOff VM %s: %w", vm.ID, err)
 	}
@@ -467,7 +483,7 @@ func (w *Workstation) PowerOff(ctx context.Context, vm VMRef) error {
 // Status returns the coarse power state of the VM by checking whether the .vmx
 // path appears in `vmrun list` output.
 func (w *Workstation) Status(ctx context.Context, vm VMRef) (PowerState, error) {
-	script := fmt.Sprintf(`& '%s' -T ws list`, w.cfg.VMRunPath)
+	script := fmt.Sprintf(`& '%s' -T ws list`, w.vmRun())
 	out, err := w.runPS(ctx, script)
 	if err != nil {
 		return PowerUnknown, fmt.Errorf("workstation: Status VM %s: %w", vm.ID, err)
@@ -486,7 +502,7 @@ func (w *Workstation) Destroy(ctx context.Context, vm VMRef) error {
 	// Stop (ignore error — VM may already be off).
 	stopScript := fmt.Sprintf(`
 & '%s' -T ws stop '%s' hard 2>&1 | Out-Null
-`, w.cfg.VMRunPath, vm.ID)
+`, w.vmRun(), vm.ID)
 	_, _ = w.runPS(ctx, stopScript)
 
 	// Delete the VM via vmrun.
@@ -497,7 +513,7 @@ $ErrorActionPreference = 'Stop'
 if (Test-Path '%s') {
     Remove-Item -Path '%s' -Recurse -Force -ErrorAction SilentlyContinue
 }
-`, w.cfg.VMRunPath, vm.ID, vmDir, vmDir)
+`, w.vmRun(), vm.ID, vmDir, vmDir)
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: Destroy VM %s: %w", vm.ID, err)
 	}
@@ -525,7 +541,7 @@ func vmxDir(vmxPath string) string {
 // Returns ("", nil) when VMware Tools are not yet ready or vmrun reports an
 // error.
 func (w *Workstation) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
-	script := fmt.Sprintf(`& '%s' -T ws getGuestIPAddress '%s'`, w.cfg.VMRunPath, vm.ID)
+	script := fmt.Sprintf(`& '%s' -T ws getGuestIPAddress '%s'`, w.vmRun(), vm.ID)
 	out, err := w.runPS(ctx, script)
 	if err != nil {
 		// Tools not ready — not a hard error.

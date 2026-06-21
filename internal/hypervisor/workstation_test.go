@@ -22,13 +22,17 @@ func TestNewWorkstationDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewWorkstation: %v", err)
 		}
-		want := `C:\Program Files\VMware\VMware Workstation\vmrun.exe`
-		if ws.cfg.VMRunPath != want {
-			t.Errorf("VMRunPath = %q, want %q", ws.cfg.VMRunPath, want)
+		wantDir := `C:\Program Files (x86)\VMware\VMware Workstation`
+		if ws.cfg.InstallDir != wantDir {
+			t.Errorf("InstallDir = %q, want %q", ws.cfg.InstallDir, wantDir)
 		}
-		wantVdisk := `C:\Program Files\VMware\VMware Workstation\vmware-vdiskmanager.exe`
-		if ws.cfg.VDiskManagerPath != wantVdisk {
-			t.Errorf("VDiskManagerPath = %q, want %q", ws.cfg.VDiskManagerPath, wantVdisk)
+		wantVMRun := `C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe`
+		if got := ws.vmRun(); got != wantVMRun {
+			t.Errorf("vmRun() = %q, want %q", got, wantVMRun)
+		}
+		wantVdisk := `C:\Program Files (x86)\VMware\VMware Workstation\vmware-vdiskmanager.exe`
+		if got := ws.vdiskManager(); got != wantVdisk {
+			t.Errorf("vdiskManager() = %q, want %q", got, wantVdisk)
 		}
 		if ws.cfg.VNCPortBase != 5910 {
 			t.Errorf("VNCPortBase = %d, want 5910", ws.cfg.VNCPortBase)
@@ -40,22 +44,24 @@ func TestNewWorkstationDefaults(t *testing.T) {
 
 	t.Run("explicit values preserved", func(t *testing.T) {
 		ws, err := NewWorkstation(WorkstationConfig{
-			Host:             "myhost",
-			Username:         "u",
-			Password:         "p",
-			VMBaseDir:        `D:\VMs`,
-			ISODir:           `D:\ISOs`,
-			VNet:             "vmnet8",
-			VMRunPath:        `D:\vmrun.exe`,
-			VDiskManagerPath: `D:\vdiskmanager.exe`,
-			VNCPortBase:      6000,
-			VNCHost:          "192.168.1.2",
+			Host:        "myhost",
+			Username:    "u",
+			Password:    "p",
+			VMBaseDir:   `D:\VMs`,
+			ISODir:      `D:\ISOs`,
+			VNet:        "vmnet8",
+			InstallDir:  `D:\VMware`,
+			VNCPortBase: 6000,
+			VNCHost:     "192.168.1.2",
 		})
 		if err != nil {
 			t.Fatalf("NewWorkstation: %v", err)
 		}
-		if ws.cfg.VMRunPath != `D:\vmrun.exe` {
-			t.Errorf("VMRunPath = %q, want %q", ws.cfg.VMRunPath, `D:\vmrun.exe`)
+		if ws.cfg.InstallDir != `D:\VMware` {
+			t.Errorf("InstallDir = %q, want %q", ws.cfg.InstallDir, `D:\VMware`)
+		}
+		if got := ws.vmRun(); got != `D:\VMware\vmrun.exe` {
+			t.Errorf("vmRun() = %q, want %q", got, `D:\VMware\vmrun.exe`)
 		}
 		if ws.cfg.VNCPortBase != 6000 {
 			t.Errorf("VNCPortBase = %d, want 6000", ws.cfg.VNCPortBase)
