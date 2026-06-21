@@ -198,6 +198,7 @@ Provision and wire a complete topology in one shot.
 | **VMware vSphere / vCenter** | 🧪 experimental | ✅ USB scan codes |
 | **Nutanix AHV** | 🧪 experimental | ❌ no key-injection API |
 | **XCP-ng** | 🧪 experimental | ❌ no key-injection API |
+| **VMware Workstation** (WinRM + vmrun) | 🧪 experimental | ✅ VNC |
 
 > The experimental back-ends implement the full lifecycle but haven't been validated on real infrastructure. On AHV / XCP-ng (no console key-injection) you must deploy a **pre-customised ISO** rather than remote kickstart.
 

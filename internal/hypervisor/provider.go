@@ -6,11 +6,12 @@ import "errors"
 type Provider string
 
 const (
-	ProviderProxmox Provider = "proxmox"
-	ProviderVSphere Provider = "vsphere"
-	ProviderHyperV  Provider = "hyperv"
-	ProviderNutanix Provider = "nutanix"
-	ProviderXCPng   Provider = "xcpng"
+	ProviderProxmox     Provider = "proxmox"
+	ProviderVSphere     Provider = "vsphere"
+	ProviderHyperV      Provider = "hyperv"
+	ProviderNutanix     Provider = "nutanix"
+	ProviderXCPng       Provider = "xcpng"
+	ProviderWorkstation Provider = "workstation"
 )
 
 // ErrKickstartUnsupported is returned by SendKeys on providers that expose no
@@ -26,7 +27,7 @@ var ErrKickstartUnsupported = errors.New("hypervisor: remote kickstart (key inje
 // mode) instead.
 func SupportsKickstart(p Provider) bool {
 	switch p {
-	case ProviderProxmox, ProviderVSphere, ProviderHyperV:
+	case ProviderProxmox, ProviderVSphere, ProviderHyperV, ProviderWorkstation:
 		return true
 	default:
 		return false
@@ -36,7 +37,7 @@ func SupportsKickstart(p Provider) bool {
 // KnownProvider reports whether p is one of the supported backends.
 func KnownProvider(p Provider) bool {
 	switch p {
-	case ProviderProxmox, ProviderVSphere, ProviderHyperV, ProviderNutanix, ProviderXCPng:
+	case ProviderProxmox, ProviderVSphere, ProviderHyperV, ProviderNutanix, ProviderXCPng, ProviderWorkstation:
 		return true
 	default:
 		return false

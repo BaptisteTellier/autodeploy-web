@@ -509,6 +509,22 @@ func buildHypervisor(provider hypervisor.Provider, r *http.Request) (hypervisor.
 			VMPath:     get("hv_vm_path"),
 			ISOPath:    get("hv_iso_path"),
 		})
+	case hypervisor.ProviderWorkstation:
+		return hypervisor.NewWorkstation(hypervisor.WorkstationConfig{
+			Host:             get("ws_host"),
+			Port:             atoiDefault(r.FormValue("ws_port"), 0),
+			Username:         get("ws_user"),
+			Password:         r.FormValue("ws_password"),
+			HTTPS:            r.FormValue("ws_https") != "",
+			Insecure:         r.FormValue("ws_insecure") != "",
+			VMRunPath:        get("ws_vmrun"),
+			VDiskManagerPath: get("ws_vdiskmanager"),
+			VMBaseDir:        get("ws_vm_dir"),
+			ISODir:           get("ws_iso_dir"),
+			VNet:             get("ws_vnet"),
+			VNCHost:          get("ws_vnc_host"),
+			VNCPortBase:      atoiDefault(r.FormValue("ws_vnc_port_base"), 0),
+		})
 	case hypervisor.ProviderNutanix:
 		return hypervisor.NewNutanix(hypervisor.NutanixConfig{
 			Endpoint:         get("nx_endpoint"),

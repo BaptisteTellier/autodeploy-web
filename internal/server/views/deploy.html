@@ -93,7 +93,7 @@
         "
         x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
-                  get ksCapable(){ return ['proxmox','vsphere','hyperv'].includes(this.provider); },
+                  get ksCapable(){ return ['proxmox','vsphere','hyperv','workstation'].includes(this.provider); },
                   get s3MountCandidates(){ return this.displayOrder.map((idx,pos)=>({idx,pos})).filter(o => (this.roles[o.idx]||'').includes('Proxy') && this.summ(o.idx) && this.summ(o.idx).hostname).map(o => ({ idx:o.idx, value:this.summ(o.idx).hostname, label:(o.pos+1)+'. '+this.roles[o.idx]+' — '+this.summ(o.idx).hostname })); },
                   extra: [],
                   baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
@@ -360,6 +360,7 @@
           <option value="hyperv">Microsoft Hyper-V</option>
           <option value="nutanix">Nutanix AHV (experimental)</option>
           <option value="xcpng">XCP-ng (experimental)</option>
+          <option value="workstation">{{t "deploy.provider_workstation"}}</option>
         </select>
       </label>
 
@@ -558,6 +559,64 @@
         <label class="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" name="xen_insecure" checked class="rounded border-slate-300">
           {{t "deploy.f_insecure"}}
+        </label>
+      </div>
+
+      <!-- VMware Workstation (WinRM + vmrun) -->
+      <div x-show="provider==='workstation'" x-cloak class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="text-sm text-slate-600">{{t "deploy.ws_host"}}
+            <input name="ws_host" :required="provider==='workstation'" placeholder="ws01.lab.local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_port"}}
+            <input name="ws_port" type="number" placeholder="5985"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_user"}}
+            <input name="ws_user" placeholder="administrator"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_password"}}
+            <input name="ws_password" type="password"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.ws_vmrun"}}
+            <input name="ws_vmrun" placeholder="C:\\Program Files\\VMware\\VMware Workstation\\vmrun.exe"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.ws_vdiskmanager"}}
+            <input name="ws_vdiskmanager" placeholder="C:\\Program Files\\VMware\\VMware Workstation\\vmware-vdiskmanager.exe"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_vm_dir"}}
+            <input name="ws_vm_dir" :required="provider==='workstation'" placeholder="C:\\VMs"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_iso_dir"}}
+            <input name="ws_iso_dir" placeholder="C:\\ISOs"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_vnet"}}
+            <input name="ws_vnet" :required="provider==='workstation'" placeholder="vmnet0"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_vnc_host"}}
+            <input name="ws_vnc_host" placeholder="ws01.lab.local"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+          <label class="text-sm text-slate-600">{{t "deploy.ws_vnc_port_base"}}
+            <input name="ws_vnc_port_base" type="number" placeholder="5910"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="ws_https" class="rounded border-slate-300">
+          {{t "deploy.ws_https"}}
+        </label>
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" name="ws_insecure" checked class="rounded border-slate-300">
+          {{t "deploy.ws_insecure"}}
         </label>
       </div>
     </div>
