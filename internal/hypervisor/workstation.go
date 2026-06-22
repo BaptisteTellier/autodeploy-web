@@ -151,7 +151,9 @@ func (w *Workstation) getClient() (*winrm.Client, error) {
 // library's RunPSWithContext, which UTF-16LE base64-encodes the script and
 // invokes `powershell.exe -EncodedCommand <b64>`, eliminating quoting hazards.
 //
-// Non-zero exit codes produce an error that includes stderr.
+// Non-zero exit codes produce an error that includes both stderr and stdout.
+// vmrun.exe writes its error messages to stdout rather than stderr, so stderr
+// alone is often empty on failure — both streams are surfaced.
 func (w *Workstation) runPS(ctx context.Context, script string) (string, error) {
 	c, err := w.getClient()
 	if err != nil {
@@ -162,7 +164,17 @@ func (w *Workstation) runPS(ctx context.Context, script string) (string, error) 
 		return "", fmt.Errorf("workstation: winrm transport: %w", err)
 	}
 	if code != 0 {
-		return "", fmt.Errorf("workstation: powershell exit %d: %s", code, strings.TrimSpace(stderr))
+		detail := strings.TrimSpace(stderr)
+		if out := strings.TrimSpace(stdout); out != "" {
+			if detail != "" {
+				detail += "; "
+			}
+			detail += out
+		}
+		if detail == "" {
+			detail = "(no output)"
+		}
+		return "", fmt.Errorf("workstation: powershell exit %d: %s", code, detail)
 	}
 	return strings.TrimSpace(stdout), nil
 }
