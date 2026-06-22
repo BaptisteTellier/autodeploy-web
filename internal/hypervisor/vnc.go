@@ -5,16 +5,23 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 )
 
-// qemuKeyToKeysym maps QEMU sendkey token names (as produced by
-// internal/deploy/bootcmd.go KeysForText) to X11 keysyms for RFB KeyEvent
-// messages. For printable ASCII the keysym equals the Unicode/ASCII code point.
-// Shifted tokens map directly to the target character's keysym (e.g.
-// "shift-a" → 'A' = 0x41) — the VNC backend does NOT emulate a separate Shift
-// key press; the keysym already encodes the shift.
-var qemuKeyToKeysym = map[string]uint32{
+// shiftKeysym is the X11 keysym for the left Shift modifier.
+const shiftKeysym = 0xffe1
+
+// keyToKeysym maps a *base* (unshifted) QEMU sendkey token name (as produced by
+// internal/deploy/bootcmd.go KeysForText) to its X11 keysym. For printable
+// ASCII the keysym equals the Unicode/ASCII code point.
+//
+// Shifted characters are NOT stored as composed keysyms here. A "shift-" token
+// is typed by holding a real Shift key around the base key (see resolveKey /
+// sendVNCKeys): VMware Workstation's VNC server does not synthesize Shift from
+// a composed keysym (e.g. sending 'A'/0x41 alone yields 'a'), so the shift
+// modifier must be pressed explicitly.
+var keyToKeysym = map[string]uint32{
 	// letters a–z
 	"a": 'a', "b": 'b', "c": 'c', "d": 'd', "e": 'e',
 	"f": 'f', "g": 'g', "h": 'h', "i": 'i', "j": 'j',
@@ -22,14 +29,6 @@ var qemuKeyToKeysym = map[string]uint32{
 	"p": 'p', "q": 'q', "r": 'r', "s": 's', "t": 't',
 	"u": 'u', "v": 'v', "w": 'w', "x": 'x', "y": 'y',
 	"z": 'z',
-
-	// shifted letters (A–Z keysym = ASCII uppercase)
-	"shift-a": 'A', "shift-b": 'B', "shift-c": 'C', "shift-d": 'D', "shift-e": 'E',
-	"shift-f": 'F', "shift-g": 'G', "shift-h": 'H', "shift-i": 'I', "shift-j": 'J',
-	"shift-k": 'K', "shift-l": 'L', "shift-m": 'M', "shift-n": 'N', "shift-o": 'O',
-	"shift-p": 'P', "shift-q": 'Q', "shift-r": 'R', "shift-s": 'S', "shift-t": 'T',
-	"shift-u": 'U', "shift-v": 'V', "shift-w": 'W', "shift-x": 'X', "shift-y": 'Y',
-	"shift-z": 'Z',
 
 	// digits 0–9
 	"0": '0', "1": '1', "2": '2', "3": '3', "4": '4',
@@ -39,27 +38,31 @@ var qemuKeyToKeysym = map[string]uint32{
 	"ret": 0xff0d,
 	"spc": 0x20,
 
-	// unshifted punctuation
-	"slash":      '/',
-	"dot":        '.',
-	"comma":      ',',
-	"semicolon":  ';',
-	"equal":      '=',
-	"minus":      '-',
-	"apostrophe": '\'',
+	// punctuation (base, unshifted). Shifted symbols are produced by holding
+	// Shift over these same base keys: ';'→':', '-'→'_', '='→'+', '/'→'?',
+	// '`'→'~', '\''→'"', and the shifted digits ('7'→'&', etc.).
+	"slash":        '/',
+	"dot":          '.',
+	"comma":        ',',
+	"semicolon":    ';',
+	"equal":        '=',
+	"minus":        '-',
+	"apostrophe":   '\'',
+	"grave_accent": '`',
+}
 
-	// shifted punctuation — map to the resulting character's keysym directly
-	"shift-semicolon":    ':',
-	"shift-minus":        '_',
-	"shift-equal":        '+',
-	"shift-slash":        '?',
-	"shift-7":            '&',
-	"shift-5":            '%',
-	"shift-3":            '#',
-	"shift-9":            '(',
-	"shift-0":            ')',
-	"shift-grave_accent": '~',
-	"shift-apostrophe":   '"',
+// resolveKey maps a QEMU sendkey token to its base keysym and whether Shift
+// must be held while typing it. A "shift-" prefix means "hold Shift and press
+// the base key" (the base is the remainder after the prefix). Unknown tokens
+// return ok=false.
+func resolveKey(token string) (keysym uint32, shift bool, ok bool) {
+	base := token
+	if strings.HasPrefix(token, "shift-") {
+		shift = true
+		base = strings.TrimPrefix(token, "shift-")
+	}
+	keysym, ok = keyToKeysym[base]
+	return keysym, shift, ok
 }
 
 // sendVNCKeys connects to a VNC server at addr (host:port), performs the
@@ -156,20 +159,32 @@ func sendVNCKeys(ctx context.Context, addr string, keys []string) error {
 	}
 
 	// ---- KeyEvent injection ----
-	// RFB KeyEvent: type(u8=4) down-flag(u8) padding(u16=0) keysym(u32)
+	// For "shift-" tokens we press a real Shift key around the base key so the
+	// VMware VNC server emits the shifted character (it does not synthesize
+	// Shift from a composed keysym). Small intra-key delays mirror the timing
+	// that was validated against VMware Workstation's GRUB console.
 	for _, key := range keys {
-		keysym, ok := qemuKeyToKeysym[key]
+		keysym, shift, ok := resolveKey(key)
 		if !ok {
 			continue // unknown key — skip silently
 		}
-		for _, down := range []uint8{1, 0} {
-			msg := make([]byte, 8)
-			msg[0] = 4    // KeyEvent message type
-			msg[1] = down // down flag
-			// msg[2], msg[3] = 0 (padding)
-			binary.BigEndian.PutUint32(msg[4:], keysym)
-			if _, err := conn.Write(msg); err != nil {
-				return fmt.Errorf("vnc: send KeyEvent for %q: %w", key, err)
+		if shift {
+			if err := writeKeyEvent(conn, shiftKeysym, 1); err != nil {
+				return fmt.Errorf("vnc: send Shift down for %q: %w", key, err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err := writeKeyEvent(conn, keysym, 1); err != nil {
+			return fmt.Errorf("vnc: send KeyEvent down for %q: %w", key, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+		if err := writeKeyEvent(conn, keysym, 0); err != nil {
+			return fmt.Errorf("vnc: send KeyEvent up for %q: %w", key, err)
+		}
+		if shift {
+			time.Sleep(20 * time.Millisecond)
+			if err := writeKeyEvent(conn, shiftKeysym, 0); err != nil {
+				return fmt.Errorf("vnc: send Shift up for %q: %w", key, err)
 			}
 		}
 		// Brief inter-key delay so the guest firmware processes each event.
@@ -181,6 +196,17 @@ func sendVNCKeys(ctx context.Context, addr string, keys []string) error {
 	}
 
 	return nil
+}
+
+// writeKeyEvent sends a single RFB KeyEvent:
+// type(u8=4) down-flag(u8) padding(u16=0) keysym(u32).
+func writeKeyEvent(conn net.Conn, keysym uint32, down uint8) error {
+	msg := make([]byte, 8)
+	msg[0] = 4    // KeyEvent message type
+	msg[1] = down // down flag (msg[2], msg[3] = 0 padding)
+	binary.BigEndian.PutUint32(msg[4:], keysym)
+	_, err := conn.Write(msg)
+	return err
 }
 
 // readFull reads exactly len(buf) bytes, blocking until all are received or an

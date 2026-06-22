@@ -294,6 +294,11 @@ func buildVMX(name string, spec VMSpec, isoPath, vnet string, vncPort int) strin
 	fmt.Fprintf(&sb, `displayName = "%s"`+"\n", name)
 	sb.WriteString(`guestOS = "rhel8-64"` + "\n")
 	sb.WriteString(`firmware = "efi"` + "\n")
+	// Auto-answer Workstation's first-power-on questions (the UUID
+	// moved/copied prompt, hardware-upgrade prompt) so vmrun can start the VM
+	// headless (nogui) without a GUI dialog blocking it — otherwise PowerOn
+	// fails with "Error: The operation was canceled".
+	sb.WriteString(`msg.autoAnswer = "TRUE"` + "\n")
 	fmt.Fprintf(&sb, `numvcpus = "%d"`+"\n", spec.CPUs)
 	fmt.Fprintf(&sb, `memsize = "%d"`+"\n", spec.MemoryMiB)
 
@@ -309,6 +314,17 @@ func buildVMX(name string, spec VMSpec, isoPath, vnet string, vncPort int) strin
 	for i := range disks {
 		fmt.Fprintf(&sb, `scsi0:%d.present = "TRUE"`+"\n", i)
 		fmt.Fprintf(&sb, `scsi0:%d.fileName = "disk%d.vmdk"`+"\n", i, i)
+	}
+
+	// PCIe root ports. Without these a UEFI VM has no PCIe slot for the e1000e
+	// NIC and power-on fails with "No PCIe slot available for Ethernet0"
+	// (followed by a VMX crash). This mirrors the bridge block VMware writes
+	// into its own .vmx files.
+	sb.WriteString(`pciBridge0.present = "TRUE"` + "\n")
+	for _, n := range []int{4, 5, 6, 7} {
+		fmt.Fprintf(&sb, `pciBridge%d.present = "TRUE"`+"\n", n)
+		fmt.Fprintf(&sb, `pciBridge%d.virtualDev = "pcieRootPort"`+"\n", n)
+		fmt.Fprintf(&sb, `pciBridge%d.functions = "8"`+"\n", n)
 	}
 
 	// SATA controller + CD-ROM.
