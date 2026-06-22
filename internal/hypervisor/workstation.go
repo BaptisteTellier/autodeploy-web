@@ -271,18 +271,6 @@ func (w *Workstation) FindISO(ctx context.Context, name string) (string, error) 
 	return strings.TrimSpace(out), nil
 }
 
-// assignVNCPort allocates or returns the already-assigned VNC port for vmxPath.
-// Must be called with w.mu held.
-func (w *Workstation) assignVNCPort(vmxPath string) int {
-	if p, ok := w.vncPorts[vmxPath]; ok {
-		return p
-	}
-	p := w.nextPort
-	w.nextPort++
-	w.vncPorts[vmxPath] = p
-	return p
-}
-
 // buildVMX returns the .vmx file contents for a new Workstation VM. It is a
 // pure function (no WinRM calls) so it can be unit-tested without a host.
 func buildVMX(name string, spec VMSpec, isoPath, vnet string, vncPort int) string {
@@ -386,51 +374,81 @@ func (w *Workstation) patchVMXLine(ctx context.Context, vmxPath, key, value stri
 }
 
 // CreateVM provisions a powered-off VM per spec. It:
-//  1. Creates the VM directory under VMBaseDir.
+//  1. Picks a collision-free folder name under VMBaseDir.
 //  2. Builds vmdk files via vmware-vdiskmanager.exe.
 //  3. Writes the .vmx file via Set-Content.
 //
-// Returns a VMRef whose ID is the absolute .vmx path and Node is Host.
+// To stop two nodes that share a hostname (e.g. two VIA-Proxies) from clobbering
+// each other's folder/.vmx, a free name is chosen by appending "-N" while a
+// folder of that name already exists — mirroring the Hyper-V backend. The pick
+// and the create happen in one host-side script, and the resolved .vmx path is
+// returned as the VMRef ID (so every later op targets the right VM).
 func (w *Workstation) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 	if len(spec.Disks) == 0 {
 		spec.Disks = []int{32}
 	}
 
-	// Assign VNC port under lock.
+	// Allocate a VNC port up front; it is bound to the resolved .vmx path once
+	// the host has chosen a collision-free folder name below.
 	w.mu.Lock()
-	vmDir := w.cfg.VMBaseDir + `\` + spec.Name
-	vmxPath := vmDir + `\` + spec.Name + `.vmx`
-	vncPort := w.assignVNCPort(vmxPath)
+	vncPort := w.nextPort
+	w.nextPort++
 	w.mu.Unlock()
 
-	// Build per-disk vmdk creation commands.
+	// Build the .vmx with a display-name placeholder; the host substitutes the
+	// actual (possibly "-N" suffixed) name it picks. The placeholder is the only
+	// occurrence of the name in buildVMX output (displayName).
+	const namePlaceholder = "__AUTODEPLOY_VMNAME__"
+	vmxContent := buildVMX(namePlaceholder, spec, "", w.cfg.VNet, vncPort)
+
+	// Per-disk vmware-vdiskmanager commands. Disk paths are resolved against
+	// $vmDir on the host (relative names, so they live in the VM's own folder).
 	var diskCmds strings.Builder
 	vdisk := w.vdiskManager()
 	for i, gib := range spec.Disks {
-		diskPath := vmDir + `\disk` + strconv.Itoa(i) + `.vmdk`
 		fmt.Fprintf(&diskCmds,
-			`& '%s' -c -s %dGB -a lsilogic -t 0 '%s'`+"\n",
-			vdisk, gib, diskPath,
+			"& '%s' -c -s %dGB -a lsilogic -t 0 (Join-Path $vmDir 'disk%d.vmdk') | Out-Null\n"+
+				"if ($LASTEXITCODE -ne 0) { throw 'vmware-vdiskmanager failed for disk%d.vmdk' }\n",
+			vdisk, gib, i, i,
 		)
 	}
 
-	// We use a placeholder ISO path in the .vmx; AttachISO will set the real one.
-	vmxContent := buildVMX(spec.Name, spec, "", w.cfg.VNet, vncPort)
-
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
-$vmDir = '%s'
-if (-not (Test-Path $vmDir)) { New-Item -ItemType Directory -Path $vmDir -Force | Out-Null }
+$base = '%s'
+$req  = '%s'
+# Pick a folder name that does not collide with an existing VM folder, so two
+# nodes that share a hostname each get their own VM (mirrors the Hyper-V "-N"
+# scheme). Pick + create live in one script so the chosen name is used at once.
+$name = $req
+$n = 2
+while (Test-Path (Join-Path $base $name)) { $name = "$req-$n"; $n++ }
+$vmDir = Join-Path $base $name
+New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
 %s
+$vmx = Join-Path $vmDir ($name + '.vmx')
 $vmxContent = @'
 %s
 '@
-Set-Content -LiteralPath '%s' -Value $vmxContent -Encoding UTF8
-`, vmDir, diskCmds.String(), vmxContent, vmxPath)
+$vmxContent = $vmxContent.Replace('%s', $name)
+Set-Content -LiteralPath $vmx -Value $vmxContent -Encoding UTF8
+Write-Output $vmx
+`, w.cfg.VMBaseDir, spec.Name, diskCmds.String(), vmxContent, namePlaceholder)
 
-	if _, err := w.runPS(ctx, script); err != nil {
+	out, err := w.runPS(ctx, script)
+	if err != nil {
 		return VMRef{}, fmt.Errorf("workstation: CreateVM %q: %w", spec.Name, err)
 	}
+	vmxPath := strings.TrimSpace(out)
+	if vmxPath == "" {
+		return VMRef{}, fmt.Errorf("workstation: CreateVM %q: empty .vmx path returned", spec.Name)
+	}
+
+	// Bind the allocated VNC port to the resolved .vmx path.
+	w.mu.Lock()
+	w.vncPorts[vmxPath] = vncPort
+	w.mu.Unlock()
+
 	return VMRef{ID: vmxPath, Node: w.cfg.Host}, nil
 }
 
