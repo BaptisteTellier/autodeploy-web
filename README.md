@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/BaptisteTellier/autodeploy-web/actions/workflows/ci.yml/badge.svg)](https://github.com/BaptisteTellier/autodeploy-web/actions/workflows/ci.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-autodeploy--web-blue?logo=docker)](https://github.com/BaptisteTellier/autodeploy-web/pkgs/container/autodeploy-web)
+[![Veeam](https://img.shields.io/badge/Veeam-v13.1-00B336.svg)](https://www.veeam.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -282,6 +283,11 @@ The VMware Workstation back-end drives a **Windows host** over **WinRM** (same t
 
 **Black screen in the Workstation GUI (expected behaviour):** VMs are started headless via WMI so they survive the WinRM session — they run in Windows **session 0**, which has no interactive desktop. If you open the VM through *"Open all background virtual machines"* in the Workstation tray, the console window renders **black**. This does not mean the install failed. To watch the real console, point a VNC viewer at `<host-LAN-IP>:5910` (base 5910 + VM index).
 
+<img width="296" height="181" alt="image" src="https://github.com/user-attachments/assets/dfe6ed8c-8f73-4af5-8af3-ef7d875034d0" />
+
+<img width="1498" height="921" alt="image" src="https://github.com/user-attachments/assets/10094904-650a-4aec-9589-b63d73e4ee04" />
+
+
 ### 🔌 Craft API (`/craft-api`)
 
 The same wiring as the Deploy page, but **render-only** — for appliances you deployed by hand. Fill a Deploy-style form (pick a topology, ＋ add proxy/HR nodes, enter each node's IP/hostname/pairing code, connection, and the advanced options), click **Generate**, and get the **exact REST call sequence as a runnable PowerShell or curl script** (toggle, copy, download `wire.ps1` / `wire.sh`).
@@ -300,7 +306,7 @@ App-wide settings: the **history limit** (max finished ISO jobs *and* deployment
 
 - 🚫 **No authentication** — LAN use only; add a reverse proxy for any public exposure.
 - 🧪 **Deploy:** only **Proxmox VE** and **Hyper-V** are production-validated. vSphere / Nutanix AHV / XCP-ng are implemented but untested on live infrastructure; AHV/XCP-ng can't do remote kickstart (use a pre-customised ISO).
-- ⚠️ **Hyper-V ISO upload over WinRM is slow** (base64) — pre-stage the ISO so `FindISO` skips the upload.
+- ⚠️ **Hyper-V/Workstation Pro ISO upload over WinRM is slow** (base64) — pre-stage the ISO so `FindISO` skips the upload.
 - ⚠️ **Remote-kickstart keystroke injection is best-effort** — no console feedback over the hypervisor API; the customised-ISO boot mode is the most reliable.
 - 🔌 **Craft API scripts are one-shot** — they don't include the live wiring's find-before-add idempotency, so run them against fresh appliances.
 - The PS1's hard-coded behaviours (e.g. NTP failure aborts the build) apply unchanged.
