@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         tini \
         less \
+        tzdata \
         libicu72 \
         libssl3 \
     && case "${TARGETARCH}" in \
@@ -96,7 +97,8 @@ ENV LISTEN_ADDR=":8080" \
     DATA_DIR="/data" \
     AUTODEPLOY_DIR="/opt/autodeploy" \
     PS_SCRIPT="autodeploy.ps1" \
-    WORKER_CONCURRENCY="1"
+    WORKER_CONCURRENCY="1" \
+    TZ="Europe/Paris"
 
 EXPOSE 8080
 WORKDIR /data/iso

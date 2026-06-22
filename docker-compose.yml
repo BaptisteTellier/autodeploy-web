@@ -43,6 +43,10 @@ services:
       DATA_DIR: "/data"
       # Maximum concurrent ISO builds — raise only if you have the disk IOPS
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+      # Container timezone — affects log and job timestamps. Override via a TZ
+      # entry in a .env file or your shell (e.g. TZ=America/New_York).
+      # Default: Europe/Paris.
+      TZ: "${TZ:-Europe/Paris}"
 
     volumes:
       # ── Persistent data root ──────────────────────────────────────────────

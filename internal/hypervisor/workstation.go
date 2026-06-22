@@ -31,7 +31,7 @@ type WorkstationConfig struct {
 	// host. vmrun.exe and vmware-vdiskmanager.exe live side by side in it, so
 	// a single directory is enough — the executables are derived from it.
 	// Default is applied by NewWorkstation when empty.
-	InstallDir string // default: C:\Program Files (x86)\VMware\VMware Workstation
+	InstallDir string // default: C:\Program Files\VMware\VMware Workstation
 
 	// Storage layout on the Windows host.
 	VMBaseDir string // parent dir where per-VM folders are created, e.g. C:\VMs
@@ -65,7 +65,7 @@ var _ Hypervisor = (*Workstation)(nil)
 func NewWorkstation(cfg WorkstationConfig) (*Workstation, error) {
 	// Apply defaults.
 	if cfg.InstallDir == "" {
-		cfg.InstallDir = `C:\Program Files (x86)\VMware\VMware Workstation`
+		cfg.InstallDir = `C:\Program Files\VMware\VMware Workstation`
 	}
 	if cfg.VNCPortBase == 0 {
 		cfg.VNCPortBase = 5910

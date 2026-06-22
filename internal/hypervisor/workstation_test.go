@@ -22,15 +22,15 @@ func TestNewWorkstationDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewWorkstation: %v", err)
 		}
-		wantDir := `C:\Program Files (x86)\VMware\VMware Workstation`
+		wantDir := `C:\Program Files\VMware\VMware Workstation`
 		if ws.cfg.InstallDir != wantDir {
 			t.Errorf("InstallDir = %q, want %q", ws.cfg.InstallDir, wantDir)
 		}
-		wantVMRun := `C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe`
+		wantVMRun := `C:\Program Files\VMware\VMware Workstation\vmrun.exe`
 		if got := ws.vmRun(); got != wantVMRun {
 			t.Errorf("vmRun() = %q, want %q", got, wantVMRun)
 		}
-		wantVdisk := `C:\Program Files (x86)\VMware\VMware Workstation\vmware-vdiskmanager.exe`
+		wantVdisk := `C:\Program Files\VMware\VMware Workstation\vmware-vdiskmanager.exe`
 		if got := ws.vdiskManager(); got != wantVdisk {
 			t.Errorf("vdiskManager() = %q, want %q", got, wantVdisk)
 		}
