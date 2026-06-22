@@ -484,11 +484,32 @@ func (w *Workstation) SetBootDiskThenCD(ctx context.Context, vm VMRef) error {
 	return nil
 }
 
-// PowerOn starts the VM using vmrun -T ws start.
+// PowerOn starts the VM and waits for it to appear in `vmrun list`.
+//
+// It does NOT run `vmrun start` inline. Over WinRM, vmrun starts vmware-vmx
+// inside the WinRM command's job object; when the command returns the job is
+// torn down and vmware-vmx is killed — the VM powers on then immediately stops
+// (vmware.log shows the automation pipe closing with error 10054). Instead we
+// spawn vmrun via WMI Win32_Process.Create: the new process is owned by
+// WmiPrvSE, not the WinRM job, so the VM survives the command returning. We
+// then poll `vmrun list` to confirm it actually came up (the WMI create only
+// reports that the process was launched, not vmrun's own exit status).
 func (w *Workstation) PowerOn(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
-& '%s' -T ws start '%s' nogui
+$vmrun = '%s'
+$vmx   = '%s'
+$cmd = '"' + $vmrun + '" -T ws start "' + $vmx + '" nogui'
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
+if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
+$ok = $false
+$deadline = (Get-Date).AddSeconds(20)
+while (-not $ok -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 1000
+    $list = & $vmrun -T ws list 2>$null
+    if ($list -match [regex]::Escape($vmx)) { $ok = $true }
+}
+if (-not $ok) { throw "VM did not power on within 20s (not listed by vmrun)" }
 `, w.vmRun(), vm.ID)
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: PowerOn VM %s: %w", vm.ID, err)
