@@ -263,6 +263,25 @@ Use a **local administrator** in the Deploy form.
 > [!NOTE]
 > WinRM streams the 15–20 GB ISO as base64 (slow). **Pre-stage** the original ISO in the host's ISO path so `FindISO` skips the upload.
 
+#### VMware Workstation — prerequisites & gotchas
+
+The VMware Workstation back-end drives a **Windows host** over **WinRM** (same transport as Hyper-V — see the WinRM setup steps above). The container authors a `.vmx`, calls `vmrun.exe` and `vmware-vdiskmanager.exe` to create and start VMs, then injects the remote-kickstart GRUB command over **VNC** (`RemoteDisplay.vnc`). Status: 🧪 experimental.
+
+**Prerequisites on the Windows host:**
+
+- **VMware Workstation 17 / "26H1"** installed. Default path: `C:\Program Files\VMware\VMware Workstation` (older installs may be under `C:\Program Files (x86)\...`). The form's **Install directory** field drives both `vmrun.exe` and `vmware-vdiskmanager.exe` — adjust it if your install is non-standard.
+- **WinRM enabled** — follow the same elevated-PowerShell steps as the Hyper-V section.
+- A **bridged** virtual network (e.g. `VMnet0`). On hosts with multiple NICs (Wi-Fi, Ethernet, other VMware/Hyper-V virtual adapters) **do not** leave VMnet0 on *Automatic* bridging — open **Virtual Network Editor** and pin VMnet0 to the physical NIC on your deploy LAN. Auto-bridging frequently picks the wrong adapter, which shows up as the installer failing to reach the kickstart server with `curl: (7) … No route to host`.
+
+**Deploy-form fields** (the `ws_*` panel, shown when *Provider = VMware Workstation*): WinRM host / port / user / password, HTTPS + skip-TLS toggles, install directory, VM base directory, ISO directory, virtual network (vmnet), VNC host, VNC base port.
+
+**Two settings that matter most:**
+
+- **VNC host** — must be the host's **LAN IP** (reachable from outside Docker), *not* `localhost` / `127.0.0.1`. The container connects to VMware's VNC listener from a different network namespace. Open the host firewall for the VNC port range (base port **5910**, +1 per VM).
+- **Kickstart base URL** (`ks_base_url`) — must be reachable **from the bridged VM** (i.e. the Docker host's LAN IP + the web UI port). Allow inbound on that port in the host firewall.
+
+**Black screen in the Workstation GUI (expected behaviour):** VMs are started headless via WMI so they survive the WinRM session — they run in Windows **session 0**, which has no interactive desktop. If you open the VM through *"Open all background virtual machines"* in the Workstation tray, the console window renders **black**. This does not mean the install failed. To watch the real console, point a VNC viewer at `<host-LAN-IP>:5910` (base 5910 + VM index).
+
 ### 🔌 Craft API (`/craft-api`)
 
 The same wiring as the Deploy page, but **render-only** — for appliances you deployed by hand. Fill a Deploy-style form (pick a topology, ＋ add proxy/HR nodes, enter each node's IP/hostname/pairing code, connection, and the advanced options), click **Generate**, and get the **exact REST call sequence as a runnable PowerShell or curl script** (toggle, copy, download `wire.ps1` / `wire.sh`).
