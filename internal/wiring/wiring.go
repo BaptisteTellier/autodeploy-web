@@ -450,24 +450,50 @@ func (w *Wirer) applyAdvanced(ctx context.Context, client *veeam.Client, nodes [
 			}
 		}
 
+		// On a fresh deploy the mount-server host may still be applying its
+		// components, so AddS3Repository fails with "the host is pending
+		// components update" (HTTP 400). Wrap the create in the same
+		// component-update-and-retry used for proxies/HRs, targeting the pinned
+		// mount server when set, otherwise the primary VSA — the appliance's own
+		// host, which is the implicit mount server on a VSA-only deploy.
+		componentHostID := mountServerID
+		if componentHostID == "" {
+			for i := range nodes {
+				if isVSA(nodes[i].Role) && nodes[i].IP != "" {
+					if id, ferr := client.FindManagedServerByName(ctx, nodes[i].IP); ferr == nil {
+						componentHostID = id
+					}
+					break
+				}
+			}
+		}
+
 		var sess string
-		rerr := retryS3(ctx, log, "create repository", func() error {
-			var e error
-			sess, e = client.AddS3Repository(ctx, veeam.S3RepoSpec{
-				Name:           s.Name,
-				Description:    "autodeploy object storage",
-				CredentialsID:  credID,
-				Compatible:     s.Compatible,
-				ServicePoint:   s.ServicePoint,
-				RegionID:       s.Region,
-				Bucket:         s.Bucket,
-				Folder:         s.Folder,
-				ImmutableDays:  s.ImmutableDays,
-				MountServerID:  mountServerID,
-				OverwriteOwner: s.OverwriteOwner,
+		create := func() error {
+			return retryS3(ctx, log, "create repository", func() error {
+				var e error
+				sess, e = client.AddS3Repository(ctx, veeam.S3RepoSpec{
+					Name:           s.Name,
+					Description:    "autodeploy object storage",
+					CredentialsID:  credID,
+					Compatible:     s.Compatible,
+					ServicePoint:   s.ServicePoint,
+					RegionID:       s.Region,
+					Bucket:         s.Bucket,
+					Folder:         s.Folder,
+					ImmutableDays:  s.ImmutableDays,
+					MountServerID:  mountServerID,
+					OverwriteOwner: s.OverwriteOwner,
+				})
+				return e
 			})
-			return e
-		})
+		}
+		var rerr error
+		if componentHostID != "" {
+			rerr = w.createWithComponents(ctx, client, componentHostID, "S3 repository", log, create)
+		} else {
+			rerr = create()
+		}
 		if rerr != nil {
 			return fmt.Errorf("S3 repository: %w", rerr)
 		}

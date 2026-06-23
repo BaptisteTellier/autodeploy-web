@@ -286,7 +286,7 @@
                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                 </label>
                 <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
-                  <input :name="'node_'+idx+'_memory'" type="number" min="512" value="8192"
+                  <input :name="'node_'+idx+'_memory'" type="number" min="1024" step="1024" value="8192"
                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                 </label>
                 <label class="text-sm text-slate-600">
