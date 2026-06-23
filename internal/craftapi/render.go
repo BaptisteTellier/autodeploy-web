@@ -230,6 +230,12 @@ func renderPowerShellStep(b *strings.Builder, st Step) error {
 		return renderPSConfigBackupRedirect(b, st)
 	}
 
+	// s3Repo wraps the POST in the pending-components retry (mirrors
+	// New-VbrHardenedRepo / the live wiring's createWithComponents).
+	if st.Kind == "s3Repo" {
+		return renderPSS3Repo(b, st)
+	}
+
 	switch st.Method {
 	case "GET", "DELETE":
 		path := psExpandPath(st.Path)
@@ -326,6 +332,47 @@ func renderPSConfigBackupRedirect(b *strings.Builder, st Step) error {
 	b.WriteString("$body = $cfg | ConvertTo-Json -Depth 30\n")
 	b.WriteString("$resp = Invoke-Vbr -Method PUT -Uri \"$BaseURL/api/v1/configBackup\" -Body $body\n")
 	b.WriteString("\n")
+	return nil
+}
+
+// renderPSS3Repo emits the S3 repository POST. When a mount-server/VSA host id
+// is known it wraps the POST in the same "pending components update" retry used
+// by New-VbrHardenedRepo (refresh the host's components, re-POST up to 3x);
+// otherwise it falls back to a plain POST.
+func renderPSS3Repo(b *strings.Builder, st Step) error {
+	path := psExpandPath(st.Path)
+	b.WriteString("$body = ")
+	if st.Body != nil {
+		bodyStr, err := psValue(st.Body)
+		if err != nil {
+			return fmt.Errorf("psValue body for S3 repo: %w", err)
+		}
+		b.WriteString(bodyStr)
+		b.WriteString(" | ConvertTo-Json -Depth 12\n")
+	} else {
+		b.WriteString("'{}'\n")
+	}
+
+	if st.HostVar == "" {
+		fmt.Fprintf(b, "$resp = Invoke-Vbr -Method POST -Uri \"$BaseURL%s\" -Body $body\n", path)
+		for _, cap := range st.Captures {
+			fmt.Fprintf(b, "$%s = $resp%s\n", cap.Var, psCapExpr(cap.Expr))
+		}
+		if st.WaitSession && st.WaitVar != "" {
+			fmt.Fprintf(b, "Wait-VbrSession -SessionId $%s\n", st.WaitVar)
+		}
+		b.WriteString("\n")
+		return nil
+	}
+
+	b.WriteString("for ($a = 1; $a -le 3; $a++) {\n")
+	fmt.Fprintf(b, "    try { $r = Invoke-Vbr -Method POST -Uri \"$BaseURL%s\" -Body $body; Wait-VbrSession -SessionId $r.id; break }\n", path)
+	b.WriteString("    catch {\n")
+	b.WriteString("        $m = \"$($_.ErrorDetails.Message) $($_.Exception.Message)\"\n")
+	fmt.Fprintf(b, "        if ($a -lt 3 -and $m -like '*pending components update*') { Update-VbrComponents -HostId $%s; continue }\n", st.HostVar)
+	b.WriteString("        throw\n")
+	b.WriteString("    }\n")
+	b.WriteString("}\n\n")
 	return nil
 }
 
@@ -704,6 +751,12 @@ func renderCurlStep(b *strings.Builder, st Step) error {
 		return renderCurlConfigBackupRedirect(b, st)
 	}
 
+	// s3Repo wraps the POST in the pending-components retry (mirrors
+	// new_hardened_repo / the live wiring's createWithComponents).
+	if st.Kind == "s3Repo" {
+		return renderCurlS3Repo(b, st)
+	}
+
 	path := curlExpandPath(st.Path)
 
 	switch st.Method {
@@ -796,6 +849,48 @@ func renderCurlConfigBackupRedirect(b *strings.Builder, st Step) error {
 	fmt.Fprintf(b, "body=$(echo \"$cfg\" | jq --arg r \"%s\" '.backupRepositoryId=$r | .notifications.SNMPEnabled=false')\n", repoIDExpr)
 	b.WriteString("resp=$(vbr PUT \"${BASE_URL}/api/v1/configBackup\" -H 'Content-Type: application/json' --data \"$body\")\n")
 	b.WriteString("\n")
+	return nil
+}
+
+// renderCurlS3Repo emits the S3 repository POST. When a mount-server/VSA host
+// id is known it wraps the POST in the same "pending components update" retry
+// used by new_hardened_repo; otherwise it falls back to a plain POST.
+func renderCurlS3Repo(b *strings.Builder, st Step) error {
+	path := curlExpandPath(st.Path)
+	if st.Body != nil {
+		bodyBytes, err := json.MarshalIndent(st.Body, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal body for S3 repo: %w", err)
+		}
+		bodyStr := curlExpandBody(string(bodyBytes))
+		b.WriteString("body=$(cat <<JSON\n")
+		b.WriteString(bodyStr + "\n")
+		b.WriteString("JSON\n")
+		b.WriteString(")\n")
+	} else {
+		b.WriteString("body='{}'\n")
+	}
+
+	if st.HostVar == "" {
+		fmt.Fprintf(b, "resp=$(vbr POST \"${BASE_URL}%s\" -H 'Content-Type: application/json' --data \"$body\")\n", path)
+		for _, cap := range st.Captures {
+			fmt.Fprintf(b, "%s=$(echo \"$resp\" | jq -r '%s')\n", cap.Var, curlCapExpr(cap.Expr))
+		}
+		if st.WaitSession && st.WaitVar != "" {
+			fmt.Fprintf(b, "wait_session \"${%s}\"\n", st.WaitVar)
+		}
+		b.WriteString("\n")
+		return nil
+	}
+
+	b.WriteString("for a in 1 2 3; do\n")
+	fmt.Fprintf(b, "  resp=$(vbr POST \"${BASE_URL}%s\" -H 'Content-Type: application/json' --data \"$body\") && true\n", path)
+	b.WriteString("  msg=$(printf '%s' \"$resp\" | jq -r '.message // empty')\n")
+	b.WriteString("  sid=$(printf '%s' \"$resp\" | jq -r '.id // empty')\n")
+	b.WriteString("  if [ -n \"$sid\" ]; then wait_session \"$sid\"; break; fi\n")
+	fmt.Fprintf(b, "  if [ $a -lt 3 ] && echo \"$msg\" | grep -qi 'pending components update'; then update_components \"${%s}\"; continue; fi\n", st.HostVar)
+	b.WriteString("  echo \"S3 repository create failed: $resp\" >&2; exit 1\n")
+	b.WriteString("done\n\n")
 	return nil
 }
 

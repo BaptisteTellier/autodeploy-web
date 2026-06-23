@@ -229,6 +229,16 @@ func TestPlanSequence(t *testing.T) {
 	if iS3Repo < 0 {
 		t.Error("missing repositories POST with ?overwriteOwner=true")
 	}
+	// The S3 repo step must carry the pending-components retry (Kind "s3Repo")
+	// with a host var to refresh — mirrors the live wiring's createWithComponents.
+	if iS3Repo >= 0 {
+		if steps[iS3Repo].Kind != "s3Repo" {
+			t.Errorf("S3 repository step Kind = %q, want \"s3Repo\" (pending-components retry)", steps[iS3Repo].Kind)
+		}
+		if steps[iS3Repo].HostVar == "" {
+			t.Error("S3 repository step missing HostVar for the component-update retry")
+		}
+	}
 	if iS3Cred >= 0 && iNewFolder >= 0 && iNewFolder < iS3Cred {
 		t.Error("newFolder must come after cloudCredentials")
 	}

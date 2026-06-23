@@ -455,29 +455,46 @@ func Plan(s Spec) []Step {
 			})
 		}
 
-		// 6c. Mount server lookup — capture id from first result.
+		// 6c. Resolve the mount-server host id — both for the repo body and for
+		// the component-update retry below. Pin the chosen node when set;
+		// otherwise fall back to the primary VSA, the implicit mount server on a
+		// VSA-only deploy. Mirrors internal/wiring applyAdvanced.
 		mountServerIDExpr := ""
+		retryHostVar := ""
 		if s.S3.MountServerNode != "" {
 			mountServerIDExpr = "$mountSrv_id"
+			retryHostVar = "mountSrv_id"
 			add(Step{
 				Comment:  "Find the managed server id for the S3 mount server node (" + s.S3.MountServerNode + ").",
 				Method:   "GET",
 				Path:     "/api/v1/backupInfrastructure/managedServers?nameFilter=" + s.S3.MountServerNode + "&limit=10",
 				Captures: []Capture{{Var: "mountSrv_id", Expr: "data[0].id"}},
 			})
+		} else if len(vsas) > 0 && vsas[0].IP != "" {
+			retryHostVar = "s3Host_id"
+			add(Step{
+				Comment:  "Find the primary VSA managed-server id (implicit S3 mount server) for the pending-components retry.",
+				Method:   "GET",
+				Path:     "/api/v1/backupInfrastructure/managedServers?nameFilter=" + vsas[0].IP + "&limit=10",
+				Captures: []Capture{{Var: "s3Host_id", Expr: "data[0].id"}},
+			})
 		}
 
-		// 6d. Add S3 repository.
+		// 6d. Add S3 repository, retrying on "pending components update" (a fresh
+		// mount-server host may still be applying components) by refreshing the
+		// host's components and re-POSTing — mirrors createWithComponents.
 		repoPath := s3RepoPath(s.S3.OverwriteOwner)
 		s3SessVar := "s3Repo_sess"
 		add(Step{
-			Comment:     "Add S3 object-storage repository " + s.S3.Name + ".",
+			Comment:     "Add S3 object-storage repository " + s.S3.Name + " (retries on 'pending components update').",
 			Method:      "POST",
 			Path:        repoPath,
 			Body:        s3RepoBody(s.S3, "$s3Cred_id", mountServerIDExpr),
 			Captures:    []Capture{{Var: s3SessVar, Expr: "id"}},
 			WaitSession: true,
 			WaitVar:     s3SessVar,
+			Kind:        "s3Repo",
+			HostVar:     retryHostVar,
 		})
 	}
 
