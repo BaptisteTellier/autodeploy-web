@@ -855,6 +855,57 @@ func (c *Client) SetNodeExporter(ctx context.Context, enabled, tls bool, usernam
 	return nil
 }
 
+// Raw issues an arbitrary authenticated request and returns the HTTP status and
+// raw response body. Unlike do(), a non-2xx status is NOT returned as an error
+// — the body (including API error JSON) is returned so callers can surface it.
+// err is only set for transport / auth failures.
+//
+// path is the part after BaseURL (e.g. "/api/v1/serverInfo"). body is raw JSON
+// bytes (may be nil/empty). On HTTP 401 Raw re-authenticates once and retries,
+// mirroring doOnce's allowReauth path.
+func (c *Client) Raw(ctx context.Context, method, path string, body []byte) (status int, respBody []byte, err error) {
+	return c.rawOnce(ctx, method, path, body, true)
+}
+
+func (c *Client) rawOnce(ctx context.Context, method, path string, body []byte, allowReauth bool) (int, []byte, error) {
+	var rdr io.Reader
+	if len(body) > 0 {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.url(path), rdr)
+	if err != nil {
+		return 0, nil, err
+	}
+	tok := c.currentToken()
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	if c.cfg.APIVersion != "" {
+		req.Header.Set("x-api-version", c.cfg.APIVersion)
+	}
+	req.Header.Set("Accept", "application/json")
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized && allowReauth && c.cfg.Username != "" {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		if err := c.reauthenticate(ctx, tok); err != nil {
+			return 0, nil, fmt.Errorf("veeam: re-authenticate after 401: %w", err)
+		}
+		return c.rawOnce(ctx, method, path, body, false)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, b, nil
+}
+
 // Logout best-effort revokes the token.
 func (c *Client) Logout(ctx context.Context) {
 	_ = c.do(ctx, http.MethodPost, "/api/oauth2/logout", nil, nil)

@@ -565,6 +565,22 @@ var translations = map[string]map[string]string{
 		"deploy.err_rewire":             "Could not retry wiring: ",
 		"deploy.copy_to_deploy":         "Copy to deploy",
 		"deploy.retry_of":               "retry of",
+
+		// --- deploy detail: REST API console ---
+		"deploy.console_open":        "Open REST API",
+		"deploy.console_close":       "Close REST API session",
+		"deploy.console_title":       "VSA REST API Console",
+		"deploy.console_method":      "Method",
+		"deploy.console_path":        "Path",
+		"deploy.console_body":        "Request body (JSON, optional)",
+		"deploy.console_send":        "Send",
+		"deploy.console_status":      "Status",
+		"deploy.console_response":    "Response",
+		"deploy.console_warning":     "⚠️ This console issues authenticated calls against the live VSA. All HTTP methods are allowed — use with care.",
+		"deploy.console_err_open":    "Failed to open REST API session: ",
+		"deploy.console_err_close":   "Failed to close REST API session: ",
+		"deploy.console_err_request": "Request failed: ",
+		"deploy.console_no_session":  "No active session — click \"Open REST API\" first.",
 	},
 
 	"fr": {
@@ -1078,5 +1094,21 @@ var translations = map[string]map[string]string{
 		"deploy.err_rewire":             "Impossible de recâbler : ",
 		"deploy.copy_to_deploy":         "Copier vers déploiement",
 		"deploy.retry_of":               "relance de",
+
+		// --- deploy detail: REST API console ---
+		"deploy.console_open":        "Ouvrir REST API",
+		"deploy.console_close":       "Fermer la session REST API",
+		"deploy.console_title":       "Console REST API VSA",
+		"deploy.console_method":      "Méthode",
+		"deploy.console_path":        "Chemin",
+		"deploy.console_body":        "Corps de la requête (JSON, optionnel)",
+		"deploy.console_send":        "Envoyer",
+		"deploy.console_status":      "Statut",
+		"deploy.console_response":    "Réponse",
+		"deploy.console_warning":     "⚠️ Cette console émet des appels authentifiés vers le VSA en production. Toutes les méthodes HTTP sont autorisées — à utiliser avec précaution.",
+		"deploy.console_err_open":    "Impossible d'ouvrir la session REST API : ",
+		"deploy.console_err_close":   "Impossible de fermer la session REST API : ",
+		"deploy.console_err_request": "Échec de la requête : ",
+		"deploy.console_no_session":  "Aucune session active — cliquez sur « Ouvrir REST API » d'abord.",
 	},
 }

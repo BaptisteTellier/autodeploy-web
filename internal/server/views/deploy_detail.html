@@ -1,7 +1,10 @@
 {{define "views/deploy_detail.html"}}{{template "layout.html" .}}{{end}}
 
 {{define "content"}}
-<div class="max-w-4xl mx-auto space-y-4">
+<style>[x-cloak]{display:none}</style>
+<div class="max-w-4xl mx-auto space-y-4"
+     x-data="consoleApp({{jsonStr .Deployment.ID}})"
+     x-init="init()">
 
   <div class="flex flex-wrap items-center gap-3">
     <a href="/deploy" class="text-slate-500 hover:underline text-sm">{{t "deploy.back"}}</a>
@@ -14,6 +17,16 @@
       {{if eq (printf "%s" .Deployment.State) "canceled"}}bg-slate-200 text-slate-700{{end}}
       {{if eq (printf "%s" .Deployment.State) "removed"}}bg-slate-200 text-slate-700{{end}}
     ">{{.Deployment.State}}</span>
+    <!-- VSA REST API console toggle button -->
+    <button type="button"
+            @click="sessionOpen ? closeSession() : openSession()"
+            :disabled="loading"
+            class="px-3 py-1 rounded text-sm font-medium border transition-colors"
+            :class="sessionOpen
+              ? 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200'
+              : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'">
+      <span x-text="sessionOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
+    </button>
   </div>
   <div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-slate-400 tabular-nums">
     <span>Started: <span class="text-slate-600">{{fmtTime .Deployment.CreatedAt}}</span></span>
@@ -123,6 +136,195 @@
     <pre id="log" class="text-green-300 text-xs font-mono max-h-[60vh] overflow-auto whitespace-pre-wrap">{{range .Lines}}{{.}}
 {{end}}</pre>
   </div>
+
+  <!-- VSA REST API Console modal (stays in DOM when closed — history preserved) -->
+  <div x-show="open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       @click.self="open=false"
+       @keydown.escape.window="open=false">
+    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-4xl h-5/6 flex flex-col" @click.stop>
+      <!-- Modal header -->
+      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
+        <span class="font-semibold text-slate-700">{{t "deploy.console_title"}}</span>
+        <button @click="open=false" class="text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
+      </div>
+      <!-- Warning -->
+      <div class="px-5 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+        {{t "deploy.console_warning"}}
+      </div>
+      <!-- Request form -->
+      <div class="px-5 py-3 border-b flex flex-wrap gap-2 items-end">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_method"}}</label>
+          <select x-model="method" class="border border-slate-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>DELETE</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-1 flex-1 min-w-48">
+          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_path"}}</label>
+          <input type="text" x-model="path" placeholder="/api/v1/serverInfo"
+                 class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                 @keydown.enter="sendRequest()">
+        </div>
+        <div class="flex flex-col gap-1 flex-1 min-w-48">
+          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_body"}}</label>
+          <input type="text" x-model="reqBody" placeholder="{}"
+                 class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                 @keydown.enter="sendRequest()">
+        </div>
+        <button type="button" @click="sendRequest()" :disabled="loading"
+                class="px-3 py-1.5 rounded text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
+          {{t "deploy.console_send"}}
+        </button>
+      </div>
+      <!-- History -->
+      <div class="flex-1 overflow-auto p-3 bg-slate-950 space-y-3 font-mono text-xs">
+        <template x-if="history.length === 0">
+          <p class="text-slate-500 italic">{{t "deploy.console_no_session"}}</p>
+        </template>
+        <template x-for="(entry, idx) in history" :key="idx">
+          <div class="border-b border-slate-800 pb-3">
+            <!-- Request line -->
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-bold text-indigo-400" x-text="entry.method"></span>
+              <span class="text-slate-300" x-text="entry.path"></span>
+              <span class="ml-auto text-slate-500 tabular-nums" x-text="entry.ts"></span>
+            </div>
+            <!-- Status badge -->
+            <div class="mb-1">
+              <span class="text-[10px] px-1.5 py-0.5 rounded font-bold"
+                    :class="entry.status >= 200 && entry.status < 300 ? 'bg-emerald-900 text-emerald-300' : 'bg-red-900 text-red-300'"
+                    x-text="'HTTP ' + entry.status + ' · ' + {{tjs "deploy.console_status"}}"></span>
+            </div>
+            <!-- Response body -->
+            <pre class="text-green-300 whitespace-pre-wrap break-all max-h-64 overflow-auto" x-text="entry.body"></pre>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  function consoleApp(deployID) {
+    const lsKey = 'console_' + deployID;
+    function loadLS() {
+      try { return JSON.parse(localStorage.getItem(lsKey) || '{}'); } catch(e) { return {}; }
+    }
+    function saveLS(state) {
+      localStorage.setItem(lsKey, JSON.stringify(state));
+    }
+    return {
+      open: false,
+      sessionOpen: false,
+      method: 'GET',
+      path: '/api/v1/serverInfo',
+      reqBody: '',
+      history: [],
+      loading: false,
+
+      async init() {
+        // Restore history from localStorage.
+        const stored = loadLS();
+        if (stored.history) this.history = stored.history;
+
+        // Check server-side session status first.
+        try {
+          const r = await fetch('/deploy/' + deployID + '/console/status');
+          if (r.ok) {
+            const d = await r.json();
+            if (d.open) { this.sessionOpen = true; return; }
+          }
+        } catch(e) {}
+
+        // If the localStorage flag was set (e.g. after a page reload), re-auth.
+        if (stored.open) {
+          await this.openSession(false);
+        }
+      },
+
+      async openSession(showModal = true) {
+        this.loading = true;
+        try {
+          const r = await fetch('/deploy/' + deployID + '/console/open', {method: 'POST'});
+          if (!r.ok) {
+            const msg = await r.text();
+            alert({{tjs "deploy.console_err_open"}} + msg);
+            return;
+          }
+          this.sessionOpen = true;
+          const stored = loadLS();
+          stored.open = true;
+          saveLS(stored);
+          if (showModal) this.open = true;
+        } catch(e) {
+          alert({{tjs "deploy.console_err_open"}} + e);
+        } finally {
+          this.loading = false;
+        }
+      },
+
+      async closeSession() {
+        this.loading = true;
+        try {
+          const r = await fetch('/deploy/' + deployID + '/console/close', {method: 'POST'});
+          if (!r.ok) {
+            const msg = await r.text();
+            alert({{tjs "deploy.console_err_close"}} + msg);
+          }
+        } catch(e) {
+          alert({{tjs "deploy.console_err_close"}} + e);
+        } finally {
+          this.sessionOpen = false;
+          this.open = false;
+          this.loading = false;
+          const stored = loadLS();
+          stored.open = false;
+          saveLS(stored);
+        }
+      },
+
+      async sendRequest() {
+        if (!this.sessionOpen) return;
+        if (!this.path.startsWith('/')) { alert('Path must start with /'); return; }
+        this.loading = true;
+        const ts = new Date().toLocaleTimeString();
+        try {
+          const r = await fetch('/deploy/' + deployID + '/console/request', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({method: this.method, path: this.path, body: this.reqBody}),
+          });
+          if (!r.ok) {
+            const msg = await r.text();
+            alert({{tjs "deploy.console_err_request"}} + msg);
+            return;
+          }
+          const d = await r.json();
+          // Pretty-print JSON bodies.
+          let body = d.body || '';
+          try { body = JSON.stringify(JSON.parse(body), null, 2); } catch(e) {}
+          this.history.push({method: this.method, path: this.path, status: d.status, body, ts});
+          // Persist history.
+          const stored = loadLS();
+          stored.history = this.history;
+          saveLS(stored);
+          // Scroll to bottom of history.
+          this.$nextTick(() => {
+            const pane = this.$el.querySelector('.bg-slate-950');
+            if (pane) pane.scrollTop = pane.scrollHeight;
+          });
+        } catch(e) {
+          alert({{tjs "deploy.console_err_request"}} + e);
+        } finally {
+          this.loading = false;
+        }
+      },
+    };
+  }
+  </script>
 
   <script>
   (function () {

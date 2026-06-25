@@ -1186,3 +1186,146 @@ func TestReauthOn401NoPersistentLoop(t *testing.T) {
 		t.Errorf("credentials endpoint called %d times, want <= 2 (no infinite loop)", credCalls)
 	}
 }
+
+// TestRaw verifies that Raw returns the HTTP status and body for both 2xx and
+// 4xx responses without treating 4xx as an error, and that the bearer token
+// and x-api-version headers are attached to the request.
+func TestRaw(t *testing.T) {
+	mux := baseMux()
+	var gotAuth, gotAPIVer string
+
+	// 200 endpoint: echo a JSON body back.
+	mux.HandleFunc("/api/v1/serverInfo", func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIVer = r.Header.Get("x-api-version")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"productName":"Veeam Backup & Replication"}`))
+	})
+
+	// 404 endpoint: returns a VBR-style error body — Raw must NOT return a Go error.
+	mux.HandleFunc("/api/v1/missing", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
+	})
+
+	c, _ := newTestClient(t, mux)
+
+	// --- 200 case ---
+	status, body, err := c.Raw(context.Background(), "GET", "/api/v1/serverInfo", nil)
+	if err != nil {
+		t.Fatalf("Raw 200: unexpected error: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("Raw 200: status = %d, want 200", status)
+	}
+	if !strings.Contains(string(body), "Veeam") {
+		t.Errorf("Raw 200: body = %q, want to contain 'Veeam'", body)
+	}
+	// Bearer token and x-api-version must be attached.
+	if gotAuth != "Bearer tok-123" {
+		t.Errorf("Raw: Authorization = %q, want 'Bearer tok-123'", gotAuth)
+	}
+	if gotAPIVer != "1.3-rev2" {
+		t.Errorf("Raw: x-api-version = %q, want '1.3-rev2'", gotAPIVer)
+	}
+
+	// --- 404 case: non-2xx must NOT be a Go error ---
+	status, body, err = c.Raw(context.Background(), "GET", "/api/v1/missing", nil)
+	if err != nil {
+		t.Fatalf("Raw 404: unexpected Go error: %v", err)
+	}
+	if status != http.StatusNotFound {
+		t.Errorf("Raw 404: status = %d, want 404", status)
+	}
+	if !strings.Contains(string(body), "not found") {
+		t.Errorf("Raw 404: body = %q, want to contain 'not found'", body)
+	}
+}
+
+// TestRawWithBody verifies that Raw attaches Content-Type application/json and
+// sends the body when body is non-empty, and omits Content-Type when body is nil.
+func TestRawWithBody(t *testing.T) {
+	mux := baseMux()
+	var gotContentType string
+	var gotBody []byte
+
+	mux.HandleFunc("/api/v1/echo", func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	c, _ := newTestClient(t, mux)
+
+	// With a JSON body.
+	payload := []byte(`{"key":"value"}`)
+	status, _, err := c.Raw(context.Background(), "POST", "/api/v1/echo", payload)
+	if err != nil {
+		t.Fatalf("Raw POST: unexpected error: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("Raw POST: status = %d, want 200", status)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("Raw POST: Content-Type = %q, want application/json", gotContentType)
+	}
+	if string(gotBody) != string(payload) {
+		t.Errorf("Raw POST: body sent = %q, want %q", gotBody, payload)
+	}
+
+	// Without a body — Content-Type must NOT be set.
+	gotContentType = ""
+	_, _, err = c.Raw(context.Background(), "DELETE", "/api/v1/echo", nil)
+	if err != nil {
+		t.Fatalf("Raw DELETE: unexpected error: %v", err)
+	}
+	if gotContentType != "" {
+		t.Errorf("Raw DELETE: Content-Type = %q, want empty", gotContentType)
+	}
+}
+
+// TestRawReauthOn401 verifies that Raw re-authenticates once on 401 and retries,
+// mirroring the doOnce behaviour.
+func TestRawReauthOn401(t *testing.T) {
+	tokenCalls := 0
+	mux := newReauthMux(&tokenCalls)
+
+	hits := 0
+	mux.HandleFunc("/api/v1/probe", func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits == 1 {
+			// First call: 401.
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// Second call (after re-auth): 200.
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := New(Config{BaseURL: srv.URL, Username: "admin", Password: "pw"})
+	if err := c.Authenticate(context.Background()); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	tokenBefore := tokenCalls
+
+	status, _, err := c.Raw(context.Background(), "GET", "/api/v1/probe", nil)
+	if err != nil {
+		t.Fatalf("Raw reauth: unexpected error: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("Raw reauth: status = %d, want 200", status)
+	}
+	if hits != 2 {
+		t.Errorf("probe endpoint called %d times, want 2", hits)
+	}
+	// Exactly one re-auth after the initial authenticate.
+	if tokenCalls != tokenBefore+1 {
+		t.Errorf("token endpoint: %d extra calls, want 1", tokenCalls-tokenBefore)
+	}
+}

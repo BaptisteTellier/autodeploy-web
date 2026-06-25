@@ -4,6 +4,9 @@ import (
 	"html/template"
 	"io"
 	"testing"
+	"time"
+
+	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 )
 
 // TestParseTemplates ensures every embedded view parses for every supported
@@ -41,6 +44,36 @@ func TestExecuteCraftAPI(t *testing.T) {
 		}
 		if err := tmpl.ExecuteTemplate(io.Discard, "layout.html", data); err != nil {
 			t.Errorf("lang %q: craft_api execute: %v", lang, err)
+		}
+	}
+}
+
+// TestExecuteDeployDetail executes the deploy_detail.html template to catch any
+// contextual autoescaping errors introduced by the console Alpine component.
+func TestExecuteDeployDetail(t *testing.T) {
+	sets := parseTemplates()
+	data := map[string]any{
+		"Deployment": deploy.View{
+			ID:        "test-deploy-id",
+			Kind:      "vsa+proxy",
+			State:     deploy.StateDone,
+			CreatedAt: time.Now(),
+			Nodes: []deploy.NodeStatus{
+				{Hostname: "vsa01", Role: "VSA", Step: "ready"},
+			},
+			Form: deploy.FormSnapshot{
+				NodeOutputs: []string{"job-001"},
+			},
+		},
+		"Lines": []string{"15:04:05 deploy started"},
+	}
+	for _, lang := range supportedLangs {
+		tmpl := sets[lang]["views/deploy_detail.html"]
+		if tmpl == nil {
+			t.Fatalf("lang %q: views/deploy_detail.html not parsed", lang)
+		}
+		if err := tmpl.ExecuteTemplate(io.Discard, "layout.html", data); err != nil {
+			t.Errorf("lang %q: deploy_detail execute: %v", lang, err)
 		}
 	}
 }

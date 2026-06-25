@@ -30,6 +30,7 @@ type Server struct {
 	deps      Deps
 	templates map[string]map[string]*template.Template // lang → page-name → template
 	static    fs.FS
+	console   *consoleManager // in-memory VSA REST console sessions
 }
 
 func New(d Deps) *Server {
@@ -41,6 +42,7 @@ func New(d Deps) *Server {
 		deps:      d,
 		templates: parseTemplates(),
 		static:    staticSub,
+		console:   newConsoleManager(),
 	}
 }
 
@@ -77,6 +79,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /deploy/{id}/retry", s.handleDeployRetry)
 	mux.HandleFunc("POST /deploy/{id}/rewire", s.handleDeployRewire)
 	mux.HandleFunc("DELETE /deploy/{id}", s.handleDeployDelete)
+
+	// VSA REST API console (sessions in-memory; proxied through this server).
+	mux.HandleFunc("POST /deploy/{id}/console/open", s.handleConsoleOpen)
+	mux.HandleFunc("POST /deploy/{id}/console/close", s.handleConsoleClose)
+	mux.HandleFunc("GET /deploy/{id}/console/status", s.handleConsoleStatus)
+	mux.HandleFunc("POST /deploy/{id}/console/request", s.handleConsoleRequest)
 
 	// Deploy templates (named FormSnapshot presets). The literal "presets"
 	// segment is matched ahead of the {id} wildcard by net/http's ServeMux.
