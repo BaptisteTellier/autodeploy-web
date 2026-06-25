@@ -171,9 +171,8 @@
         </div>
         <div class="flex flex-col gap-1 flex-1 min-w-48">
           <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_body"}}</label>
-          <input type="text" x-model="reqBody" placeholder="{}"
-                 class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                 @keydown.enter="sendRequest()">
+          <textarea x-model="reqBody" rows="2" placeholder="{}"
+                    class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
         </div>
         <button type="button" @click="sendRequest()" :disabled="loading"
                 class="px-3 py-1.5 rounded text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
@@ -183,7 +182,7 @@
       <!-- History -->
       <div class="flex-1 overflow-auto p-3 bg-slate-950 space-y-3 font-mono text-xs">
         <template x-if="history.length === 0">
-          <p class="text-slate-500 italic">{{t "deploy.console_no_session"}}</p>
+          <p class="text-slate-500 italic">{{t "deploy.console_empty"}}</p>
         </template>
         <template x-for="(entry, idx) in history" :key="idx">
           <div class="border-b border-slate-800 pb-3">
@@ -214,7 +213,8 @@
       try { return JSON.parse(localStorage.getItem(lsKey) || '{}'); } catch(e) { return {}; }
     }
     function saveLS(state) {
-      localStorage.setItem(lsKey, JSON.stringify(state));
+      try { localStorage.setItem(lsKey, JSON.stringify(state)); }
+      catch (e) { /* quota exceeded — keep the in-memory history, skip persisting */ }
     }
     return {
       open: false,
@@ -239,19 +239,24 @@
           }
         } catch(e) {}
 
-        // If the localStorage flag was set (e.g. after a page reload), re-auth.
+        // localStorage says it was open but the server session is gone (e.g. a
+        // container restart). Re-auth SILENTLY — never pop a dialog on page load.
         if (stored.open) {
-          await this.openSession(false);
+          await this.openSession(false, true);
         }
       },
 
-      async openSession(showModal = true) {
+      // silent=true suppresses error dialogs (used by the on-load auto-reauth)
+      // and clears the stale open flag so we don't keep retrying on every load.
+      async openSession(showModal = true, silent = false) {
         this.loading = true;
         try {
           const r = await fetch('/deploy/' + deployID + '/console/open', {method: 'POST'});
           if (!r.ok) {
             const msg = await r.text();
-            alert({{tjs "deploy.console_err_open"}} + msg);
+            this.sessionOpen = false;
+            if (silent) { const st = loadLS(); st.open = false; saveLS(st); }
+            else alert({{tjs "deploy.console_err_open"}} + msg);
             return;
           }
           this.sessionOpen = true;
@@ -260,7 +265,9 @@
           saveLS(stored);
           if (showModal) this.open = true;
         } catch(e) {
-          alert({{tjs "deploy.console_err_open"}} + e);
+          this.sessionOpen = false;
+          if (silent) { const st = loadLS(); st.open = false; saveLS(st); }
+          else alert({{tjs "deploy.console_err_open"}} + e);
         } finally {
           this.loading = false;
         }
@@ -307,6 +314,8 @@
           let body = d.body || '';
           try { body = JSON.stringify(JSON.parse(body), null, 2); } catch(e) {}
           this.history.push({method: this.method, path: this.path, status: d.status, body, ts});
+          // Cap history so localStorage can't grow unbounded.
+          if (this.history.length > 50) this.history = this.history.slice(-50);
           // Persist history.
           const stored = loadLS();
           stored.history = this.history;

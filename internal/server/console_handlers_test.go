@@ -91,6 +91,41 @@ func TestConsoleManager(t *testing.T) {
 	}
 }
 
+// TestConsoleSweepAndReplace verifies the atomic replace (returns the displaced
+// client) and the idle-session sweeper (drops stale sessions, keeps fresh ones).
+func TestConsoleSweepAndReplace(t *testing.T) {
+	srv := httptest.NewServer(stubVSAMux())
+	t.Cleanup(srv.Close)
+
+	cm := newConsoleManager()
+	c1 := newAuthenticatedClient(t, srv)
+	c2 := newAuthenticatedClient(t, srv)
+
+	if old := cm.replace("d1", c1); old != nil {
+		t.Error("replace on an empty slot should return nil")
+	}
+	if old := cm.replace("d1", c2); old != c1 {
+		t.Error("replace should return the displaced client")
+	}
+	if got, _ := cm.get("d1"); got != c2 {
+		t.Error("replace should install the new client")
+	}
+
+	// Force d1 idle; a fresh session must survive the sweep.
+	cm.mu.Lock()
+	cm.sessions["d1"].lastUsed = time.Now().Add(-time.Hour)
+	cm.mu.Unlock()
+	cm.open("fresh", c1)
+
+	cm.sweep(30 * time.Minute)
+	if cm.isOpen("d1") {
+		t.Error("idle session should have been swept")
+	}
+	if !cm.isOpen("fresh") {
+		t.Error("fresh session should survive the sweep")
+	}
+}
+
 // minimalDeployment is a lightweight stand-in for a deploy.Deployment used only
 // within the consoleHandlers test. It implements the subset of the manager API
 // that handleConsoleRequest / handleConsoleStatus / handleConsoleClose use.

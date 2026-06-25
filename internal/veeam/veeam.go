@@ -899,7 +899,10 @@ func (c *Client) rawOnce(ctx context.Context, method, path string, body []byte, 
 		}
 		return c.rawOnce(ctx, method, path, body, false)
 	}
-	b, err := io.ReadAll(resp.Body)
+	// Cap the body the console proxy will buffer/return (8 MiB) so a huge VSA
+	// response can't blow up memory or the browser.
+	const maxRawRespBytes = 8 << 20
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxRawRespBytes))
 	if err != nil {
 		return resp.StatusCode, nil, err
 	}

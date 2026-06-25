@@ -38,12 +38,14 @@ func New(d Deps) *Server {
 	if err != nil {
 		panic(err)
 	}
-	return &Server{
+	s := &Server{
 		deps:      d,
 		templates: parseTemplates(),
 		static:    staticSub,
 		console:   newConsoleManager(),
 	}
+	s.console.startSweeper() // expire idle VSA console sessions
+	return s
 }
 
 func (s *Server) Routes() http.Handler {

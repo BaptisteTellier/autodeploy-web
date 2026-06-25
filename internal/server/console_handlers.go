@@ -25,8 +25,13 @@ import (
 
 // consoleSession is the per-deployment REST-API console session.
 type consoleSession struct {
-	client *veeam.Client
+	client   *veeam.Client
+	lastUsed time.Time
 }
+
+// consoleIdleTimeout is how long a session may sit unused before the background
+// sweeper logs it out and drops it (prevents leaked authenticated clients).
+const consoleIdleTimeout = 30 * time.Minute
 
 // consoleManager holds authenticated VSA sessions keyed by deployment ID.
 type consoleManager struct {
@@ -41,13 +46,28 @@ func newConsoleManager() *consoleManager {
 func (cm *consoleManager) open(id string, c *veeam.Client) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	cm.sessions[id] = &consoleSession{client: c}
+	cm.sessions[id] = &consoleSession{client: c, lastUsed: time.Now()}
+}
+
+// replace atomically installs c as the session for id and returns the client it
+// displaced (nil if none), so the caller can log the old one out. Avoids the
+// TOCTOU of a separate isOpen→close→open sequence.
+func (cm *consoleManager) replace(id string, c *veeam.Client) *veeam.Client {
+	cm.mu.Lock()
+	old := cm.sessions[id]
+	cm.sessions[id] = &consoleSession{client: c, lastUsed: time.Now()}
+	cm.mu.Unlock()
+	if old != nil {
+		return old.client
+	}
+	return nil
 }
 
 func (cm *consoleManager) get(id string) (*veeam.Client, bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	if s, ok := cm.sessions[id]; ok {
+		s.lastUsed = time.Now() // refresh idle timer
 		return s.client, true
 	}
 	return nil, false
@@ -55,13 +75,11 @@ func (cm *consoleManager) get(id string) (*veeam.Client, bool) {
 
 func (cm *consoleManager) close(id string) {
 	cm.mu.Lock()
-	c, ok := cm.sessions[id]
+	s, ok := cm.sessions[id]
 	delete(cm.sessions, id)
 	cm.mu.Unlock()
 	if ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		c.client.Logout(ctx)
+		logoutClient(s.client)
 	}
 }
 
@@ -70,6 +88,41 @@ func (cm *consoleManager) isOpen(id string) bool {
 	defer cm.mu.Unlock()
 	_, ok := cm.sessions[id]
 	return ok
+}
+
+// sweep logs out and drops every session idle longer than maxIdle.
+func (cm *consoleManager) sweep(maxIdle time.Duration) {
+	cm.mu.Lock()
+	var stale []*veeam.Client
+	for id, s := range cm.sessions {
+		if time.Since(s.lastUsed) > maxIdle {
+			stale = append(stale, s.client)
+			delete(cm.sessions, id)
+		}
+	}
+	cm.mu.Unlock()
+	for _, c := range stale {
+		logoutClient(c)
+	}
+}
+
+// startSweeper launches a background goroutine that expires idle sessions. It
+// runs for the lifetime of the process (started once by the server).
+func (cm *consoleManager) startSweeper() {
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			cm.sweep(consoleIdleTimeout)
+		}
+	}()
+}
+
+// logoutClient best-effort revokes a session's token with a bounded timeout.
+func logoutClient(c *veeam.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c.Logout(ctx)
 }
 
 // writeJSONStatus writes a JSON-encoded value with the given HTTP status code.
@@ -135,11 +188,6 @@ func (s *Server) handleConsoleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If a session is already open, close it first.
-	if s.console.isOpen(id) {
-		s.console.close(id)
-	}
-
 	baseURL := "https://" + vsaIP + ":9419"
 	client := veeam.New(veeam.Config{
 		BaseURL:  baseURL,
@@ -149,11 +197,15 @@ func (s *Server) handleConsoleOpen(w http.ResponseWriter, r *http.Request) {
 	})
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	// Authenticate BEFORE installing the session so a failed re-auth never
+	// drops a working one. Then swap atomically and log out any displaced client.
 	if err := client.Authenticate(ctx); err != nil {
 		http.Error(w, translate(lang, "deploy.console_err_open")+err.Error(), http.StatusBadGateway)
 		return
 	}
-	s.console.open(id, client)
+	if old := s.console.replace(id, client); old != nil {
+		go logoutClient(old)
+	}
 	writeJSONStatus(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

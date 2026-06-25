@@ -589,6 +589,7 @@ func (s *Server) handleDeployRemove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, translate(lang, "deploy.err_remove")+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.console.close(id) // drop any open REST console session for the destroyed VSA
 	// The record is kept (state "removed") so the user can retry it.
 	http.Redirect(w, r, "/deploy/"+id, http.StatusSeeOther)
 }
@@ -720,10 +721,12 @@ func (s *Server) handleDeployDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.deps.DeployManager.Delete(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := s.deps.DeployManager.Delete(id); err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	s.console.close(id) // drop any open REST console session
 	w.WriteHeader(http.StatusNoContent)
 }
 
