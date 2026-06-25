@@ -288,6 +288,17 @@ The VMware Workstation back-end drives a **Windows host** over **WinRM** (same t
 <img width="1498" height="921" alt="image" src="https://github.com/user-attachments/assets/10094904-650a-4aec-9589-b63d73e4ee04" />
 
 
+#### REST API console — talk to a deployed VSA
+
+On a deployment's **detail page** (`/deploy/{id}`), the header button **Open REST API** opens an interactive REPL against that deployment's primary VSA: pick a method (**GET / POST / PUT / DELETE**), type a path (e.g. `/api/v1/serverInfo`) and an optional JSON body, hit **Send**, and see the status code + pretty-printed response. The button toggles to **Close REST API session**.
+
+- **No credentials to re-enter** — the container authenticates to the VSA using the admin password already baked into the deployment's output config (same source as the wiring).
+- **Server-side proxy** — your browser never talks to the VSA directly (it has a self-signed cert and may be on a different network); every call is proxied through the container, which already reaches the VSA.
+- **Persistent** — the request/response history is kept in `localStorage` and the session survives closing the modal, reloading the page, and a container restart (it silently re-authenticates).
+- **Self-cleaning** — sessions live in memory, expire after 30 min idle, and are dropped automatically when the deployment is removed or deleted.
+
+> ⚠️ This is a power/debug tool: it issues **authenticated** calls against the **live** VSA with **all** HTTP methods (including `DELETE`). Consistent with the app's LAN-only, no-auth model — use with care.
+
 ### 🔌 Craft API (`/craft-api`)
 
 The same wiring as the Deploy page, but **render-only** — for appliances you deployed by hand. Fill a Deploy-style form (pick a topology, ＋ add proxy/HR nodes, enter each node's IP/hostname/pairing code, connection, and the advanced options), click **Generate**, and get the **exact REST call sequence as a runnable PowerShell or curl script** (toggle, copy, download `wire.ps1` / `wire.sh`).
