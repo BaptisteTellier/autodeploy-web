@@ -1046,7 +1046,7 @@ func (s *Server) resolveTargetVBR(r *http.Request) (wiring.TargetVBR, string) {
 // deploy. The form field "kind" selects what to test; currently only "vbr" is
 // implemented. Always responds HTTP 200 with a JSON object {ok, message}.
 func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
+	_ = r.ParseMultipartForm(8 << 20) // multipart FormData from fetch; ParseForm alone would leave fields empty
 	lang := langFromRequest(r)
 	kind := r.FormValue("kind")
 	if kind == "" {
@@ -1099,7 +1099,7 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 //
 // Response: HTTP 200, JSON { "ok": bool, "message": string, "resources": { "<field>": [{"value":"…","label":"…"}] } }
 func (s *Server) handleHypervisorDiscover(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
+	_ = r.ParseMultipartForm(8 << 20) // multipart FormData from fetch; ParseForm alone would leave fields empty
 	lang := langFromRequest(r)
 	provider := strings.TrimSpace(r.FormValue("provider"))
 	if provider == "" {

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -57,6 +59,48 @@ func assertFailure(t *testing.T, out discoverResult) {
 	}
 	if out.Resources == nil {
 		t.Error("resources field should be present (empty object) on error")
+	}
+}
+
+// postDiscoverMultipart posts the discover endpoint with a multipart/form-data
+// body — exactly as the browser's fetch + FormData does. The urlencoded
+// postDiscover helper does NOT exercise this path, which is why the
+// ParseForm-vs-ParseMultipartForm bug slipped through.
+func postDiscoverMultipart(t *testing.T, routes http.Handler, fields map[string]string) discoverResult {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for k, v := range fields {
+		_ = mw.WriteField(k, v)
+	}
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/deploy/hypervisor/discover", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	routes.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var out discoverResult
+	if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return out
+}
+
+// TestHandleHypervisorDiscover_MultipartProviderRouting guards the regression
+// where the handler used r.ParseForm() (which doesn't parse multipart bodies),
+// leaving every field empty so provider defaulted to proxmox for ALL providers.
+// With a multipart body, provider=hyperv must reach the hyperv branch.
+func TestHandleHypervisorDiscover_MultipartProviderRouting(t *testing.T) {
+	routes := testServerForDiscover(t)
+	out := postDiscoverMultipart(t, routes, map[string]string{"provider": "hyperv"})
+	assertFailure(t, out)
+	if strings.Contains(out.Message, "proxmox") {
+		t.Errorf("multipart provider=hyperv routed to proxmox (ParseForm/multipart bug): %q", out.Message)
+	}
+	if !strings.Contains(out.Message, "hyperv") {
+		t.Errorf("expected the hyperv branch error, got %q", out.Message)
 	}
 }
 
