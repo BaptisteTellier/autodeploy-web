@@ -118,7 +118,27 @@
                       fd.set('provider',provider);
                       const r=await fetch('/deploy/hypervisor/discover',{method:'POST',body:fd});
                       const d=await r.json();
-                      this.disco={busy:false,state:d.ok?'ok':'err',msg:d.message||'',resources:d.resources||{}};
+                      const got=d.resources||{};
+                      this.disco={busy:false,state:d.ok?'ok':'err',msg:d.message||'',resources:got};
+                      if(!d.ok) return;
+                      // Reconcile each field so the value the form submits (via the
+                      // hidden input) matches the option shown in the select — otherwise
+                      // a stale default could deploy to a different node/datastore than
+                      // the one displayed.
+                      let pickedDC=false;
+                      Object.keys(got).forEach(function(f){
+                        const opts=got[f]||[];
+                        if(!opts.length || this.manual[f]) return;
+                        if(!opts.some(function(o){return o.value===this.res[f];}.bind(this))){
+                          this.res[f]=opts[0].value;
+                          if(f==='vs_datacenter') pickedDC=true;
+                        }
+                      }.bind(this));
+                      // Auto-picked a datacenter → fetch its scoped lists (cascade).
+                      if(pickedDC && provider==='vsphere'){
+                        await this.$nextTick();
+                        await this.connectLoad('vsphere');
+                      }
                     }catch(e){this.disco={busy:false,state:'err',msg:String(e),resources:{}};}
                   },
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},

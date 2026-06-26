@@ -119,6 +119,12 @@ func DiscoverProxmox(ctx context.Context, cfg ProxmoxConnConfig) (map[string][]O
 	}
 
 	nodeHandle, err := client.Node(ctx, targetNode)
+	if err != nil && len(nodeStatuses) > 0 && targetNode != nodeStatuses[0].Node {
+		// cfg.Node was stale/wrong (e.g. the deploy form's default placeholder) —
+		// fall back to the first cluster node so storages/bridges still list.
+		targetNode = nodeStatuses[0].Node
+		nodeHandle, err = client.Node(ctx, targetNode)
+	}
 	if err != nil {
 		// Node lookup failed — return what we have so far.
 		return result, nil //nolint:nilerr — partial results are OK
