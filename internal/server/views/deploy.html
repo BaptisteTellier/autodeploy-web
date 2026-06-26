@@ -98,6 +98,7 @@
         "
         x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
                   targetDeployID:'', targetInsecure:true,
+                  testConn:{busy:false,state:'',msg:''},
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
                   get ksCapable(){ return ['proxmox','vsphere','hyperv','workstation'].includes(this.provider); },
                   get s3MountCandidates(){ return this.displayOrder.map((idx,pos)=>({idx,pos})).filter(o => (this.roles[o.idx]||'').includes('Proxy') && this.summ(o.idx) && this.summ(o.idx).hostname).map(o => ({ idx:o.idx, value:this.summ(o.idx).hostname, label:(o.pos+1)+'. '+this.roles[o.idx]+' — '+this.summ(o.idx).hostname })); },
@@ -105,6 +106,16 @@
                   baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
                   get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
                   get isStandalone(){ return !!(this.kind && DEPLOY_STANDALONE[this.kind]); },
+                  async testConnection(kind){
+                    this.testConn={busy:true,state:'',msg:''};
+                    try{
+                      const fd=new FormData(document.getElementById('deploy-form'));
+                      fd.set('kind',kind);
+                      const r=await fetch('/deploy/test-connection',{method:'POST',body:fd});
+                      const d=await r.json();
+                      this.testConn={busy:false,state:d.ok?'ok':'err',msg:d.message||''};
+                    }catch(e){this.testConn={busy:false,state:'err',msg:String(e)};}
+                  },
                   groupRank(role){ if(!role) return 1; if(role.startsWith('VSA')) return 0; if(role.includes('HR')) return 2; return 1; },
                   groupLabel(role){ const r=this.groupRank(role); return r===0?this.gLabels.vsa:r===2?this.gLabels.hr:this.gLabels.proxy; },
                   get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
@@ -352,6 +363,14 @@
           <input type="checkbox" name="target_insecure" x-model="targetInsecure" class="rounded border-slate-300" checked>
           {{t "deploy.target_insecure"}}
         </label>
+      </div>
+      <div class="flex items-center gap-3 pt-1">
+        <button type="button" @click="testConnection('vbr')" :disabled="testConn.busy"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
+          <span x-text="testConn.busy ? {{tjs "deploy.testing"}} : {{tjs "deploy.test_connection"}}"></span>
+        </button>
+        <span x-show="testConn.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="testConn.msg"></span></span>
+        <span x-show="testConn.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="testConn.msg"></span></span>
       </div>
     </div>
 

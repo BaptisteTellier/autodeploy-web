@@ -598,6 +598,9 @@ var translations = map[string]map[string]string{
 		"deploy.err_target_no_vsa":           "The selected past deployment has no VSA node.",
 		"deploy.err_target_no_ip":            "The selected past deployment's VSA node has no IP yet — wait for it to boot.",
 		"deploy.err_target_no_output":        "Cannot locate the VSA output config for the selected deployment.",
+		"deploy.test_connection":             "Test connection",
+		"deploy.testing":                     "Testing…",
+		"deploy.test_ok":                     "Connection OK",
 	},
 
 	"fr": {
@@ -1144,5 +1147,8 @@ var translations = map[string]map[string]string{
 		"deploy.err_target_no_vsa":           "Le déploiement passé sélectionné n'a pas de nœud VSA.",
 		"deploy.err_target_no_ip":            "Le nœud VSA du déploiement passé n'a pas encore d'IP — attendez qu'il démarre.",
 		"deploy.err_target_no_output":        "Impossible de localiser la config de sortie VSA pour ce déploiement.",
+		"deploy.test_connection":             "Tester la connexion",
+		"deploy.testing":                     "Test en cours…",
+		"deploy.test_ok":                     "Connexion OK",
 	},
 }

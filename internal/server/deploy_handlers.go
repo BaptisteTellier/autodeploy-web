@@ -17,6 +17,7 @@ import (
 	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
 	"github.com/BaptisteTellier/autodeploy-web/internal/hypervisor"
 	"github.com/BaptisteTellier/autodeploy-web/internal/topology"
+	"github.com/BaptisteTellier/autodeploy-web/internal/veeam"
 	"github.com/BaptisteTellier/autodeploy-web/internal/wiring"
 )
 
@@ -881,65 +882,12 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if standalone {
-			// Standalone: populate TargetVBR — either from a past deployment or manual fields.
-			targetDeployID := strings.TrimSpace(r.FormValue("target_deploy_id"))
-			if targetDeployID != "" && s.deps.DeployManager != nil {
-				// Resolve VSA IP + password from the referenced past deployment.
-				pastDep, ok := s.deps.DeployManager.Get(targetDeployID)
-				if !ok {
-					http.Error(w, translate(lang, "deploy.err_target_deploy_not_found"), http.StatusUnprocessableEntity)
-					return
-				}
-				pastView := pastDep.View()
-				vsaIdx := -1
-				for i, n := range pastView.Nodes {
-					if strings.HasPrefix(n.Role, "VSA") {
-						vsaIdx = i
-						break
-					}
-				}
-				if vsaIdx < 0 {
-					http.Error(w, translate(lang, "deploy.err_target_no_vsa"), http.StatusUnprocessableEntity)
-					return
-				}
-				vsaIP := pastView.Nodes[vsaIdx].IP
-				if vsaIP == "" {
-					http.Error(w, translate(lang, "deploy.err_target_no_ip"), http.StatusUnprocessableEntity)
-					return
-				}
-				if vsaIdx >= len(pastView.Form.NodeOutputs) {
-					http.Error(w, translate(lang, "deploy.err_target_no_output"), http.StatusUnprocessableEntity)
-					return
-				}
-				jobID := filepath.Base(pastView.Form.NodeOutputs[vsaIdx])
-				dir := filepath.Join(s.deps.DataDir, "output", jobID)
-				pastCfg, _, _, cfgOK := loadOutputConfig(dir)
-				if !cfgOK || pastCfg.VeeamAdminPassword == "" {
-					http.Error(w, translate(lang, "deploy.err_no_admin_pw"), http.StatusUnprocessableEntity)
-					return
-				}
-				wireCfg.TargetVBR = wiring.TargetVBR{
-					Address:  vsaIP,
-					Port:     9419,
-					Username: "veeamadmin",
-					Password: pastCfg.VeeamAdminPassword,
-					Insecure: true,
-				}
-			} else {
-				// Manual target fields.
-				addr := strings.TrimSpace(r.FormValue("target_address"))
-				if addr == "" {
-					http.Error(w, translate(lang, "deploy.err_no_target"), http.StatusUnprocessableEntity)
-					return
-				}
-				wireCfg.TargetVBR = wiring.TargetVBR{
-					Address:  addr,
-					Port:     atoiDefault(r.FormValue("target_port"), 9419),
-					Username: strDefault(strings.TrimSpace(r.FormValue("target_user")), "veeamadmin"),
-					Password: r.FormValue("target_password"),
-					Insecure: r.FormValue("target_insecure") != "",
-				}
+			tv, errKey := s.resolveTargetVBR(r)
+			if errKey != "" {
+				http.Error(w, translate(lang, errKey), http.StatusUnprocessableEntity)
+				return
 			}
+			wireCfg.TargetVBR = tv
 		} else {
 			// Normal (VSA-present) topology: creds come from the primary VSA output.
 			if primaryCfg.VeeamAdminPassword == "" {
@@ -1033,4 +981,113 @@ func strDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// resolveTargetVBR builds the target VBR connection from the standalone form
+// fields. Returns an i18n error KEY ("" on success) so callers translate it.
+// Either a picked past deployment (target_deploy_id → DeployManager.Get →
+// first VSA node IP → loadOutputConfig → VeeamAdminPassword) or manual
+// target_address / target_port / target_user / target_password / target_insecure.
+func (s *Server) resolveTargetVBR(r *http.Request) (wiring.TargetVBR, string) {
+	targetDeployID := strings.TrimSpace(r.FormValue("target_deploy_id"))
+	if targetDeployID != "" && s.deps.DeployManager != nil {
+		// Resolve VSA IP + password from the referenced past deployment.
+		pastDep, ok := s.deps.DeployManager.Get(targetDeployID)
+		if !ok {
+			return wiring.TargetVBR{}, "deploy.err_target_deploy_not_found"
+		}
+		pastView := pastDep.View()
+		vsaIdx := -1
+		for i, n := range pastView.Nodes {
+			if strings.HasPrefix(n.Role, "VSA") {
+				vsaIdx = i
+				break
+			}
+		}
+		if vsaIdx < 0 {
+			return wiring.TargetVBR{}, "deploy.err_target_no_vsa"
+		}
+		vsaIP := pastView.Nodes[vsaIdx].IP
+		if vsaIP == "" {
+			return wiring.TargetVBR{}, "deploy.err_target_no_ip"
+		}
+		if vsaIdx >= len(pastView.Form.NodeOutputs) {
+			return wiring.TargetVBR{}, "deploy.err_target_no_output"
+		}
+		jobID := filepath.Base(pastView.Form.NodeOutputs[vsaIdx])
+		dir := filepath.Join(s.deps.DataDir, "output", jobID)
+		pastCfg, _, _, cfgOK := loadOutputConfig(dir)
+		if !cfgOK || pastCfg.VeeamAdminPassword == "" {
+			return wiring.TargetVBR{}, "deploy.err_no_admin_pw"
+		}
+		return wiring.TargetVBR{
+			Address:  vsaIP,
+			Port:     9419,
+			Username: "veeamadmin",
+			Password: pastCfg.VeeamAdminPassword,
+			Insecure: true,
+		}, ""
+	}
+	// Manual target fields.
+	addr := strings.TrimSpace(r.FormValue("target_address"))
+	if addr == "" {
+		return wiring.TargetVBR{}, "deploy.err_no_target"
+	}
+	return wiring.TargetVBR{
+		Address:  addr,
+		Port:     atoiDefault(r.FormValue("target_port"), 9419),
+		Username: strDefault(strings.TrimSpace(r.FormValue("target_user")), "veeamadmin"),
+		Password: r.FormValue("target_password"),
+		Insecure: r.FormValue("target_insecure") != "",
+	}, ""
+}
+
+// handleTestConnection tests the connection to a target without launching a
+// deploy. The form field "kind" selects what to test; currently only "vbr" is
+// implemented. Always responds HTTP 200 with a JSON object {ok, message}.
+func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	lang := langFromRequest(r)
+	kind := r.FormValue("kind")
+	if kind == "" {
+		kind = "vbr"
+	}
+
+	type result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+
+	switch kind {
+	case "vbr":
+		tv, errKey := s.resolveTargetVBR(r)
+		if errKey != "" {
+			writeJSONStatus(w, http.StatusOK, result{OK: false, Message: translate(lang, errKey)})
+			return
+		}
+		port := tv.Port
+		if port == 0 {
+			port = 9419
+		}
+		client := veeam.New(veeam.Config{
+			BaseURL:  fmt.Sprintf("https://%s:%d", tv.Address, port),
+			Username: strDefault(tv.Username, "veeamadmin"),
+			Password: tv.Password,
+			Insecure: tv.Insecure,
+		})
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		if err := client.Authenticate(ctx); err != nil {
+			writeJSONStatus(w, http.StatusOK, result{OK: false, Message: err.Error()})
+			return
+		}
+		// Best-effort logout; ignore errors.
+		logoutCtx, logoutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer logoutCancel()
+		client.Logout(logoutCtx)
+		writeJSONStatus(w, http.StatusOK, result{OK: true, Message: translate(lang, "deploy.test_ok")})
+	default:
+		// TODO: kind=="hypervisor" → buildHypervisor + Hypervisor.Ping(ctx)
+		writeJSONStatus(w, http.StatusOK, result{OK: false, Message: "unsupported test kind: " + kind})
+	}
 }
