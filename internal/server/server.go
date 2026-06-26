@@ -89,6 +89,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /deploy/{id}/console/request", s.handleConsoleRequest)
 
 	mux.HandleFunc("POST /deploy/test-connection", s.handleTestConnection)
+	mux.HandleFunc("POST /deploy/hypervisor/discover", s.handleHypervisorDiscover)
 
 	// Deploy templates (named FormSnapshot presets). The literal "presets"
 	// segment is matched ahead of the {id} wildcard by net/http's ServeMux.

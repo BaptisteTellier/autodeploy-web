@@ -87,6 +87,10 @@
             if (p.text && p.text.wire_s3_mount_node) s3MountNode = p.text.wire_s3_mount_node;
             if (p.text && p.text.target_deploy_id) targetDeployID = p.text.target_deploy_id;
             wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
+            // Seed res[] for the four Proxmox discoverable fields so the hidden
+            // inputs submit the correct prefilled values even before Connect.
+            const discoFields=['pve_node','pve_storage','pve_iso_storage','vm_bridge'];
+            discoFields.forEach(function(k){ if(p.text && p.text[k]) res[k]=p.text[k]; });
             $nextTick(function(){
               if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
               if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.checked=!!v; });
@@ -99,6 +103,19 @@
         x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
                   targetDeployID:'', targetInsecure:true,
                   testConn:{busy:false,state:'',msg:''},
+                  res:{pve_node:'proxmox',pve_storage:'local-lvm',pve_iso_storage:'local',vm_bridge:'vmbr0'},
+                  manual:{},
+                  disco:{busy:false,state:'',msg:'',resources:{}},
+                  async connectLoad(provider){
+                    this.disco={busy:true,state:'',msg:'',resources:this.disco.resources};
+                    try{
+                      const fd=new FormData(document.getElementById('deploy-form'));
+                      fd.set('provider',provider);
+                      const r=await fetch('/deploy/hypervisor/discover',{method:'POST',body:fd});
+                      const d=await r.json();
+                      this.disco={busy:false,state:d.ok?'ok':'err',msg:d.message||'',resources:d.resources||{}};
+                    }catch(e){this.disco={busy:false,state:'err',msg:String(e),resources:{}};}
+                  },
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
                   get ksCapable(){ return ['proxmox','vsphere','hyperv','workstation'].includes(this.provider); },
                   get s3MountCandidates(){ return this.displayOrder.map((idx,pos)=>({idx,pos})).filter(o => (this.roles[o.idx]||'').includes('Proxy') && this.summ(o.idx) && this.summ(o.idx).hostname).map(o => ({ idx:o.idx, value:this.summ(o.idx).hostname, label:(o.pos+1)+'. '+this.roles[o.idx]+' — '+this.summ(o.idx).hostname })); },
@@ -432,25 +449,10 @@
 
       <!-- Proxmox -->
       <div x-show="provider==='proxmox'" x-cloak class="space-y-3">
+        <!-- Connection fields (always plain inputs) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_url"}}
             <input name="pve_url" :required="provider==='proxmox'" value="https://192.168.1.10:8006/api2/json"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.pve_node"}}
-            <input name="pve_node" :required="provider==='proxmox'" value="proxmox"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.pve_storage"}}
-            <input name="pve_storage" value="local-lvm"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
-            <input name="pve_iso_storage" value="local"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
-            <input name="vm_bridge" value="vmbr0"
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.pve_user"}}
@@ -461,11 +463,134 @@
             <input name="pve_password" type="password"
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
+          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_token_id"}}
+            <input name="pve_token_id" placeholder="root@pam!mytoken"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          </label>
         </div>
         <label class="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" name="pve_insecure" checked class="rounded border-slate-300">
           {{t "deploy.pve_insecure"}}
         </label>
+
+        <!-- Connect & load button -->
+        <div class="flex items-center gap-3 pt-1">
+          <button type="button" @click="connectLoad('proxmox')" :disabled="disco.busy"
+                  class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
+            <span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
+          </button>
+          <span x-show="disco.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="disco.msg"></span></span>
+          <span x-show="disco.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="disco.msg"></span></span>
+        </div>
+
+        <!-- Resource fields: discoverable via Connect, always fall back to manual text input -->
+        <!--
+          Reusable select-or-manual control contract (copy for vSphere/Hyper-V/Workstation):
+          - FIELD: the form field name (e.g. "pve_node")
+          - res[FIELD]: holds the current string value; submitted via a hidden input
+          - manual[FIELD]: true when the user explicitly chose manual entry
+          - disco.resources[FIELD]: array of {value, label} options from the server
+          - The select is shown when options exist AND manual[FIELD] is not set
+          - The text input is shown when no options exist OR manual[FIELD] is true
+          - One hidden input <input type="hidden" :name="FIELD" :value="res[FIELD]">
+            is the ONLY submitted element, so buildHypervisor + deployFormSnapshot
+            keep working with the same field names unchanged.
+        -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+          <!-- pve_node -->
+          <label class="text-sm text-slate-600">{{t "deploy.pve_node"}}
+            <input type="hidden" name="pve_node" :value="res.pve_node">
+            <template x-if="disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node">
+              <select x-model="res.pve_node" @change="if(res.pve_node==='__manual__'){manual.pve_node=true;res.pve_node='';}"
+                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <template x-for="opt in disco.resources.pve_node" :key="opt.value">
+                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                </template>
+                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+              </select>
+            </template>
+            <template x-if="!(disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node)">
+              <div>
+                <input x-model="res.pve_node" :required="provider==='proxmox'" placeholder="proxmox"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <a x-show="disco.resources.pve_node && disco.resources.pve_node.length" x-cloak
+                   href="#" @click.prevent="manual.pve_node=false"
+                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
+              </div>
+            </template>
+          </label>
+
+          <!-- pve_storage -->
+          <label class="text-sm text-slate-600">{{t "deploy.pve_storage"}}
+            <input type="hidden" name="pve_storage" :value="res.pve_storage">
+            <template x-if="disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage">
+              <select x-model="res.pve_storage" @change="if(res.pve_storage==='__manual__'){manual.pve_storage=true;res.pve_storage='';}"
+                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <template x-for="opt in disco.resources.pve_storage" :key="opt.value">
+                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                </template>
+                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+              </select>
+            </template>
+            <template x-if="!(disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage)">
+              <div>
+                <input x-model="res.pve_storage" placeholder="local-lvm"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <a x-show="disco.resources.pve_storage && disco.resources.pve_storage.length" x-cloak
+                   href="#" @click.prevent="manual.pve_storage=false"
+                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
+              </div>
+            </template>
+          </label>
+
+          <!-- pve_iso_storage -->
+          <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
+            <input type="hidden" name="pve_iso_storage" :value="res.pve_iso_storage">
+            <template x-if="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage">
+              <select x-model="res.pve_iso_storage" @change="if(res.pve_iso_storage==='__manual__'){manual.pve_iso_storage=true;res.pve_iso_storage='';}"
+                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <template x-for="opt in disco.resources.pve_iso_storage" :key="opt.value">
+                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                </template>
+                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+              </select>
+            </template>
+            <template x-if="!(disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage)">
+              <div>
+                <input x-model="res.pve_iso_storage" placeholder="local"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <a x-show="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length" x-cloak
+                   href="#" @click.prevent="manual.pve_iso_storage=false"
+                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
+              </div>
+            </template>
+          </label>
+
+          <!-- vm_bridge -->
+          <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
+            <input type="hidden" name="vm_bridge" :value="res.vm_bridge">
+            <template x-if="disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge">
+              <select x-model="res.vm_bridge" @change="if(res.vm_bridge==='__manual__'){manual.vm_bridge=true;res.vm_bridge='';}"
+                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <template x-for="opt in disco.resources.vm_bridge" :key="opt.value">
+                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                </template>
+                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+              </select>
+            </template>
+            <template x-if="!(disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge)">
+              <div>
+                <input x-model="res.vm_bridge" placeholder="vmbr0"
+                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <a x-show="disco.resources.vm_bridge && disco.resources.vm_bridge.length" x-cloak
+                   href="#" @click.prevent="manual.vm_bridge=false"
+                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
+              </div>
+            </template>
+          </label>
+
+        </div>
       </div>
 
       <!-- vSphere / vCenter -->

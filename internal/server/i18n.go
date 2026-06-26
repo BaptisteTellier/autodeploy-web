@@ -442,6 +442,7 @@ var translations = map[string]map[string]string{
 		"deploy.pve_iso_storage":        "ISO storage",
 		"deploy.pve_user":               "User (e.g. root@pam)",
 		"deploy.pve_password":           "Password",
+		"deploy.pve_token_id":           "API token (optional, e.g. root@pam!mytoken)",
 		"deploy.pve_insecure":           "Skip TLS verification (self-signed cert)",
 		"deploy.vs_url":                 "vCenter URL (e.g. https://vc/sdk)",
 		"deploy.vs_datacenter":          "Datacenter",
@@ -601,6 +602,11 @@ var translations = map[string]map[string]string{
 		"deploy.test_connection":             "Test connection",
 		"deploy.testing":                     "Testing…",
 		"deploy.test_ok":                     "Connection OK",
+		"deploy.connect_load":                "Connect & load",
+		"deploy.connecting":                  "Connecting…",
+		"deploy.connect_ok":                  "Connected",
+		"deploy.enter_manually":              "Other (enter manually)",
+		"deploy.choose_from_list":            "↩ choose from list",
 	},
 
 	"fr": {
@@ -991,6 +997,7 @@ var translations = map[string]map[string]string{
 		"deploy.pve_iso_storage":        "Stockage des ISOs",
 		"deploy.pve_user":               "Utilisateur (ex. root@pam)",
 		"deploy.pve_password":           "Mot de passe",
+		"deploy.pve_token_id":           "Token API (optionnel, ex. root@pam!mytoken)",
 		"deploy.pve_insecure":           "Ignorer la vérification TLS (cert auto-signé)",
 		"deploy.vs_url":                 "URL vCenter (ex. https://vc/sdk)",
 		"deploy.vs_datacenter":          "Datacenter",
@@ -1150,5 +1157,10 @@ var translations = map[string]map[string]string{
 		"deploy.test_connection":             "Tester la connexion",
 		"deploy.testing":                     "Test en cours…",
 		"deploy.test_ok":                     "Connexion OK",
+		"deploy.connect_load":                "Connecter & charger",
+		"deploy.connecting":                  "Connexion…",
+		"deploy.connect_ok":                  "Connecté",
+		"deploy.enter_manually":              "Autre (saisie manuelle)",
+		"deploy.choose_from_list":            "↩ choisir dans la liste",
 	},
 }

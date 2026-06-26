@@ -1091,3 +1091,59 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusOK, result{OK: false, Message: "unsupported test kind: " + kind})
 	}
 }
+
+// handleHypervisorDiscover connects to the selected hypervisor provider,
+// authenticates (this doubles as a connection test), and returns the available
+// resource options for the discoverable form fields. The caller POSTs the full
+// form so all connection fields are available.
+//
+// Response: HTTP 200, JSON { "ok": bool, "message": string, "resources": { "<field>": [{"value":"…","label":"…"}] } }
+func (s *Server) handleHypervisorDiscover(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	lang := langFromRequest(r)
+	provider := strings.TrimSpace(r.FormValue("provider"))
+	if provider == "" {
+		provider = "proxmox"
+	}
+
+	type discoverResult struct {
+		OK        bool                           `json:"ok"`
+		Message   string                         `json:"message"`
+		Resources map[string][]hypervisor.Option `json:"resources"`
+	}
+
+	emptyResources := map[string][]hypervisor.Option{}
+
+	switch provider {
+	case "proxmox":
+		get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+		cfg := hypervisor.ProxmoxConnConfig{
+			BaseURL:     get("pve_url"),
+			Username:    get("pve_user"),
+			Password:    r.FormValue("pve_password"),
+			TokenID:     get("pve_token_id"),
+			TokenSecret: r.FormValue("pve_token_secret"),
+			Insecure:    r.FormValue("pve_insecure") != "",
+			Node:        get("pve_node"), // optional: scopes storage/bridge listing
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		resources, err := hypervisor.DiscoverProxmox(ctx, cfg)
+		if err != nil {
+			writeJSONStatus(w, http.StatusOK, discoverResult{OK: false, Message: err.Error(), Resources: emptyResources})
+			return
+		}
+		writeJSONStatus(w, http.StatusOK, discoverResult{
+			OK:        true,
+			Message:   translate(lang, "deploy.connect_ok"),
+			Resources: resources,
+		})
+	// TODO: vsphere/hyperv/workstation discovery in later phases.
+	default:
+		writeJSONStatus(w, http.StatusOK, discoverResult{
+			OK:        false,
+			Message:   "discovery not yet supported for " + provider,
+			Resources: emptyResources,
+		})
+	}
+}
