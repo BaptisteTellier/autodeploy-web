@@ -1138,7 +1138,76 @@ func (s *Server) handleHypervisorDiscover(w http.ResponseWriter, r *http.Request
 			Message:   translate(lang, "deploy.connect_ok"),
 			Resources: resources,
 		})
-	// TODO: vsphere/hyperv/workstation discovery in later phases.
+	case "vsphere":
+		get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+		cfg := hypervisor.VSphereConnConfig{
+			URL:        get("vs_url"),
+			Username:   get("vs_user"),
+			Password:   r.FormValue("vs_password"),
+			Insecure:   r.FormValue("vs_insecure") != "",
+			Datacenter: get("vs_datacenter"), // optional: scopes cluster/pool/datastore/network/folder
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		resources, err := hypervisor.DiscoverVSphere(ctx, cfg)
+		if err != nil {
+			writeJSONStatus(w, http.StatusOK, discoverResult{OK: false, Message: err.Error(), Resources: emptyResources})
+			return
+		}
+		writeJSONStatus(w, http.StatusOK, discoverResult{
+			OK:        true,
+			Message:   translate(lang, "deploy.connect_ok"),
+			Resources: resources,
+		})
+
+	case "hyperv":
+		get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+		port, _ := strconv.Atoi(get("hv_port"))
+		cfg := hypervisor.HyperVConnConfig{
+			Host:     get("hv_host"),
+			Port:     port,
+			Username: get("hv_user"),
+			Password: r.FormValue("hv_password"),
+			HTTPS:    r.FormValue("hv_https") != "",
+			Insecure: r.FormValue("hv_insecure") != "",
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		resources, err := hypervisor.DiscoverHyperV(ctx, cfg)
+		if err != nil {
+			writeJSONStatus(w, http.StatusOK, discoverResult{OK: false, Message: err.Error(), Resources: emptyResources})
+			return
+		}
+		writeJSONStatus(w, http.StatusOK, discoverResult{
+			OK:        true,
+			Message:   translate(lang, "deploy.connect_ok"),
+			Resources: resources,
+		})
+
+	case "workstation":
+		get := func(k string) string { return strings.TrimSpace(r.FormValue(k)) }
+		port, _ := strconv.Atoi(get("ws_port"))
+		cfg := hypervisor.WorkstationConnConfig{
+			Host:     get("ws_host"),
+			Port:     port,
+			Username: get("ws_user"),
+			Password: r.FormValue("ws_password"),
+			HTTPS:    r.FormValue("ws_https") != "",
+			Insecure: r.FormValue("ws_insecure") != "",
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		resources, err := hypervisor.DiscoverWorkstation(ctx, cfg)
+		if err != nil {
+			writeJSONStatus(w, http.StatusOK, discoverResult{OK: false, Message: err.Error(), Resources: emptyResources})
+			return
+		}
+		writeJSONStatus(w, http.StatusOK, discoverResult{
+			OK:        true,
+			Message:   translate(lang, "deploy.connect_ok"),
+			Resources: resources,
+		})
+
 	default:
 		writeJSONStatus(w, http.StatusOK, discoverResult{
 			OK:        false,
