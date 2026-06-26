@@ -176,6 +176,8 @@ var translations = map[string]map[string]string{
 		"form.generate_iso":         "🚀 Generate ISO",
 		"form.recent_jobs":          "Recent jobs",
 		"form.open_arrow":           "open →",
+		"form.show_password":        "Show password",
+		"form.hide_password":        "Hide password",
 
 		// --- jobs.html ---
 		"jobs.all":         "ISO creation",
@@ -616,6 +618,8 @@ var translations = map[string]map[string]string{
 		"deploy.connect_ok":                  "Connected",
 		"deploy.enter_manually":              "Other (enter manually)",
 		"deploy.choose_from_list":            "↩ choose from list",
+		"deploy.opt_select":                  "— select —",
+		"deploy.opt_none":                    "(none)",
 	},
 
 	"fr": {
@@ -740,6 +744,8 @@ var translations = map[string]map[string]string{
 		"form.generate_iso":         "🚀 Générer l'ISO",
 		"form.recent_jobs":          "Jobs récents",
 		"form.open_arrow":           "ouvrir →",
+		"form.show_password":        "Afficher le mot de passe",
+		"form.hide_password":        "Masquer le mot de passe",
 
 		// --- jobs.html ---
 		"jobs.all":         "Création d'ISO",
@@ -1180,5 +1186,7 @@ var translations = map[string]map[string]string{
 		"deploy.connect_ok":                  "Connecté",
 		"deploy.enter_manually":              "Autre (saisie manuelle)",
 		"deploy.choose_from_list":            "↩ choisir dans la liste",
+		"deploy.opt_select":                  "— sélectionner —",
+		"deploy.opt_none":                    "(aucun)",
 	},
 }

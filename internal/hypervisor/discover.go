@@ -253,12 +253,25 @@ func DiscoverVSphere(ctx context.Context, cfg VSphereConnConfig) (map[string][]O
 	}
 	f.SetDatacenter(dc)
 
-	// vs_cluster
-	if clusters, err := f.ClusterComputeResourceList(ctx, "*"); err == nil {
+	// vs_cluster — DRS clusters AND standalone hosts (the field accepts either,
+	// so a hostless/standalone-ESXi vCenter still gets a dropdown).
+	{
 		var opts []Option
-		for _, cl := range clusters {
-			if n := cl.Name(); n != "" {
+		seen := map[string]bool{}
+		add := func(n string) {
+			if n != "" && !seen[n] {
+				seen[n] = true
 				opts = append(opts, Option{Value: n})
+			}
+		}
+		if clusters, err := f.ClusterComputeResourceList(ctx, "*"); err == nil {
+			for _, cl := range clusters {
+				add(cl.Name())
+			}
+		}
+		if hosts, err := f.HostSystemList(ctx, "*"); err == nil {
+			for _, h := range hosts {
+				add(h.Name())
 			}
 		}
 		if len(opts) > 0 {

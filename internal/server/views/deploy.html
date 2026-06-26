@@ -108,7 +108,7 @@
         x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
                   targetDeployID:'', targetInsecure:true,
                   testConn:{busy:false,state:'',msg:''},
-                  res:{pve_node:'proxmox',pve_storage:'local-lvm',pve_iso_storage:'local',vm_bridge:'vmbr0',vs_datacenter:'',vs_cluster:'',vs_resource_pool:'',vs_datastore:'',vs_network:'',vs_folder:'',hv_switch:'',hv_vm_path:'',ws_install_dir:'',ws_vnet:''},
+                  res:{pve_node:'',pve_storage:'',pve_iso_storage:'',vm_bridge:'',vs_datacenter:'',vs_cluster:'',vs_resource_pool:'',vs_datastore:'',vs_network:'',vs_folder:'',hv_switch:'',hv_vm_path:'',ws_install_dir:'',ws_vnet:''},
                   manual:{},
                   disco:{busy:false,state:'',msg:'',resources:{}},
                   async connectLoad(provider){
@@ -121,24 +121,17 @@
                       const got=d.resources||{};
                       this.disco={busy:false,state:d.ok?'ok':'err',msg:d.message||'',resources:got};
                       if(!d.ok) return;
-                      // Reconcile each field so the value the form submits (via the
-                      // hidden input) matches the option shown in the select — otherwise
-                      // a stale default could deploy to a different node/datastore than
-                      // the one displayed.
-                      let pickedDC=false;
+                      // Reconcile: if the current value for a field is non-empty but
+                      // is no longer in the returned options, reset to '' so the
+                      // placeholder shows instead of submitting a stale default.
                       Object.keys(got).forEach(function(f){
                         const opts=got[f]||[];
                         if(!opts.length || this.manual[f]) return;
-                        if(!opts.some(function(o){return o.value===this.res[f];}.bind(this))){
-                          this.res[f]=opts[0].value;
-                          if(f==='vs_datacenter') pickedDC=true;
+                        const v=this.res[f];
+                        if(v && !opts.some(function(o){return o.value===v;}.bind(this))){
+                          this.res[f]='';
                         }
                       }.bind(this));
-                      // Auto-picked a datacenter → fetch its scoped lists (cascade).
-                      if(pickedDC && provider==='vsphere'){
-                        await this.$nextTick();
-                        await this.connectLoad('vsphere');
-                      }
                     }catch(e){this.disco={busy:false,state:'err',msg:String(e),resources:{}};}
                   },
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
@@ -404,8 +397,15 @@
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
         <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.target_password"}}
-          <input name="target_password" type="password"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <div class="relative mt-1" x-data="{show:false}">
+            <input name="target_password" :type="show?'text':'password'"
+                   class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <button type="button" @click="show=!show" tabindex="-1"
+                    class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                    :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+              <span x-text="show ? '🙈' : '👁'"></span>
+            </button>
+          </div>
         </label>
         <label class="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
           <input type="checkbox" name="target_insecure" x-model="targetInsecure" class="rounded border-slate-300" checked>
@@ -491,8 +491,15 @@
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.pve_password"}}
-            <input name="pve_password" type="password"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <div class="relative mt-1" x-data="{show:false}">
+              <input name="pve_password" :type="show?'text':'password'"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button type="button" @click="show=!show" tabindex="-1"
+                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                <span x-text="show ? '🙈' : '👁'"></span>
+              </button>
+            </div>
           </label>
           <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_token_id"}}
             <input name="pve_token_id" placeholder="root@pam!mytoken"
@@ -535,6 +542,7 @@
             <template x-if="disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node">
               <select x-model="res.pve_node" @change="if(res.pve_node==='__manual__'){manual.pve_node=true;res.pve_node='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.pve_node" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -558,6 +566,7 @@
             <template x-if="disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage">
               <select x-model="res.pve_storage" @change="if(res.pve_storage==='__manual__'){manual.pve_storage=true;res.pve_storage='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.pve_storage" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -581,6 +590,7 @@
             <template x-if="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage">
               <select x-model="res.pve_iso_storage" @change="if(res.pve_iso_storage==='__manual__'){manual.pve_iso_storage=true;res.pve_iso_storage='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_none"}}</option>
                 <template x-for="opt in disco.resources.pve_iso_storage" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -604,6 +614,7 @@
             <template x-if="disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge">
               <select x-model="res.vm_bridge" @change="if(res.vm_bridge==='__manual__'){manual.vm_bridge=true;res.vm_bridge='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.vm_bridge" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -637,8 +648,15 @@
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <input name="vs_password" type="password"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <div class="relative mt-1" x-data="{show:false}">
+              <input name="vs_password" :type="show?'text':'password'"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button type="button" @click="show=!show" tabindex="-1"
+                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                <span x-text="show ? '🙈' : '👁'"></span>
+              </button>
+            </div>
           </label>
         </div>
         <label class="flex items-center gap-2 text-sm text-slate-600">
@@ -664,8 +682,9 @@
             <input type="hidden" name="vs_datacenter" :value="res.vs_datacenter">
             <template x-if="disco.resources.vs_datacenter && disco.resources.vs_datacenter.length && !manual.vs_datacenter">
               <select x-model="res.vs_datacenter"
-                      @change="if(res.vs_datacenter==='__manual__'){manual.vs_datacenter=true;res.vs_datacenter='';}else if(res.vs_datacenter){connectLoad('vsphere');}"
+                      @change="async function(){if(res.vs_datacenter==='__manual__'){manual.vs_datacenter=true;res.vs_datacenter='';}else if(res.vs_datacenter){await $nextTick();await connectLoad('vsphere');}}.call(this)"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_none"}}</option>
                 <template x-for="opt in disco.resources.vs_datacenter" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -689,6 +708,7 @@
             <template x-if="disco.resources.vs_cluster && disco.resources.vs_cluster.length && !manual.vs_cluster">
               <select x-model="res.vs_cluster" @change="if(res.vs_cluster==='__manual__'){manual.vs_cluster=true;res.vs_cluster='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.vs_cluster" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -712,6 +732,7 @@
             <template x-if="disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length && !manual.vs_resource_pool">
               <select x-model="res.vs_resource_pool" @change="if(res.vs_resource_pool==='__manual__'){manual.vs_resource_pool=true;res.vs_resource_pool='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_none"}}</option>
                 <template x-for="opt in disco.resources.vs_resource_pool" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -735,6 +756,7 @@
             <template x-if="disco.resources.vs_datastore && disco.resources.vs_datastore.length && !manual.vs_datastore">
               <select x-model="res.vs_datastore" @change="if(res.vs_datastore==='__manual__'){manual.vs_datastore=true;res.vs_datastore='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.vs_datastore" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -758,6 +780,7 @@
             <template x-if="disco.resources.vs_network && disco.resources.vs_network.length && !manual.vs_network">
               <select x-model="res.vs_network" @change="if(res.vs_network==='__manual__'){manual.vs_network=true;res.vs_network='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.vs_network" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -781,6 +804,7 @@
             <template x-if="disco.resources.vs_folder && disco.resources.vs_folder.length && !manual.vs_folder">
               <select x-model="res.vs_folder" @change="if(res.vs_folder==='__manual__'){manual.vs_folder=true;res.vs_folder='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_none"}}</option>
                 <template x-for="opt in disco.resources.vs_folder" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -818,8 +842,15 @@
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <input name="hv_password" type="password"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <div class="relative mt-1" x-data="{show:false}">
+              <input name="hv_password" :type="show?'text':'password'"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button type="button" @click="show=!show" tabindex="-1"
+                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                <span x-text="show ? '🙈' : '👁'"></span>
+              </button>
+            </div>
           </label>
         </div>
         <label class="flex items-center gap-2 text-sm text-slate-600">
@@ -850,6 +881,7 @@
             <template x-if="disco.resources.hv_switch && disco.resources.hv_switch.length && !manual.hv_switch">
               <select x-model="res.hv_switch" @change="if(res.hv_switch==='__manual__'){manual.hv_switch=true;res.hv_switch='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.hv_switch" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -873,6 +905,7 @@
             <template x-if="disco.resources.hv_vm_path && disco.resources.hv_vm_path.length && !manual.hv_vm_path">
               <select x-model="res.hv_vm_path" @change="if(res.hv_vm_path==='__manual__'){manual.hv_vm_path=true;res.hv_vm_path='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_none"}}</option>
                 <template x-for="opt in disco.resources.hv_vm_path" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -915,8 +948,15 @@
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <input name="nx_password" type="password"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <div class="relative mt-1" x-data="{show:false}">
+              <input name="nx_password" :type="show?'text':'password'"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button type="button" @click="show=!show" tabindex="-1"
+                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                <span x-text="show ? '🙈' : '👁'"></span>
+              </button>
+            </div>
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.nx_cluster"}}
             <input name="nx_cluster"
@@ -949,8 +989,15 @@
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <input name="xen_password" type="password"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <div class="relative mt-1" x-data="{show:false}">
+              <input name="xen_password" :type="show?'text':'password'"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button type="button" @click="show=!show" tabindex="-1"
+                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                <span x-text="show ? '🙈' : '👁'"></span>
+              </button>
+            </div>
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.xen_sr"}}
             <input name="xen_sr"
@@ -988,8 +1035,15 @@
                    class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </label>
           <label class="text-sm text-slate-600">{{t "deploy.ws_password"}}
-            <input name="ws_password" type="password"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <div class="relative mt-1" x-data="{show:false}">
+              <input name="ws_password" :type="show?'text':'password'"
+                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button type="button" @click="show=!show" tabindex="-1"
+                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                <span x-text="show ? '🙈' : '👁'"></span>
+              </button>
+            </div>
           </label>
         </div>
         <label class="flex items-center gap-2 text-sm text-slate-600">
@@ -1020,6 +1074,7 @@
             <template x-if="disco.resources.ws_install_dir && disco.resources.ws_install_dir.length && !manual.ws_install_dir">
               <select x-model="res.ws_install_dir" @change="if(res.ws_install_dir==='__manual__'){manual.ws_install_dir=true;res.ws_install_dir='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_none"}}</option>
                 <template x-for="opt in disco.resources.ws_install_dir" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -1055,6 +1110,7 @@
             <template x-if="disco.resources.ws_vnet && disco.resources.ws_vnet.length && !manual.ws_vnet">
               <select x-model="res.ws_vnet" @change="if(res.ws_vnet==='__manual__'){manual.ws_vnet=true;res.ws_vnet='';}"
                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                <option value="">{{t "deploy.opt_select"}}</option>
                 <template x-for="opt in disco.resources.ws_vnet" :key="opt.value">
                   <option :value="opt.value" x-text="opt.label||opt.value"></option>
                 </template>
@@ -1144,8 +1200,15 @@
                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                 </label>
                 <label class="text-xs text-slate-600">{{t "deploy.wire_ne_pass"}}
-                  <input name="wire_node_exporter_pass" type="password" autocomplete="new-password"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <div class="relative mt-1" x-data="{show:false}">
+                    <input name="wire_node_exporter_pass" :type="show?'text':'password'" autocomplete="new-password"
+                           class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <button type="button" @click="show=!show" tabindex="-1"
+                            class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                            :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                      <span x-text="show ? '🙈' : '👁'"></span>
+                    </button>
+                  </div>
                 </label>
               </div>
             </div>
@@ -1204,8 +1267,15 @@
                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                 </label>
                 <label class="text-xs text-slate-600">{{t "deploy.wire_s3_secret"}}
-                  <input name="wire_s3_secret_key" type="password" autocomplete="new-password"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <div class="relative mt-1" x-data="{show:false}">
+                    <input name="wire_s3_secret_key" :type="show?'text':'password'" autocomplete="new-password"
+                           class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <button type="button" @click="show=!show" tabindex="-1"
+                            class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
+                            :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                      <span x-text="show ? '🙈' : '👁'"></span>
+                    </button>
+                  </div>
                 </label>
                 <label class="text-xs text-slate-600">{{t "deploy.wire_s3_immutable"}}
                   <input name="wire_s3_immutable_days" type="number" min="0" value="0"

@@ -681,6 +681,15 @@ func (m *Manager) run(d *Deployment, spec Spec) {
 			return
 		}
 		d.AppendLine("Topology wired.")
+		// Wiring success means the appliances are registered and operational —
+		// promote nodes left at "installing" (after kickstart) to "ready".
+		for i := range spec.Nodes {
+			d.setNode(i, func(ns *NodeStatus) {
+				if ns.Step == "installing" {
+					ns.Step = "ready"
+				}
+			})
+		}
 	}
 	d.setState(StateDone)
 }

@@ -181,7 +181,7 @@
         </button>
       </div>
       <!-- History -->
-      <div class="flex-1 overflow-auto p-3 bg-slate-950 space-y-3 font-mono text-xs">
+      <div id="console-history" class="flex-1 overflow-auto p-3 bg-slate-950 space-y-3 font-mono text-xs">
         <template x-if="history.length === 0">
           <p class="text-slate-500 italic">{{t "deploy.console_empty"}}</p>
         </template>
@@ -323,7 +323,7 @@
           saveLS(stored);
           // Scroll to bottom of history.
           this.$nextTick(() => {
-            const pane = this.$el.querySelector('.bg-slate-950');
+            const pane = document.getElementById('console-history');
             if (pane) pane.scrollTop = pane.scrollHeight;
           });
         } catch(e) {
