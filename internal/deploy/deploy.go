@@ -544,7 +544,10 @@ func (m *Manager) Start(spec Spec) (*Deployment, error) {
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {
-		d.Nodes[i] = NodeStatus{Hostname: n.Name, Role: n.Role, Step: "queued"}
+		// Seed IP from the node's static address when known (DHCP nodes have ""
+		// and get filled by GetVMIP later). Without this, a static-IP node shows
+		// no IP in the UI / console / standalone-target picker.
+		d.Nodes[i] = NodeStatus{Hostname: n.Name, Role: n.Role, Step: "queued", IP: n.IP}
 	}
 
 	m.mu.Lock()
@@ -1030,7 +1033,10 @@ func (m *Manager) startWireOnly(spec Spec) (*Deployment, error) {
 	}
 	d.Nodes = make([]NodeStatus, len(spec.Nodes))
 	for i, n := range spec.Nodes {
-		d.Nodes[i] = NodeStatus{Hostname: n.Name, Role: n.Role, VMID: n.Ref.ID, Step: "ready"}
+		// Carry the known IP (static address, or one resolved on a prior run) so a
+		// retried/rewired deployment still shows it and can be used as a console /
+		// standalone-target source.
+		d.Nodes[i] = NodeStatus{Hostname: n.Name, Role: n.Role, VMID: n.Ref.ID, Step: "ready", IP: n.IP}
 	}
 
 	m.mu.Lock()

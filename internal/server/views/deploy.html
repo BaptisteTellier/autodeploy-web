@@ -383,7 +383,8 @@
         <select name="target_deploy_id" x-model="targetDeployID"
                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           <option value="">{{t "form.none_dash"}}</option>
-          {{range .Deployments}}<option value="{{.ID}}">{{.Kind}} · {{slice .ID 0 8}}{{if .Nodes}} — {{(index .Nodes 0).IP}}{{end}}</option>{{end}}
+          {{/* Only finished deployments whose VSA has a known IP can be a usable target. */}}
+          {{range .Deployments}}{{if eq (printf "%s" .State) "done"}}{{if .Nodes}}{{if (index .Nodes 0).IP}}<option value="{{.ID}}">{{.Kind}} · {{slice .ID 0 8}} — {{(index .Nodes 0).IP}}</option>{{end}}{{end}}{{end}}{{end}}
         </select>
       </label>
 
