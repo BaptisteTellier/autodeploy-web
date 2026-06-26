@@ -139,7 +139,11 @@ func (w *Workstation) getClient() (*winrm.Client, error) {
 		nil, nil, nil,
 		0,
 	)
-	c, err := winrm.NewClient(ep, w.cfg.Username, w.cfg.Password)
+	// Raise the WinRM envelope from the 150 KB default so the chunked ISO upload's
+	// per-command payload isn't truncated client-side (server still caps at its
+	// MaxEnvelopeSizekb, default 500 KB — UploadISO keeps chunks small to fit).
+	params := winrm.NewParameters("PT60S", "en-US", 1024*1024)
+	c, err := winrm.NewClientWithParameters(ep, w.cfg.Username, w.cfg.Password, params)
 	if err != nil {
 		return nil, fmt.Errorf("workstation: build winrm client: %w", err)
 	}
@@ -183,7 +187,9 @@ func (w *Workstation) runPS(ctx context.Context, script string) (string, error) 
 // base64-chunked upload (same approach as hyperv.go). The first chunk creates
 // (or truncates) the destination file; subsequent chunks append.
 func (w *Workstation) UploadISO(ctx context.Context, localPath string, progress ProgressFunc) (string, error) {
-	const chunkSize = 2 * 1024 * 1024 // 2 MiB raw (~2.7 MiB base64)
+	// 64 KiB raw → ~235 KB per WinRM command, under the server's default 500 KB
+	// MaxEnvelopeSizekb (a 2 MiB chunk produced a ~2.7 MB command → HTTP 413).
+	const chunkSize = 64 * 1024
 
 	name := filepath.Base(localPath)
 	destPath := w.cfg.ISODir + `\` + name

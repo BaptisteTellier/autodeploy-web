@@ -77,7 +77,12 @@ func (h *HyperV) getClient() (*winrm.Client, error) {
 		nil, nil, nil, // no custom CA/cert/key
 		0, // use library default 60 s timeout
 	)
-	c, err := winrm.NewClient(ep, h.cfg.Username, h.cfg.Password)
+	// Raise the WinRM envelope from the 150 KB default so the chunked ISO upload's
+	// per-command payload isn't truncated client-side. The server still caps at
+	// its MaxEnvelopeSizekb (default 500 KB), which is why UploadISO keeps chunks
+	// small.
+	params := winrm.NewParameters("PT60S", "en-US", 1024*1024)
+	c, err := winrm.NewClientWithParameters(ep, h.cfg.Username, h.cfg.Password, params)
 	if err != nil {
 		return nil, fmt.Errorf("hyperv: build winrm client: %w", err)
 	}
@@ -117,7 +122,11 @@ func (h *HyperV) runPS(ctx context.Context, script string) (string, error) {
 // to pre-stage ISOs directly at cfg.ISOPath on the Windows host; FindISO will
 // then short-circuit and skip the upload entirely.
 func (h *HyperV) UploadISO(ctx context.Context, localPath string, progress ProgressFunc) (string, error) {
-	const chunkSize = 2 * 1024 * 1024 // 2 MiB raw; ~2.7 MiB base64
+	// 64 KiB raw → ~235 KB per WinRM command (base64 + UTF-16 EncodedCommand),
+	// well under the server's default 500 KB MaxEnvelopeSizekb (a 2 MiB chunk
+	// produced a ~2.7 MB command → HTTP 413). ISO upload over WinRM is slow
+	// regardless — pre-stage the ISO to skip it.
+	const chunkSize = 64 * 1024
 
 	name := filepath.Base(localPath)
 	destPath := h.cfg.ISOPath + `\` + name
