@@ -33,7 +33,7 @@ func TestParseTemplates(t *testing.T) {
 func TestExecuteCraftAPI(t *testing.T) {
 	sets := parseTemplates()
 	data := map[string]any{
-		"Kinds":        catalogViews(),
+		"Kinds":        catalogViews("en"),
 		"KindsJSON":    template.JS("{}"), //nolint:gosec — test fixture
 		"CraftPresets": []string{"sample"},
 	}
@@ -44,6 +44,33 @@ func TestExecuteCraftAPI(t *testing.T) {
 		}
 		if err := tmpl.ExecuteTemplate(io.Discard, "layout.html", data); err != nil {
 			t.Errorf("lang %q: craft_api execute: %v", lang, err)
+		}
+	}
+}
+
+// TestExecuteDeployPage executes the deploy.html template to catch autoescaping
+// errors introduced by Target VBR panel and DEPLOY_STANDALONE JS block.
+func TestExecuteDeployPage(t *testing.T) {
+	sets := parseTemplates()
+	data := map[string]any{
+		"Kinds":         catalogViews("en"),
+		"Outputs":       []outputSummary{},
+		"OutputsJSON":   template.JS("[]"), //nolint:gosec — test fixture
+		"Deployments":   []deploy.View{},
+		"WorkspaceISOs": []string{},
+		"LicenseFiles":  []string{},
+		"KSBaseURL":     "http://localhost:8080",
+		"PrefillJSON":   template.JS("null"), //nolint:gosec — test fixture
+		"DeployPresets": []deploy.PresetInfo{},
+		"PresetName":    "",
+	}
+	for _, lang := range supportedLangs {
+		tmpl := sets[lang]["views/deploy.html"]
+		if tmpl == nil {
+			t.Fatalf("lang %q: views/deploy.html not parsed", lang)
+		}
+		if err := tmpl.ExecuteTemplate(io.Discard, "layout.html", data); err != nil {
+			t.Errorf("lang %q: deploy execute: %v", lang, err)
 		}
 	}
 }

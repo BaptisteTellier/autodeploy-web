@@ -14,7 +14,7 @@ import (
 
 // handleCraftAPI renders the Craft API form page.
 func (s *Server) handleCraftAPI(w http.ResponseWriter, r *http.Request) {
-	kinds := catalogViews()
+	kinds := catalogViews(langFromRequest(r))
 	kindsJSON, _ := json.Marshal(kinds)
 
 	var presetNames []string

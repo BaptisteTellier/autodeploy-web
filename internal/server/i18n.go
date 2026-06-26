@@ -581,6 +581,23 @@ var translations = map[string]map[string]string{
 		"deploy.console_err_close":   "Failed to close REST API session: ",
 		"deploy.console_err_request": "Request failed: ",
 		"deploy.console_no_session":  "No active session — click \"Open REST API\" first.",
+
+		// --- standalone (no-VSA) topology kinds ---
+		"deploy.kind_proxy":                  "Add proxy to existing VBR",
+		"deploy.kind_hr":                     "Add hardened repository to existing VBR",
+		"deploy.target_vbr":                  "Target VBR",
+		"deploy.target_past_deploy":          "Use a past deployment",
+		"deploy.target_past_deploy_hint":     "Pick a previously deployed VBR to wire into — the server resolves its IP and password automatically.",
+		"deploy.target_address":              "VBR address (IP or hostname)",
+		"deploy.target_port":                 "Port (default 9419)",
+		"deploy.target_user":                 "Username (default veeamadmin)",
+		"deploy.target_password":             "Password",
+		"deploy.target_insecure":             "Skip TLS verification",
+		"deploy.err_no_target":               "Standalone topology requires a target VBR address or a past deployment.",
+		"deploy.err_target_deploy_not_found": "The selected past deployment was not found.",
+		"deploy.err_target_no_vsa":           "The selected past deployment has no VSA node.",
+		"deploy.err_target_no_ip":            "The selected past deployment's VSA node has no IP yet — wait for it to boot.",
+		"deploy.err_target_no_output":        "Cannot locate the VSA output config for the selected deployment.",
 	},
 
 	"fr": {
@@ -1110,5 +1127,22 @@ var translations = map[string]map[string]string{
 		"deploy.console_err_close":   "Impossible de fermer la session REST API : ",
 		"deploy.console_err_request": "Échec de la requête : ",
 		"deploy.console_no_session":  "Aucune session active — cliquez sur « Ouvrir REST API » d'abord.",
+
+		// --- standalone (no-VSA) topology kinds ---
+		"deploy.kind_proxy":                  "Ajouter un proxy à un VBR existant",
+		"deploy.kind_hr":                     "Ajouter un dépôt durci à un VBR existant",
+		"deploy.target_vbr":                  "VBR cible",
+		"deploy.target_past_deploy":          "Utiliser un déploiement passé",
+		"deploy.target_past_deploy_hint":     "Choisissez un VBR déjà déployé — le serveur résout automatiquement son IP et son mot de passe.",
+		"deploy.target_address":              "Adresse VBR (IP ou nom d'hôte)",
+		"deploy.target_port":                 "Port (défaut 9419)",
+		"deploy.target_user":                 "Utilisateur (défaut veeamadmin)",
+		"deploy.target_password":             "Mot de passe",
+		"deploy.target_insecure":             "Ignorer la vérification TLS",
+		"deploy.err_no_target":               "Une topologie autonome nécessite une adresse VBR cible ou un déploiement passé.",
+		"deploy.err_target_deploy_not_found": "Le déploiement passé sélectionné est introuvable.",
+		"deploy.err_target_no_vsa":           "Le déploiement passé sélectionné n'a pas de nœud VSA.",
+		"deploy.err_target_no_ip":            "Le nœud VSA du déploiement passé n'a pas encore d'IP — attendez qu'il démarre.",
+		"deploy.err_target_no_output":        "Impossible de localiser la config de sortie VSA pour ce déploiement.",
 	},
 }

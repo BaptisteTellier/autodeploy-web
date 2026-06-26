@@ -53,9 +53,14 @@ const (
 	KindVSAHAHR Kind = "vsa-ha+hr"
 	// KindVSAHAProxyHR is "f. VSA HA + VIA Proxy + VIA HR".
 	KindVSAHAProxyHR Kind = "vsa-ha+proxy+hr"
+
+	// KindProxy is a single VIA Proxy added into an existing VBR (no VSA deployed).
+	KindProxy Kind = "proxy"
+	// KindHR is a single VIA Hardened Repository added into an existing VBR (no VSA deployed).
+	KindHR Kind = "hr"
 )
 
-// AllKinds lists the catalog in display order (a–f).
+// AllKinds lists the catalog in display order (a–f + standalone kinds).
 func AllKinds() []Kind {
 	return []Kind{
 		KindVSA,
@@ -64,7 +69,15 @@ func AllKinds() []Kind {
 		KindVSAProxyHR,
 		KindVSAHAHR,
 		KindVSAHAProxyHR,
+		KindProxy,
+		KindHR,
 	}
+}
+
+// IsStandalone reports whether this kind deploys only VIA nodes (no VSA),
+// meaning it must wire into an existing VBR rather than one being deployed now.
+func (k Kind) IsStandalone() bool {
+	return k == KindProxy || k == KindHR
 }
 
 // NodeSpec is the role template for one node, independent of network identity.
@@ -90,6 +103,10 @@ func Catalog(k Kind) []NodeSpec {
 		return []NodeSpec{{Role: RoleVSA, HA: true}, {Role: RoleVSA, HA: true}, {Role: RoleVIAHR}}
 	case KindVSAHAProxyHR:
 		return []NodeSpec{{Role: RoleVSA, HA: true}, {Role: RoleVSA, HA: true}, {Role: RoleVIAProxy}, {Role: RoleVIAHR}}
+	case KindProxy:
+		return []NodeSpec{{Role: RoleVIAProxy}}
+	case KindHR:
+		return []NodeSpec{{Role: RoleVIAHR}}
 	default:
 		return nil
 	}

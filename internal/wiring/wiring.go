@@ -28,6 +28,16 @@ const (
 	maxComponentAttempts = 3
 )
 
+// TargetVBR describes an existing VBR to wire standalone nodes into.
+// The zero value (Address == "") means "use the deployed VSA" (current behaviour).
+type TargetVBR struct {
+	Address  string // VBR hostname or IP
+	Port     int    // VBR REST port (default 9419)
+	Username string // VBR REST user (default "veeamadmin")
+	Password string // VBR REST password
+	Insecure bool   // skip TLS verification
+}
+
 // Config controls how the wiring connects to the VSA and shapes the topology.
 type Config struct {
 	Username        string        // VSA REST user (default "veeamadmin")
@@ -39,6 +49,10 @@ type Config struct {
 	ImmutableDays   int           // hardened-repo immutability days (default 7)
 	SessionTimeout  time.Duration // how long to wait per async infra session
 	LicensePath     string        // optional .lic file to install on the VSA via REST ("" = skip)
+
+	// TargetVBR, when non-zero, wires standalone VIA nodes into an existing VBR
+	// instead of one being deployed now. No license install, no HA block is run.
+	TargetVBR TargetVBR
 
 	// Advanced post-wiring options, applied on the primary VSA after the
 	// topology is registered. Zero values are skipped.
@@ -119,9 +133,45 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 			vias = append(vias, n)
 		}
 	}
+
+	// Standalone mode: no VSA nodes in this deployment — wire VIA nodes into an
+	// existing VBR specified by cfg.TargetVBR. License install, default-repo
+	// removal, and HA block are all skipped (they belong to the existing VBR).
 	if len(vsas) == 0 {
-		return fmt.Errorf("no VSA node in topology — nothing to wire into")
+		if w.cfg.TargetVBR.Address == "" {
+			return fmt.Errorf("no VSA node in topology and no target VBR address configured — cannot wire")
+		}
+		port := w.cfg.TargetVBR.Port
+		if port <= 0 {
+			port = 9419
+		}
+		user := w.cfg.TargetVBR.Username
+		if user == "" {
+			user = "veeamadmin"
+		}
+		endpoint := fmt.Sprintf("https://%s:%d", w.cfg.TargetVBR.Address, port)
+		client := veeam.New(veeam.Config{
+			BaseURL:  endpoint,
+			Username: user,
+			Password: w.cfg.TargetVBR.Password,
+			Insecure: w.cfg.TargetVBR.Insecure,
+		})
+		log(fmt.Sprintf("connecting to target VBR REST at %s …", endpoint))
+		if err := w.waitReady(ctx, client, log); err != nil {
+			return err
+		}
+		log("target VBR REST is up — authenticated.")
+		defer client.Logout(context.Background())
+		if _, err := w.wireVIANodes(ctx, client, vias, log); err != nil {
+			return err
+		}
+		// applyAdvanced in target mode: no VSA node in the deploy, so
+		// the S3 mount-server fallback cannot resolve a VSA host.
+		// We pass all nodes (VIA only) — applyAdvanced already handles
+		// a missing VSA gracefully for the mount-server pin.
+		return w.applyAdvanced(ctx, client, nodes, log)
 	}
+
 	primary := vsas[0]
 	if primary.IP == "" {
 		return fmt.Errorf("VSA node %q has no IP", primary.Name)
@@ -151,12 +201,46 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		}
 	}
 
+	// Register VIA nodes and handle HA (normal VSA-present path).
+	hardenedRepoID, err := w.wireVIANodes(ctx, client, vias, log)
+	if err != nil {
+		return err
+	}
+
+	// HA topology: two VSA nodes → move config backup off the default repo onto
+	// the hardened repo, remove the default repo, then create the cluster. This
+	// prerequisite ordering follows the vbr-ha-cluster reference (Steps 3.5/4/7).
+	if len(vsas) >= 2 {
+		if hardenedRepoID != "" {
+			log("redirecting config backup to the first hardened repository…")
+			if err := client.RedirectConfigBackup(ctx, hardenedRepoID); err != nil {
+				return fmt.Errorf("redirect config backup: %w", err)
+			}
+			log("removing the Default Backup Repository…")
+			if err := w.removeDefaultRepository(ctx, client, log); err != nil {
+				return fmt.Errorf("remove default repository: %w", err)
+			}
+		}
+		if err := w.createHA(ctx, client, vsas[0], vsas[1], log); err != nil {
+			return err
+		}
+	}
+
+	// Advanced options (node_exporter / syslog / S3 repository) on the primary VSA.
+	if err := w.applyAdvanced(ctx, client, nodes, log); err != nil {
+		return err
+	}
+	return nil
+}
+
+// wireVIANodes registers each VIA node (proxy / hardened repo) into client once
+// the node answers on the network. Operations are idempotent (find-before-add).
+// Per-node work is fanned out up to maxParallelWiring at once.
+// It returns the repository ID of the lowest-index hardened repo (for HA config-backup),
+// or "" when there are no HR nodes. In standalone mode the returned ID is discarded.
+func (w *Wirer) wireVIANodes(ctx context.Context, client *veeam.Client, vias []deploy.NodeDeploy, log func(string)) (hardenedRepoID string, _ error) {
 	// Register each VIA node (proxy / hardened repo) once it answers on the
 	// network (its unattended install must be finished before pairing works).
-	// Operations are idempotent (find-before-add), mirroring the reference, so
-	// the wiring can be safely re-run after a partial failure.
-	// Per-node work is independent so we fan out up to maxParallelWiring at once.
-
 	// Part 2: precompute HR name counts to disambiguate colliding hostnames.
 	hrNameCount := map[string]int{}
 	for _, n := range vias {
@@ -290,12 +374,11 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	}
 	wg.Wait()
 	if firstErr != nil {
-		return firstErr
+		return "", firstErr
 	}
 
 	// Pick the lowest-index HR as the HA config-backup target (preserves the
 	// original "first in topology" behaviour regardless of goroutine scheduling).
-	var hardenedRepoID string
 	best := -1
 	for _, r := range hrResults {
 		if best == -1 || r.idx < best {
@@ -303,31 +386,7 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 			hardenedRepoID = r.id
 		}
 	}
-
-	// HA topology: two VSA nodes → move config backup off the default repo onto
-	// the hardened repo, remove the default repo, then create the cluster. This
-	// prerequisite ordering follows the vbr-ha-cluster reference (Steps 3.5/4/7).
-	if len(vsas) >= 2 {
-		if hardenedRepoID != "" {
-			log("redirecting config backup to the first hardened repository…")
-			if err := client.RedirectConfigBackup(ctx, hardenedRepoID); err != nil {
-				return fmt.Errorf("redirect config backup: %w", err)
-			}
-			log("removing the Default Backup Repository…")
-			if err := w.removeDefaultRepository(ctx, client, log); err != nil {
-				return fmt.Errorf("remove default repository: %w", err)
-			}
-		}
-		if err := w.createHA(ctx, client, vsas[0], vsas[1], log); err != nil {
-			return err
-		}
-	}
-
-	// Advanced options (node_exporter / syslog / S3 repository) on the primary VSA.
-	if err := w.applyAdvanced(ctx, client, nodes, log); err != nil {
-		return err
-	}
-	return nil
+	return hardenedRepoID, nil
 }
 
 // createWithComponents runs create (a repo/proxy creation that uses the host as

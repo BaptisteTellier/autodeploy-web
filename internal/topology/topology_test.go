@@ -14,6 +14,8 @@ func TestCatalogNodeCounts(t *testing.T) {
 		KindVSAProxyHR:   3,
 		KindVSAHAHR:      3,
 		KindVSAHAProxyHR: 4,
+		KindProxy:        1,
+		KindHR:           1,
 	}
 	for k, n := range want {
 		if got := len(Catalog(k)); got != n {
@@ -25,6 +27,45 @@ func TestCatalogNodeCounts(t *testing.T) {
 	}
 	if len(AllKinds()) != len(want) {
 		t.Errorf("AllKinds() = %d kinds, want %d", len(AllKinds()), len(want))
+	}
+}
+
+func TestStandaloneKinds(t *testing.T) {
+	// Only KindProxy and KindHR are standalone (no VSA).
+	standalone := map[Kind]bool{
+		KindVSA:          false,
+		KindVSAProxy:     false,
+		KindVSAHR:        false,
+		KindVSAProxyHR:   false,
+		KindVSAHAHR:      false,
+		KindVSAHAProxyHR: false,
+		KindProxy:        true,
+		KindHR:           true,
+	}
+	for k, want := range standalone {
+		if got := k.IsStandalone(); got != want {
+			t.Errorf("%q.IsStandalone() = %v, want %v", k, got, want)
+		}
+	}
+}
+
+func TestStandaloneKindsCatalogRoles(t *testing.T) {
+	// KindProxy must have exactly one VIA-Proxy node; KindHR exactly one VIA-HR.
+	proxySpecs := Catalog(KindProxy)
+	if len(proxySpecs) != 1 || proxySpecs[0].Role != RoleVIAProxy {
+		t.Errorf("KindProxy catalog = %v, want [{VIA-Proxy false}]", proxySpecs)
+	}
+	hrSpecs := Catalog(KindHR)
+	if len(hrSpecs) != 1 || hrSpecs[0].Role != RoleVIAHR {
+		t.Errorf("KindHR catalog = %v, want [{VIA-HR false}]", hrSpecs)
+	}
+	// Neither standalone kind has a VSA node.
+	for _, k := range []Kind{KindProxy, KindHR} {
+		for _, s := range Catalog(k) {
+			if s.Role == RoleVSA {
+				t.Errorf("%q: unexpected VSA node in standalone catalog", k)
+			}
+		}
 	}
 }
 

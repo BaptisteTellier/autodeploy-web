@@ -23,6 +23,9 @@
     const DEPLOY_CATALOG = {
       {{range .Kinds}}"{{.Kind}}": [{{range .Roles}}{{jsonStr .}},{{end}}],{{end}}
     };
+    const DEPLOY_STANDALONE = {
+      {{range .Kinds}}"{{.Kind}}": {{if .Standalone}}true{{else}}false{{end}},{{end}}
+    };
     const OUTPUTS = {{.OutputsJSON}};
     const OUTPUTS_BY_ID = Object.fromEntries(OUTPUTS.map(o => [o.job_id, o]));
     const DEPLOY_PREFILL = {{.PrefillJSON}};
@@ -79,8 +82,10 @@
             wireS3       = !!(p.checks && p.checks.wire_s3);
             wireS3Compat = !!(p.checks && p.checks.wire_s3_compatible);
             wireS3Overwrite = !!(p.checks && p.checks.wire_s3_overwrite);
+            targetInsecure = !!(p.checks && p.checks.target_insecure);
             if (p.text && p.text.wire_license) licenseFile = p.text.wire_license;
             if (p.text && p.text.wire_s3_mount_node) s3MountNode = p.text.wire_s3_mount_node;
+            if (p.text && p.text.target_deploy_id) targetDeployID = p.text.target_deploy_id;
             wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
             $nextTick(function(){
               if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
@@ -92,12 +97,14 @@
           }
         "
         x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
+                  targetDeployID:'', targetInsecure:true,
                   gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
                   get ksCapable(){ return ['proxmox','vsphere','hyperv','workstation'].includes(this.provider); },
                   get s3MountCandidates(){ return this.displayOrder.map((idx,pos)=>({idx,pos})).filter(o => (this.roles[o.idx]||'').includes('Proxy') && this.summ(o.idx) && this.summ(o.idx).hostname).map(o => ({ idx:o.idx, value:this.summ(o.idx).hostname, label:(o.pos+1)+'. '+this.roles[o.idx]+' — '+this.summ(o.idx).hostname })); },
                   extra: [],
                   baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
                   get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
+                  get isStandalone(){ return !!(this.kind && DEPLOY_STANDALONE[this.kind]); },
                   groupRank(role){ if(!role) return 1; if(role.startsWith('VSA')) return 0; if(role.includes('HR')) return 2; return 1; },
                   groupLabel(role){ const r=this.groupRank(role); return r===0?this.gLabels.vsa:r===2?this.gLabels.hr:this.gLabels.proxy; },
                   get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
@@ -204,10 +211,10 @@
     <!-- Topology + per-slot output selection -->
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
       <h2 class="font-semibold text-slate-800">{{t "deploy.topology"}}</h2>
-      <select name="kind" x-model="kind" @change="sel={}; extra=[]; bootcmd={}; adv={}; edited={}" required
+      <select name="kind" x-model="kind" @change="sel={}; extra=[]; bootcmd={}; adv={}; edited={}; targetDeployID=''" required
               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         <option value="">{{t "deploy.select_topology"}}</option>
-        {{range .Kinds}}<option value="{{.Kind}}">{{.Kind}}</option>{{end}}
+        {{range .Kinds}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}
       </select>
 
       <div x-show="roles.length" x-cloak class="space-y-3">
@@ -305,6 +312,46 @@
             </div>
           </div>
         </template>
+      </div>
+    </div>
+
+    <!-- Target VBR panel — shown only for standalone (no-VSA) topology kinds -->
+    <div x-show="isStandalone && roles.length" x-cloak class="bg-white rounded-xl shadow-sm border border-blue-200 p-6 space-y-3">
+      <h2 class="font-semibold text-slate-800">{{t "deploy.target_vbr"}}</h2>
+      <p class="text-xs text-slate-400">{{t "deploy.target_past_deploy_hint"}}</p>
+
+      <!-- Past deployment picker -->
+      <label class="text-sm text-slate-600">{{t "deploy.target_past_deploy"}}
+        <select name="target_deploy_id" x-model="targetDeployID"
+                class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <option value="">{{t "form.none_dash"}}</option>
+          {{range .Deployments}}<option value="{{.ID}}">{{.Kind}} · {{slice .ID 0 8}}{{if .Nodes}} — {{(index .Nodes 0).IP}}{{end}}</option>{{end}}
+        </select>
+      </label>
+
+      <!-- Manual fields — greyed out when a past deployment is selected -->
+      <div :class="targetDeployID ? 'opacity-40 pointer-events-none' : ''" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.target_address"}}
+          <input name="target_address" :required="isStandalone && !targetDeployID"
+                 placeholder="192.168.1.100"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.target_port"}}
+          <input name="target_port" type="number" value="9419"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="text-sm text-slate-600">{{t "deploy.target_user"}}
+          <input name="target_user" value="veeamadmin"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.target_password"}}
+          <input name="target_password" type="password"
+                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </label>
+        <label class="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
+          <input type="checkbox" name="target_insecure" x-model="targetInsecure" class="rounded border-slate-300" checked>
+          {{t "deploy.target_insecure"}}
+        </label>
       </div>
     </div>
 
@@ -629,18 +676,18 @@
           <input name="wire_timeout" type="number" min="5" value="45"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
-        <label x-show="isHA" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
+        <label x-show="isHA && !isStandalone" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
           <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         </label>
-        <label x-show="isHA" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_endpoint"}}
-          <input name="cluster_endpoint" :required="wire && isHA" placeholder="192.168.1.200"
+        <label x-show="isHA && !isStandalone" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_endpoint"}}
+          <input name="cluster_endpoint" :required="wire && isHA && !isStandalone" placeholder="192.168.1.200"
                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           <span class="text-xs text-slate-400">{{t "deploy.cluster_endpoint_hint"}}</span>
         </label>
-        <!-- License install over REST: only meaningful with remote kickstart,
+        <!-- License install over REST: only meaningful with remote kickstart and non-standalone topologies,
              where the .lic cannot be baked into the booted ISO. -->
-        <label x-show="ks" x-cloak class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.wire_license"}}
+        <label x-show="ks && !isStandalone" x-cloak class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.wire_license"}}
           <select name="wire_license" x-model="licenseFile"
                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
             <option value="">{{t "form.none_dash"}}</option>

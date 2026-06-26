@@ -22,8 +22,10 @@ import (
 
 // kindView feeds the topology picker: a catalog Kind plus its ordered role labels.
 type kindView struct {
-	Kind  string   `json:"kind"`
-	Roles []string `json:"roles"`
+	Kind       string   `json:"kind"`
+	Roles      []string `json:"roles"`
+	Label      string   `json:"label"`      // human-readable display name for the <option>
+	Standalone bool     `json:"standalone"` // true → no VSA, needs Target VBR
 }
 
 func roleLabel(s topology.NodeSpec) string {
@@ -34,15 +36,32 @@ func roleLabel(s topology.NodeSpec) string {
 	return label
 }
 
+// kindDisplayLabel returns a human-readable label for the topology kind using the
+// i18n key "deploy.kind_<kind>" when present, falling back to the raw kind string.
+func kindDisplayLabel(lang string, k topology.Kind) string {
+	key := "deploy.kind_" + string(k)
+	v := translate(lang, key)
+	if v == key {
+		// No i18n entry — fall back to the kind string itself.
+		return string(k)
+	}
+	return v
+}
+
 // catalogViews builds the kind→roles catalog for the deploy form.
-func catalogViews() []kindView {
+func catalogViews(lang string) []kindView {
 	out := make([]kindView, 0, len(topology.AllKinds()))
 	for _, k := range topology.AllKinds() {
 		var roles []string
 		for _, s := range topology.Catalog(k) {
 			roles = append(roles, roleLabel(s))
 		}
-		out = append(out, kindView{Kind: string(k), Roles: roles})
+		out = append(out, kindView{
+			Kind:       string(k),
+			Roles:      roles,
+			Label:      kindDisplayLabel(lang, k),
+			Standalone: k.IsStandalone(),
+		})
 	}
 	return out
 }
@@ -230,8 +249,9 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 		presets, _ = s.deps.DeployPresets.List()
 	}
 
+	lang := langFromRequest(r)
 	s.render(w, r, "views/deploy.html", map[string]any{
-		"Kinds":         catalogViews(),
+		"Kinds":         catalogViews(lang),
 		"Outputs":       outputs,
 		"OutputsJSON":   template.JS(outputsJSON), //nolint:gosec — JSON of our own structs, rendered in a <script> JSON context
 		"Deployments":   deployments,
@@ -648,6 +668,8 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"vm_bridge", "vm_vlan",
 		// wiring
 		"wire_timeout", "cluster_dns", "cluster_endpoint", "wire_license",
+		// target VBR (standalone kinds) — target_password deliberately excluded
+		"target_deploy_id", "target_address", "target_port", "target_user",
 		// advanced wiring (secrets — keys/passwords — deliberately excluded)
 		"wire_node_exporter_user", "wire_syslog_server", "wire_syslog_port", "wire_syslog_protocol",
 		"wire_s3_name", "wire_s3_endpoint", "wire_s3_region", "wire_s3_bucket", "wire_s3_folder", "wire_s3_immutable_days", "wire_s3_mount_node",
@@ -679,6 +701,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"wire_s3":                r.FormValue("wire_s3") != "",
 		"wire_s3_compatible":     r.FormValue("wire_s3_compatible") != "",
 		"wire_s3_overwrite":      r.FormValue("wire_s3_overwrite") != "",
+		"target_insecure":        r.FormValue("target_insecure") != "",
 	}
 
 	nodeOutputs := make([]string, n)
@@ -781,8 +804,9 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		nodeCount = len(specs)
 	}
 
+	standalone := kind.IsStandalone()
 	nodes := make([]deploy.NodeDeploy, nodeCount)
-	var primaryCfg config.Config // first VSA's config — wiring creds come from it
+	var primaryCfg config.Config // first VSA's config — wiring creds come from it (non-standalone)
 	for i := 0; i < nodeCount; i++ {
 		jobid := strings.TrimSpace(r.FormValue(fmt.Sprintf("node_%d_output", i)))
 		if jobid == "" {
@@ -817,7 +841,9 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		}
 		n.CPUs = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_cpus", i)), 4)
 		n.MemoryMiB = atoiDefault(r.FormValue(fmt.Sprintf("node_%d_memory", i)), 8192)
-		if i == 0 {
+		// For non-standalone topologies the first node is the primary VSA — its
+		// config carries the wiring credentials.
+		if i == 0 && !standalone {
 			primaryCfg = c
 		}
 		nodes[i] = n
@@ -840,31 +866,96 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 	powerOn := r.FormValue("power_on") != "" || ks.enabled
 
 	// Optional post-boot wiring (register VIA/HA into the VSA via Veeam REST).
-	// Wiring needs the VMs powered on; enabling it implies power-on. The VSA
-	// REST credentials come from the chosen output's own config (veeamadmin +
-	// VeeamAdminPassword) — never asked again in the UI.
+	// Wiring needs the VMs powered on; enabling it implies power-on.
+	// For non-standalone topologies the VSA REST credentials come from the chosen
+	// output's own config (veeamadmin + VeeamAdminPassword) — never asked in UI.
+	// For standalone topologies the target VBR is supplied via target_* form fields
+	// or by resolving a past deployment (target_deploy_id).
 	var wirer deploy.Wirer
 	if r.FormValue("wire") != "" {
-		if primaryCfg.VeeamAdminPassword == "" {
-			http.Error(w, translate(lang, "deploy.err_no_admin_pw"), http.StatusUnprocessableEntity)
-			return
-		}
 		powerOn = true
-		// Optional license install over REST: a remote-kickstarted VSA cannot
-		// carry the .lic inside the ISO, so it boots unlicensed. When a license
-		// is selected, the wiring step pushes it once the VSA REST is up.
-		licensePath := ""
-		if lf := strings.TrimSpace(r.FormValue("wire_license")); lf != "" {
-			licensePath = filepath.Join(s.deps.DataDir, "license", filepath.Base(lf))
-		}
 		wireCfg := wiring.Config{
-			Username:        "veeamadmin",
-			Password:        primaryCfg.VeeamAdminPassword,
 			Insecure:        true,
 			ClusterDNSName:  strings.TrimSpace(r.FormValue("cluster_dns")),
 			ClusterEndpoint: strings.TrimSpace(r.FormValue("cluster_endpoint")),
-			LicensePath:     licensePath,
 		}
+
+		if standalone {
+			// Standalone: populate TargetVBR — either from a past deployment or manual fields.
+			targetDeployID := strings.TrimSpace(r.FormValue("target_deploy_id"))
+			if targetDeployID != "" && s.deps.DeployManager != nil {
+				// Resolve VSA IP + password from the referenced past deployment.
+				pastDep, ok := s.deps.DeployManager.Get(targetDeployID)
+				if !ok {
+					http.Error(w, translate(lang, "deploy.err_target_deploy_not_found"), http.StatusUnprocessableEntity)
+					return
+				}
+				pastView := pastDep.View()
+				vsaIdx := -1
+				for i, n := range pastView.Nodes {
+					if strings.HasPrefix(n.Role, "VSA") {
+						vsaIdx = i
+						break
+					}
+				}
+				if vsaIdx < 0 {
+					http.Error(w, translate(lang, "deploy.err_target_no_vsa"), http.StatusUnprocessableEntity)
+					return
+				}
+				vsaIP := pastView.Nodes[vsaIdx].IP
+				if vsaIP == "" {
+					http.Error(w, translate(lang, "deploy.err_target_no_ip"), http.StatusUnprocessableEntity)
+					return
+				}
+				if vsaIdx >= len(pastView.Form.NodeOutputs) {
+					http.Error(w, translate(lang, "deploy.err_target_no_output"), http.StatusUnprocessableEntity)
+					return
+				}
+				jobID := filepath.Base(pastView.Form.NodeOutputs[vsaIdx])
+				dir := filepath.Join(s.deps.DataDir, "output", jobID)
+				pastCfg, _, _, cfgOK := loadOutputConfig(dir)
+				if !cfgOK || pastCfg.VeeamAdminPassword == "" {
+					http.Error(w, translate(lang, "deploy.err_no_admin_pw"), http.StatusUnprocessableEntity)
+					return
+				}
+				wireCfg.TargetVBR = wiring.TargetVBR{
+					Address:  vsaIP,
+					Port:     9419,
+					Username: "veeamadmin",
+					Password: pastCfg.VeeamAdminPassword,
+					Insecure: true,
+				}
+			} else {
+				// Manual target fields.
+				addr := strings.TrimSpace(r.FormValue("target_address"))
+				if addr == "" {
+					http.Error(w, translate(lang, "deploy.err_no_target"), http.StatusUnprocessableEntity)
+					return
+				}
+				wireCfg.TargetVBR = wiring.TargetVBR{
+					Address:  addr,
+					Port:     atoiDefault(r.FormValue("target_port"), 9419),
+					Username: strDefault(strings.TrimSpace(r.FormValue("target_user")), "veeamadmin"),
+					Password: r.FormValue("target_password"),
+					Insecure: r.FormValue("target_insecure") != "",
+				}
+			}
+		} else {
+			// Normal (VSA-present) topology: creds come from the primary VSA output.
+			if primaryCfg.VeeamAdminPassword == "" {
+				http.Error(w, translate(lang, "deploy.err_no_admin_pw"), http.StatusUnprocessableEntity)
+				return
+			}
+			// Optional license install over REST: a remote-kickstarted VSA cannot
+			// carry the .lic inside the ISO, so it boots unlicensed. When a license
+			// is selected, the wiring step pushes it once the VSA REST is up.
+			if lf := strings.TrimSpace(r.FormValue("wire_license")); lf != "" {
+				wireCfg.LicensePath = filepath.Join(s.deps.DataDir, "license", filepath.Base(lf))
+			}
+			wireCfg.Username = "veeamadmin"
+			wireCfg.Password = primaryCfg.VeeamAdminPassword
+		}
+
 		// Advanced wiring options (revealed under the "Advanced" toggle).
 		if r.FormValue("wire_node_exporter") != "" {
 			wireCfg.NodeExporter = true
