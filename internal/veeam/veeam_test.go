@@ -271,6 +271,28 @@ func TestAddVmwareProxyPayload(t *testing.T) {
 	}
 }
 
+func TestFindProxyByHost(t *testing.T) {
+	mux := baseMux()
+	mux.HandleFunc("/api/v1/backupInfrastructure/proxies", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"id": "proxy-A", "server": map[string]any{"hostId": "host-1"}},
+				{"id": "proxy-B", "server": map[string]any{"hostId": "host-2"}},
+			},
+		})
+	})
+	c, _ := newTestClient(t, mux)
+
+	// Existing host → returns its proxy id (idempotency guard).
+	if id, err := c.FindProxyByHost(context.Background(), "host-2"); err != nil || id != "proxy-B" {
+		t.Errorf("FindProxyByHost(host-2) = %q, %v; want proxy-B, nil", id, err)
+	}
+	// Unknown host → "" so the caller proceeds to create.
+	if id, err := c.FindProxyByHost(context.Background(), "host-X"); err != nil || id != "" {
+		t.Errorf("FindProxyByHost(host-X) = %q, %v; want \"\", nil", id, err)
+	}
+}
+
 func TestCreateHAClusterPayload(t *testing.T) {
 	mux := baseMux()
 	mux.HandleFunc("/api/v1/highAvailabilityCluster", func(w http.ResponseWriter, r *http.Request) {

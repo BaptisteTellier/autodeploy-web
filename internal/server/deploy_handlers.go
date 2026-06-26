@@ -956,19 +956,23 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			wireCfg.Password = primaryCfg.VeeamAdminPassword
 		}
 
-		// Advanced wiring options (revealed under the "Advanced" toggle).
-		if r.FormValue("wire_node_exporter") != "" {
+		// Advanced wiring options (revealed under the "Advanced" toggle). These are
+		// GLOBAL VBR settings (node_exporter, syslog) or add a new object-storage
+		// repository, so they are only applied when deploying a NEW environment.
+		// For standalone (add-to-existing) deploys they are skipped, so adding a
+		// proxy/repo never mutates the existing VBR's global configuration.
+		if !standalone && r.FormValue("wire_node_exporter") != "" {
 			wireCfg.NodeExporter = true
 			wireCfg.NodeExporterTLS = r.FormValue("wire_node_exporter_tls") != ""
 			wireCfg.NodeExporterUser = strings.TrimSpace(r.FormValue("wire_node_exporter_user"))
 			wireCfg.NodeExporterPass = r.FormValue("wire_node_exporter_pass")
 		}
-		if sl := strings.TrimSpace(r.FormValue("wire_syslog_server")); sl != "" {
+		if sl := strings.TrimSpace(r.FormValue("wire_syslog_server")); !standalone && sl != "" {
 			wireCfg.SyslogServer = sl
 			wireCfg.SyslogPort = atoiDefault(r.FormValue("wire_syslog_port"), 514)
 			wireCfg.SyslogProtocol = strDefault(strings.TrimSpace(r.FormValue("wire_syslog_protocol")), "Udp")
 		}
-		if r.FormValue("wire_s3") != "" && strings.TrimSpace(r.FormValue("wire_s3_bucket")) != "" {
+		if !standalone && r.FormValue("wire_s3") != "" && strings.TrimSpace(r.FormValue("wire_s3_bucket")) != "" {
 			wireCfg.S3 = &wiring.S3Config{
 				Name:            strDefault(strings.TrimSpace(r.FormValue("wire_s3_name")), "Object Storage"),
 				Compatible:      r.FormValue("wire_s3_compatible") != "",

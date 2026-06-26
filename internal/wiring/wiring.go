@@ -358,16 +358,27 @@ func (w *Wirer) wireVIANodes(ctx context.Context, client *veeam.Client, vias []d
 				hrResults = append(hrResults, hrResult{i, id})
 				mu.Unlock()
 			case isProxy(n.Role):
-				log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
-				if err := w.createWithComponents(fanCtx, client, hostID, "proxy "+n.IP, log, func() error {
-					ps, e := client.AddVmwareProxy(fanCtx, hostID, 4)
-					if e != nil {
-						return e
-					}
-					return client.WaitSession(fanCtx, ps, 10*time.Second, w.cfg.SessionTimeout)
-				}); err != nil {
-					fail(fmt.Errorf("add proxy %s: %w", n.IP, err))
+				// Find-before-add so rewire / add-to-existing-VBR don't create a
+				// duplicate proxy on a host that's already registered as one.
+				existing, err := client.FindProxyByHost(fanCtx, hostID)
+				if err != nil {
+					fail(fmt.Errorf("lookup proxy %s: %w", n.IP, err))
 					return
+				}
+				if existing != "" {
+					log(fmt.Sprintf("VMware proxy already registered on %s — skipping.", n.IP))
+				} else {
+					log(fmt.Sprintf("registering VMware proxy on %s…", n.IP))
+					if err := w.createWithComponents(fanCtx, client, hostID, "proxy "+n.IP, log, func() error {
+						ps, e := client.AddVmwareProxy(fanCtx, hostID, 4)
+						if e != nil {
+							return e
+						}
+						return client.WaitSession(fanCtx, ps, 10*time.Second, w.cfg.SessionTimeout)
+					}); err != nil {
+						fail(fmt.Errorf("add proxy %s: %w", n.IP, err))
+						return
+					}
 				}
 			}
 		}()

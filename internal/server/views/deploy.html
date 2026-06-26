@@ -695,7 +695,7 @@
           </select>
           <span class="text-xs text-slate-400">{{t "deploy.wire_license_hint"}}</span>
         </label>
-        <div class="sm:col-span-2 border-t border-slate-100 pt-2">
+        <div class="sm:col-span-2 border-t border-slate-100 pt-2" x-show="!isStandalone" x-cloak>
           <label class="flex items-center gap-2 text-xs text-slate-600">
             <input type="checkbox" x-model="wireAdv" class="rounded border-slate-300">
             {{t "deploy.wire_advanced"}}

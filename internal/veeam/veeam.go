@@ -494,6 +494,30 @@ func (c *Client) AddVmwareProxy(ctx context.Context, hostID string, maxTasks int
 	return out.ID, nil
 }
 
+// FindProxyByHost returns the id of a proxy already registered on the given
+// managed-server host, or "" if none. It keeps proxy registration idempotent
+// (rewire and add-to-existing-VBR must not create duplicate proxies). The GET
+// response is ViProxyModel { ...; server: ProxyServerSettingsModel{hostId} }.
+func (c *Client) FindProxyByHost(ctx context.Context, hostID string) (string, error) {
+	var out struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Server struct {
+				HostID string `json:"hostId"`
+			} `json:"server"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/backupInfrastructure/proxies?limit=200", nil, &out); err != nil {
+		return "", err
+	}
+	for _, p := range out.Data {
+		if p.Server.HostID == hostID {
+			return p.ID, nil
+		}
+	}
+	return "", nil
+}
+
 // --- license -----------------------------------------------------------------
 
 // InstalledLicense is the subset of InstalledLicenseModel we surface.
