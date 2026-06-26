@@ -583,6 +583,15 @@ var translations = map[string]map[string]string{
 		"deploy.console_err_request": "Request failed: ",
 		"deploy.console_no_session":  "No active session — click \"Open REST API\" first.",
 
+		// --- topology kind labels + dropdown groups ---
+		"deploy.optgroup_new":         "New environment",
+		"deploy.optgroup_existing":    "Add to an existing VBR",
+		"deploy.kind_vsa":             "VSA only",
+		"deploy.kind_vsa+proxy":       "VSA + Proxy",
+		"deploy.kind_vsa+hr":          "VSA + Hardened Repository",
+		"deploy.kind_vsa+proxy+hr":    "VSA + Proxy + Hardened Repository",
+		"deploy.kind_vsa-ha+hr":       "VSA HA pair + Hardened Repository",
+		"deploy.kind_vsa-ha+proxy+hr": "VSA HA pair + Proxy + Hardened Repository",
 		// --- standalone (no-VSA) topology kinds ---
 		"deploy.kind_proxy":                  "Add proxy to existing VBR",
 		"deploy.kind_hr":                     "Add hardened repository to existing VBR",
@@ -1138,6 +1147,15 @@ var translations = map[string]map[string]string{
 		"deploy.console_err_request": "Échec de la requête : ",
 		"deploy.console_no_session":  "Aucune session active — cliquez sur « Ouvrir REST API » d'abord.",
 
+		// --- topology kind labels + dropdown groups ---
+		"deploy.optgroup_new":         "Nouvel environnement",
+		"deploy.optgroup_existing":    "Ajouter à un VBR existant",
+		"deploy.kind_vsa":             "VSA seul",
+		"deploy.kind_vsa+proxy":       "VSA + Proxy",
+		"deploy.kind_vsa+hr":          "VSA + Dépôt durci",
+		"deploy.kind_vsa+proxy+hr":    "VSA + Proxy + Dépôt durci",
+		"deploy.kind_vsa-ha+hr":       "Paire VSA HA + Dépôt durci",
+		"deploy.kind_vsa-ha+proxy+hr": "Paire VSA HA + Proxy + Dépôt durci",
 		// --- standalone (no-VSA) topology kinds ---
 		"deploy.kind_proxy":                  "Ajouter un proxy à un VBR existant",
 		"deploy.kind_hr":                     "Ajouter un dépôt durci à un VBR existant",

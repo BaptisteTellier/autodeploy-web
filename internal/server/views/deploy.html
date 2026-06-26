@@ -267,7 +267,12 @@
       <select name="kind" x-model="kind" @change="sel={}; extra=[]; bootcmd={}; adv={}; edited={}; targetDeployID=''" required
               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
         <option value="">{{t "deploy.select_topology"}}</option>
-        {{range .Kinds}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}
+        <optgroup label="{{t "deploy.optgroup_new"}}">
+          {{range .Kinds}}{{if not .Standalone}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}{{end}}
+        </optgroup>
+        <optgroup label="{{t "deploy.optgroup_existing"}}">
+          {{range .Kinds}}{{if .Standalone}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}{{end}}
+        </optgroup>
       </select>
 
       <div x-show="roles.length" x-cloak class="space-y-3">
