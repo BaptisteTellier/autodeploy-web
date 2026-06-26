@@ -48,6 +48,7 @@
   </div>
 
   <div id="craft-root"
+       @craft-restore.window="restoreFields($event.detail)"
        x-data="{
           kind: '',
           extra: [],
@@ -474,12 +475,10 @@
     const res = await fetch('/craft-api/presets/' + encodeURIComponent(name));
     if (!res.ok) { alert('Load failed: ' + (await res.text())); return; }
     const fields = await res.json();
-    // Delegate to Alpine's restoreFields method.
-    const root = document.getElementById('craft-root');
-    const alpine = root && (root._x_dataStack && root._x_dataStack[0] || (window.Alpine && Alpine.$data && Alpine.$data(root)));
-    if (alpine && typeof alpine.restoreFields === 'function') {
-      alpine.restoreFields(fields);
-    }
+    // Hand off to the Alpine component via a custom event so restoreFields runs
+    // in the component's reactive scope (a direct _x_dataStack lookup could grab
+    // a non-reactive object, so the topology x-for never re-rendered).
+    window.dispatchEvent(new CustomEvent('craft-restore', { detail: fields }));
     // Populate the template name input for easy re-save.
     const nameEl = document.getElementById('craft_tpl_name');
     if (nameEl) nameEl.value = name;
