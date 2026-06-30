@@ -104,7 +104,7 @@ async function deleteDeployment(id) {
         <td class="mono" style="font-size:11.5px;color:var(--muted);" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{shortTime .CreatedAt}}</td>
         <td class="mono" style="font-size:11.5px;color:var(--muted);" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{shortTime .FinishedAt}}</td>
         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-          <a href="/deploy/{{.ID}}" style="font-size:12px;color:var(--vg-deep);font-weight:600;text-decoration:none;margin-right:12px;">{{t "jobs.open"}}</a>
+          <a href="/deploy/{{.ID}}" class="ad-iconbtn" title="{{t "jobs.open"}}" style="display:inline-flex;color:var(--body);margin-right:6px;vertical-align:middle;"><span class="mi">search</span></a>
           {{$dst := printf "%s" .State}}
           {{if or (eq $dst "done") (eq $dst "failed") (eq $dst "canceled") (eq $dst "removed")}}
             <form method="POST" action="/deploy/{{.ID}}/retry" style="display:inline;margin-right:10px;">

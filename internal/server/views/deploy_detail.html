@@ -8,7 +8,7 @@
 
   <!-- header: back link, mono name + short id + state chip + meta line -->
   <div>
-    <a href="/deploy" class="ad-btn-link"><span class="mi" style="font-size:16px;">arrow_back</span>{{t "deploy.back"}}</a>
+    <a href="/jobs" class="ad-btn-link"><span class="mi" style="font-size:16px;">arrow_back</span>{{t "deploy.back"}}</a>
     <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap;">
       <span style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--ink);">{{.Deployment.Kind}}</span>
       <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">{{short8 .Deployment.ID}}</span>
