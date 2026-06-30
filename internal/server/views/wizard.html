@@ -288,19 +288,21 @@
           </div>
           <div class="ad-subt" style="margin-bottom:18px;">{{t "wiz.step5.select_hint"}}</div>
 
+          <style>
+            .wiz-adv-row{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line);cursor:pointer;}
+            .wiz-adv-row.sel{background:var(--vg-tint);}
+            .wiz-adv-ico{width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--sunken);color:var(--muted);}
+            .wiz-adv-row.sel .wiz-adv-ico{background:var(--vg-50);color:var(--vg-deep);}
+          </style>
           <div style="display:flex;flex-direction:column;border:1px solid var(--line);border-radius:9px;overflow:hidden;">
             <template x-for="a in advToggles" :key="a.key">
-              <label style="display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line);cursor:pointer;"
-                     :style="a.sel ? 'background:var(--vg-tint);' : ''">
-                <span style="width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"
-                      :style="a.sel ? 'background:var(--vg-50);color:var(--vg-deep);' : 'background:var(--sunken);color:var(--muted);'">
-                  <span class="mi" style="font-size:18px;" x-text="a.icon"></span>
-                </span>
-                <span style="flex:1;">
+              <label class="wiz-adv-row" :class="{ sel: a.sel }">
+                <span class="wiz-adv-ico"><span class="mi" style="font-size:18px;" x-text="a.icon"></span></span>
+                <span style="flex:1;min-width:0;">
                   <span style="font-size:13.5px;font-weight:600;color:var(--ink);display:block;" x-text="a.label"></span>
                   <span style="font-size:11.5px;color:var(--faint);" x-text="a.desc"></span>
                 </span>
-                <input type="checkbox" class="ad-check" :checked="a.sel" @change="toggleAdv(a.key)">
+                <input type="checkbox" class="ad-check" style="flex-shrink:0;" :checked="a.sel" @change="toggleAdv(a.key)">
               </label>
             </template>
           </div>
