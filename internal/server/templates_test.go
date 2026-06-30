@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/BaptisteTellier/autodeploy-web/internal/deploy"
+	"github.com/BaptisteTellier/autodeploy-web/internal/job"
 )
 
 // TestParseTemplates ensures every embedded view parses for every supported
@@ -44,6 +45,34 @@ func TestExecuteCraftAPI(t *testing.T) {
 		}
 		if err := tmpl.ExecuteTemplate(io.Discard, "layout.html", data); err != nil {
 			t.Errorf("lang %q: craft_api execute: %v", lang, err)
+		}
+	}
+}
+
+// TestExecuteDashboard executes dashboard.html (Launchpad + Console) to catch
+// autoescaping errors and exercise the chipClass/short8/shortTime helpers.
+func TestExecuteDashboard(t *testing.T) {
+	sets := parseTemplates()
+	data := map[string]any{
+		"RecentJobs":     []job.JobView{{ID: "job00001abc", State: job.StateDone, Hostname: "VSADEMO", Appliance: "VSA", FinishedAt: time.Now()}},
+		"RecentDeps":     []deploy.View{{ID: "dep00001abc", Kind: "vsa+proxy", State: deploy.StateRunning, Nodes: []deploy.NodeStatus{{Hostname: "vsa01"}}, CreatedAt: time.Now(), Form: deploy.FormSnapshot{Provider: "proxmox"}}},
+		"SourceISOs":     []isoFile{{Name: "VeeamSoftwareAppliance.iso", Size: 16500000000}},
+		"KPIIsos":        3,
+		"KPIIsosMeta":    "2 succeeded",
+		"KPIDeploys":     1,
+		"KPIRunning":     1,
+		"KPISuccess":     78,
+		"KPISuccessMeta": "14 of 18 done",
+		"KPISources":     1,
+		"KPISourceSz":    int64(16500000000),
+	}
+	for _, lang := range supportedLangs {
+		tmpl := sets[lang]["views/dashboard.html"]
+		if tmpl == nil {
+			t.Fatalf("lang %q: views/dashboard.html not parsed", lang)
+		}
+		if err := tmpl.ExecuteTemplate(io.Discard, "layout.html", data); err != nil {
+			t.Errorf("lang %q: dashboard execute: %v", lang, err)
 		}
 	}
 }

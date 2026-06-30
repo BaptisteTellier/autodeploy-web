@@ -1,338 +1,403 @@
 {{define "views/form.html"}}{{template "layout.html" .}}{{end}}
 
 {{define "content"}}
-<div x-data="formApp()" class="space-y-6">
+<div x-data="formApp()">
 
 {{if .Errors}}
-<div class="bg-red-100 border border-red-300 text-red-800 rounded p-3">
-  <strong>{{t "form.errors_title"}}</strong>
-  <ul class="list-disc list-inside text-sm mt-1">
-    {{range .Errors}}<li><code class="font-mono">{{.Field}}</code> — {{.Message}}</li>{{end}}
-  </ul>
+<div class="ad-warn" style="margin-bottom:18px;">
+  <span class="mi">error</span>
+  <div>
+    <strong>{{t "form.errors_title"}}</strong>
+    <ul class="list-disc list-inside text-sm mt-1">
+      {{range .Errors}}<li><code class="font-mono">{{.Field}}</code> — {{.Message}}</li>{{end}}
+    </ul>
+  </div>
 </div>
 {{end}}
 
-<!-- Top toolbar : presets, import/export, save -->
-<div class="bg-white rounded shadow p-4 flex flex-wrap gap-3 items-end">
+<!-- in-page header -->
+<div class="ad-head">
   <div>
-    <label class="block text-xs font-semibold uppercase text-slate-500">{{t "form.load_preset"}}</label>
-    <div class="flex gap-1">
-      <select id="preset_select" class="border rounded px-2 py-1"
-              onchange="if (this.value) { document.getElementById('preset_name').value=this.value; location.href='/?preset='+encodeURIComponent(this.value); }">
-        <option value="">{{t "form.select_dash"}}</option>
-        {{range .Presets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
-      </select>
-      <button type="button" title="{{t "form.delete_preset"}}"
-              class="bg-red-100 text-red-700 hover:bg-red-200 rounded px-2 py-1 text-sm" @click="deletePreset()">🗑</button>
-    </div>
+    <div class="ad-h1">{{t "form.page_title"}}</div>
+    <div class="ad-subt">{{t "form.page_subtitle"}}</div>
   </div>
-  <div>
-    <label class="block text-xs font-semibold uppercase text-slate-500">{{t "form.save_as_preset"}}</label>
-    <div class="flex gap-1">
-      <input id="preset_name" name="preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}"
-             value="{{.PresetName}}" class="border rounded px-2 py-1">
-      <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" @click="savePreset()">{{t "form.save"}}</button>
-    </div>
-  </div>
-  <div class="ml-auto flex gap-2">
-    <button type="button" class="bg-slate-200 rounded px-3 py-1 text-sm" @click="exportJSON()">{{t "form.export_json"}}</button>
-    <label class="bg-slate-200 rounded px-3 py-1 text-sm cursor-pointer">
-      {{t "form.import_json"}}
+  <div style="display:flex;align-items:center;gap:8px;">
+    <label class="ad-btn ad-btn-secondary" style="cursor:pointer;">
+      <span class="mi" style="font-size:17px;">upload</span>{{t "form.import_json"}}
       <input type="file" accept="application/json" class="hidden" @change="importJSON($event)">
     </label>
+    <button type="button" class="ad-btn ad-btn-secondary" @click="exportJSON()">
+      <span class="mi" style="font-size:17px;">download</span>{{t "form.export_json"}}
+    </button>
+    <a href="/wizard" class="ad-btn ad-btn-green">
+      <span class="mi" style="font-size:17px;">auto_awesome</span>{{t "form.switch_to_wizard"}}
+    </a>
   </div>
 </div>
 
-<form id="config-form" method="POST" action="/jobs" class="space-y-4">
-
-<!-- Appliance section -->
-<section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.appliance"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.appliance_type"}}</span>
-      <select name="ApplianceType" x-model="cfg.ApplianceType" class="mt-1 w-full border rounded px-2 py-1">
-        {{range $.ApplianceTypes}}<option value="{{.}}" {{if eq . $.Config.ApplianceType}}selected{{end}}>{{.}}</option>{{end}}
+<!-- preset toolbar -->
+<div class="ad-card" style="padding:13px 16px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:18px;">
+  <div>
+    <div class="ad-grouplabel" style="margin-bottom:5px;">{{t "form.load_preset"}}</div>
+    <div style="display:flex;gap:6px;">
+      <select id="preset_select" class="ad-select" style="min-width:180px;width:auto;"
+              onchange="if (this.value) { document.getElementById('preset_name').value=this.value; location.href='/new?preset='+encodeURIComponent(this.value); }">
+        <option value="">{{t "form.select_dash"}}</option>
+        {{range .Presets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
       </select>
-    </label>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.source_iso"}}</span>
-      <select name="SourceISO" class="mt-1 w-full border rounded px-2 py-1">
-        <option value="">{{t "form.select_iso"}}</option>
-        {{range .SourceISOs}}<option value="{{.}}" {{if eq . $.Config.SourceISO}}selected{{end}}>{{.}}</option>{{end}}
-      </select>
-      <small class="text-slate-500">{{t "form.files_in"}} <code>/data/iso</code></small>
-    </label>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.output_iso"}}</span>
-      <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="{{t "form.output_iso_ph"}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.grub_timeout"}}</span>
-      <input type="number" name="GrubTimeout" min="0" max="300" value="{{.Config.GrubTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-    <div class="flex items-center gap-2 mt-6">
-      <input type="checkbox" name="InPlace" {{if .Config.InPlace}}checked{{end}}>
-      <span>{{t "form.inplace"}}</span>
-      {{helpTip "wiz.help.InPlace"}}
+      <button type="button" title="{{t "form.delete_preset"}}" class="ad-del" @click="deletePreset()"><span class="mi">delete</span></button>
     </div>
-    <div class="flex items-center gap-2 mt-6">
-      <input type="checkbox" name="CreateBackup">
-      <span>{{t "form.create_backup"}}</span>
-      {{helpTip "wiz.help.CreateBackup"}}
-    </div>
-    <div class="flex items-center gap-2">
-      <input type="checkbox" name="CleanupCFGFiles">
-      <span>{{t "form.cleanup_cfg"}}</span>
-      {{helpTip "wiz.help.CleanupCFGFiles"}}
-    </div>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="CFGOnly" {{if .Config.CFGOnly}}checked{{end}}>
-      <span>{{t "form.cfg_only"}}</span>
-    </label>
   </div>
-</section>
-
-<!-- Regional -->
-<section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.regional"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <div class="block" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const k=new Set([{{range $.KeyboardLayouts}}'{{.Value}}',{{end}}]);return{kbd:k.has(v)?v:'custom',kbdTxt:k.has(v)?'':v}})()">
-      <span class="text-sm font-medium">{{t "form.keyboard_layout"}}</span>
-      <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null" class="mt-1 w-full border rounded px-2 py-1">
-        {{range $.KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
-      </select>
-      <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout"
-             x-model="kbdTxt" placeholder="{{t "form.custom_kbd_ph"}}"
-             class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">
+  <div>
+    <div class="ad-grouplabel" style="margin-bottom:5px;">{{t "form.save_as_preset"}}</div>
+    <div style="display:flex;gap:6px;">
+      <input id="preset_name" name="preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}"
+             value="{{.PresetName}}" class="ad-input" style="width:180px;">
+      <button type="button" class="ad-btn ad-btn-dark" @click="savePreset()"><span class="mi" style="font-size:16px;">save</span>{{t "form.save"}}</button>
     </div>
-    <div class="block" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const k=new Set([{{range $.Timezones}}'{{.Value}}',{{end}}]);return{tz:k.has(v)?v:'custom',tzTxt:k.has(v)?'':v}})()">
-      <span class="text-sm font-medium">{{t "form.timezone"}}</span>
-      <select x-model="tz" :name="tz!=='custom'?'Timezone':null" class="mt-1 w-full border rounded px-2 py-1">
-        {{range $.Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
-      </select>
-      <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone"
-             x-model="tzTxt" placeholder="{{t "form.custom_tz_ph"}}"
-             class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">
+  </div>
+</div>
+
+<form id="config-form" method="POST" action="/jobs">
+
+<!-- 2-col layout: main + sticky rail -->
+<div class="ad-2col">
+  <!-- ===================== MAIN COLUMN ===================== -->
+  <div style="display:flex;flex-direction:column;gap:18px;">
+
+    <!-- Card 1: Appliance & build -->
+    <div class="ad-card">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">album</span></span>
+        <span class="ad-card-title">{{t "form.card_appliance_build"}}</span>
+      </div>
+      <div class="ad-card-body">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;">
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.appliance_type"}}</span>
+            <select name="ApplianceType" x-model="cfg.ApplianceType" class="ad-select">
+              {{range $.ApplianceTypes}}<option value="{{.}}" {{if eq . $.Config.ApplianceType}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.source_iso"}}</span>
+            <select name="SourceISO" class="ad-select mono">
+              <option value="">{{t "form.select_iso"}}</option>
+              {{range .SourceISOs}}<option value="{{.}}" {{if eq . $.Config.SourceISO}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+            <small style="color:var(--faint);font-size:11px;">{{t "form.files_in"}} <code>/data/iso</code></small>
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.output_iso"}}</span>
+            <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="{{t "form.output_iso_ph"}}" class="ad-input mono">
+          </label>
+        </div>
+        <!-- dashed divider then build-behaviour -->
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);">
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="InPlace" {{if .Config.InPlace}}checked{{end}}> {{t "form.inplace"}} {{helpTip "wiz.help.InPlace"}}</label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="CreateBackup"> {{t "form.create_backup"}} {{helpTip "wiz.help.CreateBackup"}}</label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="CleanupCFGFiles"> {{t "form.cleanup_cfg"}} {{helpTip "wiz.help.CleanupCFGFiles"}}</label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="CFGOnly" {{if .Config.CFGOnly}}checked{{end}}> {{t "form.cfg_only"}}</label>
+          <label class="ad-checkrow" style="gap:8px;">
+            <span>{{t "form.grub_timeout"}}</span>
+            <input type="number" name="GrubTimeout" min="0" max="300" value="{{.Config.GrubTimeout}}" class="ad-input mono" style="width:72px;height:32px;text-align:center;">
+          </label>
+        </div>
+      </div>
     </div>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.hostname"}}</span>
-      <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-  </div>
-</section>
 
-<!-- Network -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-data="{ dhcp: {{if .Config.UseDHCP}}true{{else}}false{{end}} }">
-  <h2 class="text-lg font-semibold border-b pb-2 flex items-center gap-3">{{t "form.network"}}
-    <label class="text-sm font-normal flex items-center gap-2 ml-auto">
-      <input type="checkbox" name="UseDHCP" x-model="dhcp"> {{t "form.use_dhcp"}}
-    </label>
-  </h2>
-  <div x-show="!dhcp" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.static_ip"}}</span>
-      <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.subnet"}}</span>
-      <input type="text" name="Subnet" value="{{.Config.Subnet}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.gateway"}}</span>
-      <input type="text" name="Gateway" value="{{.Config.Gateway}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.dns_servers"}}</span>
-      <textarea name="DNSServers" rows="2" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.DNSServers}}{{if $i}}, {{end}}{{$v}}{{end}}</textarea>
-    </label>
-  </div>
-</section>
+    <!-- Card 2: Regional & network -->
+    <div class="ad-card" x-data="{ dhcp: {{if .Config.UseDHCP}}true{{else}}false{{end}} }">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">language</span></span>
+        <span class="ad-card-title">{{t "form.card_regional_network"}}</span>
+        <label class="ad-checkrow" style="margin-left:auto;font-size:12.5px;color:var(--body);">
+          <input type="checkbox" class="ad-check" name="UseDHCP" x-model="dhcp"> {{t "form.use_dhcp"}}
+        </label>
+      </div>
+      <div class="ad-card-body">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;">
+          <div style="display:block;" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const k=new Set([{{range $.KeyboardLayouts}}'{{.Value}}',{{end}}]);return{kbd:k.has(v)?v:'custom',kbdTxt:k.has(v)?'':v}})()">
+            <span class="ad-flabel">{{t "form.keyboard_layout"}}</span>
+            <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null" class="ad-select">
+              {{range $.KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+            </select>
+            <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout"
+                   x-model="kbdTxt" placeholder="{{t "form.custom_kbd_ph"}}" class="ad-input mono" style="margin-top:6px;">
+          </div>
+          <div style="display:block;" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const k=new Set([{{range $.Timezones}}'{{.Value}}',{{end}}]);return{tz:k.has(v)?v:'custom',tzTxt:k.has(v)?'':v}})()">
+            <span class="ad-flabel">{{t "form.timezone"}}</span>
+            <select x-model="tz" :name="tz!=='custom'?'Timezone':null" class="ad-select">
+              {{range $.Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+            </select>
+            <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone"
+                   x-model="tzTxt" placeholder="{{t "form.custom_tz_ph"}}" class="ad-input mono" style="margin-top:6px;">
+          </div>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.hostname"}}</span>
+            <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required class="ad-input mono">
+          </label>
+        </div>
+        <!-- static net (hidden when DHCP) -->
+        <div x-show="!dhcp" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);">
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.static_ip"}}</span>
+            <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" class="ad-input mono">
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.subnet"}}</span>
+            <input type="text" name="Subnet" value="{{.Config.Subnet}}" class="ad-input mono">
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.gateway"}}</span>
+            <input type="text" name="Gateway" value="{{.Config.Gateway}}" class="ad-input mono">
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.dns_servers"}}</span>
+            <textarea name="DNSServers" rows="2" class="ad-input mono" style="height:auto;padding:8px 11px;">{{range $i, $v := .Config.DNSServers}}{{if $i}}, {{end}}{{$v}}{{end}}</textarea>
+          </label>
+        </div>
+        <!-- DHCP info note -->
+        <div x-show="dhcp" class="ad-info" style="margin-top:14px;"><span class="mi">info</span>{{t "form.dhcp_info"}}</div>
+      </div>
+    </div>
 
-<!-- Veeam accounts -->
-<section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.veeam_accounts"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <fieldset class="border rounded p-3 space-y-2">
-      <legend class="text-sm font-semibold px-1">{{t "form.admin_legend"}}</legend>
-      <label class="block">
-        <span class="text-xs">{{t "form.password_mixed15"}}</span>
-        <div class="flex gap-1">
-          <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
-          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genPassword()">🎲</button>
+    <!-- Card 3: Veeam accounts -->
+    <div class="ad-card" x-data="{ adminMfa: {{if .Config.VeeamAdminIsMfaEnabled}}true{{else}}false{{end}}, soEnabled: {{if .Config.VeeamSoIsEnabled}}true{{else}}false{{end}}, soMfa: {{if .Config.VeeamSoIsMfaEnabled}}true{{else}}false{{end}} }">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">lock</span></span>
+        <span class="ad-card-title">{{t "form.veeam_accounts"}}</span>
+      </div>
+      <div class="ad-card-body" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;">
+        <!-- Admin · veeamadmin -->
+        <div style="border:1px solid var(--line);border-radius:9px;padding:15px;">
+          <div class="ad-grouplabel" style="margin-bottom:12px;">{{t "form.admin_legend"}}</div>
+          <div style="margin-bottom:13px;">
+            <span class="ad-flabel">{{t "form.password_mixed15"}}</span>
+            <div style="display:flex;gap:7px;">
+              <input type="text" name="VeeamAdminPassword" x-model="cfg.VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}" class="ad-input mono" style="flex:1;min-width:0;">
+              <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genPassword();cfg.VeeamAdminPassword=$el.previousElementSibling.value"><span class="mi">casino</span></button>
+            </div>
+          </div>
+          <label class="ad-checkrow" style="margin-bottom:13px;"><input type="checkbox" class="ad-check" name="VeeamAdminIsMfaEnabled" x-model="adminMfa" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}> {{t "form.mfa_enabled"}}</label>
+          <div x-show="adminMfa">
+            <span class="ad-flabel">{{t "form.mfa_secret_b32"}}</span>
+            <div style="display:flex;gap:7px;">
+              <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="ad-input mono" style="flex:1;min-width:0;">
+              <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genBase32(16)"><span class="mi">casino</span></button>
+            </div>
+          </div>
         </div>
-      </label>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}> {{t "form.mfa_enabled"}}</label>
-      <label class="block">
-        <span class="text-xs">{{t "form.mfa_secret_b32"}}</span>
-        <div class="flex gap-1">
-          <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="flex-1 border rounded px-2 py-1 font-mono">
-          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genBase32(16)">🎲</button>
+        <!-- Security Officer · veeamso -->
+        <div style="border:1px solid var(--line);border-radius:9px;padding:15px;">
+          <label class="ad-checkrow" style="justify-content:space-between;margin-bottom:12px;">
+            <span class="ad-grouplabel">{{t "form.so_legend"}}</span>
+            <input type="checkbox" class="ad-check" name="VeeamSoIsEnabled" x-model="soEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}>
+          </label>
+          <div x-show="soEnabled">
+            <div style="margin-bottom:13px;">
+              <span class="ad-flabel">{{t "form.password_so"}}</span>
+              <div style="display:flex;gap:7px;">
+                <input type="text" name="VeeamSoPassword" x-model="cfg.VeeamSoPassword" value="{{.Config.VeeamSoPassword}}" class="ad-input mono" style="flex:1;min-width:0;">
+                <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genPassword();cfg.VeeamSoPassword=$el.previousElementSibling.value"><span class="mi">casino</span></button>
+              </div>
+            </div>
+            <div style="margin-bottom:13px;">
+              <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32_short"}} <span class="ad-req">{{t "form.required"}}</span></span>
+              <div style="display:flex;gap:7px;">
+                <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" :required="soEnabled" class="ad-input mono" style="flex:1;min-width:0;">
+                <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genBase32(16)"><span class="mi">casino</span></button>
+              </div>
+            </div>
+            <div>
+              <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.recovery_token"}} <span class="ad-req">{{t "form.required"}}</span></span>
+              <div style="display:flex;gap:7px;">
+                <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}" :required="soEnabled" class="ad-input mono" style="flex:1;min-width:0;">
+                <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genGUID()"><span class="mi">casino</span></button>
+              </div>
+            </div>
+            <!-- SO MFA enable flag preserved (kept available, not visually gating the required secret) -->
+            <label class="ad-checkrow" style="margin-top:13px;"><input type="checkbox" class="ad-check" name="VeeamSoIsMfaEnabled" x-model="soMfa" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}> {{t "form.mfa_enabled"}}</label>
+          </div>
         </div>
-      </label>
-    </fieldset>
-    <fieldset class="border rounded p-3 space-y-2">
-      <legend class="text-sm font-semibold px-1">{{t "form.so_legend"}}</legend>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}> {{t "form.so_enabled"}}</label>
-      <label class="block">
-        <span class="text-xs">{{t "form.password_so"}}</span>
-        <div class="flex gap-1">
-          <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}" class="flex-1 border rounded px-2 py-1 font-mono">
-          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genPassword()">🎲</button>
-        </div>
-      </label>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}> {{t "form.mfa_enabled"}}</label>
-      <label class="block">
-        <span class="text-xs">{{t "form.mfa_secret_b32_short"}}</span>
-        <div class="flex gap-1">
-          <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" class="flex-1 border rounded px-2 py-1 font-mono">
-          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genBase32(16)">🎲</button>
-        </div>
-      </label>
-      <label class="block">
-        <span class="text-xs">{{t "form.recovery_token"}}</span>
-        <div class="flex gap-1">
-          <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}" class="flex-1 border rounded px-2 py-1 font-mono">
-          <button type="button" class="bg-slate-200 px-2 rounded text-xs" @click="$el.previousElementSibling.value=genGUID()">🎲</button>
-        </div>
-      </label>
-    </fieldset>
-  </div>
-</section>
+      </div>
+    </div>
 
-<!-- NTP -->
-<section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.ntp"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <label class="block">
-      <span class="text-sm font-medium">{{t "form.ntp_servers"}}</span>
-      <textarea name="NtpServer" rows="3" class="mt-1 w-full border rounded px-2 py-1 font-mono text-sm">{{range $i, $v := .Config.NtpServer}}{{if $i}}
+    <!-- Card 4: Licensing, monitoring & HA (VSA only) -->
+    <div class="ad-card" x-show="cfg.ApplianceType==='VSA'" x-data="{ vcsp: {{if .Config.VCSPConnection}}true{{else}}false{{end}}, restore: {{if .Config.RestoreConfig}}true{{else}}false{{end}} }">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">tune</span></span>
+        <span class="ad-card-title">{{t "form.card_licensing_mon_ha"}}</span>
+        <span class="ad-pill-vsa" style="margin-left:auto;">{{t "form.vsa_only_pill"}}</span>
+      </div>
+      <div class="ad-card-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> {{t "form.allow_external"}}</label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> {{t "form.ha_mode"}}</label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> {{t "form.node_exporter"}}</label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> {{t "form.license_vbr_tune"}}</label>
+        </div>
+        <!-- timeouts + tls + license + syslog -->
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-top:14px;border-top:1px dashed var(--line);">
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.external_timeout"}}</span>
+            <input type="number" name="ExternalManagersInstallationTimeout" min="60" max="86400" value="{{.Config.ExternalManagersInstallationTimeout}}" class="ad-input mono">
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.ha_timeout"}}</span>
+            <input type="number" name="HighAvailabilityTimeout" min="60" max="86400" value="{{.Config.HighAvailabilityTimeout}}" class="ad-input mono">
+          </label>
+          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> {{t "form.node_exporter_tls"}}</label>
+          <div></div>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.license_file"}}</span>
+            <select name="LicenseFile" class="ad-select mono">
+              <option value="">{{t "form.none_dash"}}</option>
+              {{range .LicenseFiles}}<option value="{{.}}" {{if eq . $.Config.LicenseFile}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+          </label>
+          <label style="display:block;">
+            <span class="ad-flabel">{{t "form.syslog_server"}}</span>
+            <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" class="ad-input mono">
+          </label>
+        </div>
+        <!-- VCSP (folded in) -->
+        <div style="padding-top:14px;border-top:1px dashed var(--line);">
+          <div class="ad-divider"><span class="ad-grouplabel">{{t "form.vcsp"}}</span><span class="rule"></span></div>
+          <label class="ad-checkrow" style="margin-bottom:10px;"><input type="checkbox" class="ad-check" name="VCSPConnection" x-model="vcsp" {{if .Config.VCSPConnection}}checked{{end}}> {{t "form.vcsp_connect"}}</label>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;">
+            <label style="display:block;"><span class="ad-flabel">{{t "form.vcsp_url"}}</span><input type="url" name="VCSPUrl" value="{{.Config.VCSPUrl}}" class="ad-input mono"></label>
+            <label style="display:block;"><span class="ad-flabel">{{t "form.vcsp_login"}}</span><input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}" class="ad-input mono"></label>
+            <label style="display:block;"><span class="ad-flabel">{{t "form.vcsp_password"}}</span><input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}" class="ad-input mono"></label>
+          </div>
+        </div>
+        <!-- Restore (folded in) -->
+        <div style="padding-top:14px;border-top:1px dashed var(--line);">
+          <div class="ad-divider"><span class="ad-grouplabel">{{t "form.restore"}}</span><span class="rule"></span></div>
+          <label class="ad-checkrow" style="margin-bottom:10px;"><input type="checkbox" class="ad-check" name="RestoreConfig" x-model="restore" {{if .Config.RestoreConfig}}checked{{end}}> {{t "form.restore_enable"}}</label>
+          <label style="display:block;max-width:28rem;">
+            <span class="ad-flabel">{{t "form.so_config_password"}}</span>
+            <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}" class="ad-input mono">
+          </label>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:8px;">{{t "form.restore_hint_pre"}} <code>unattended.xml</code>, <code>veeam_addsoconfpw.sh</code> {{t "form.restore_hint_and"}} <code>conftoresto.bco</code> {{t "form.restore_hint_post"}} <code>/data/conf</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 5: NTP -->
+    <div class="ad-card">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">schedule</span></span>
+        <span class="ad-card-title">{{t "form.ntp"}}</span>
+      </div>
+      <div class="ad-card-body" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;">
+        <label style="display:block;">
+          <span class="ad-flabel">{{t "form.ntp_servers"}}</span>
+          <textarea name="NtpServer" rows="3" class="ad-input mono" style="height:auto;padding:8px 11px;">{{range $i, $v := .Config.NtpServer}}{{if $i}}
 {{end}}{{$v}}{{end}}</textarea>
-    </label>
-    <label class="flex items-center gap-2 mt-6">
-      <input type="checkbox" name="NtpRunSync" {{if .Config.NtpRunSync}}checked{{end}}>
-      <span>{{t "form.ntp_sync"}}</span>
-    </label>
+        </label>
+        <label class="ad-checkrow" style="margin-top:26px;"><input type="checkbox" class="ad-check" name="NtpRunSync" {{if .Config.NtpRunSync}}checked{{end}}> {{t "form.ntp_sync"}}</label>
+      </div>
+    </div>
+
+    <!-- Card 6: VIA options (VIA family only) -->
+    <div class="ad-card" x-show="cfg.ApplianceType === 'VIA' || cfg.ApplianceType === 'VIAiscsi' || cfg.ApplianceType === 'VIAHR'">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">dns</span></span>
+        <span class="ad-card-title">{{t "form.via_options"}}</span>
+      </div>
+      <div class="ad-card-body">
+        <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="VIASingleDisk" {{if .Config.VIASingleDisk}}checked{{end}}> {{t "form.single_disk"}}</label>
+      </div>
+    </div>
+
+    <!-- Card 7: Debug -->
+    <div class="ad-card">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">bug_report</span></span>
+        <span class="ad-card-title">{{t "form.debug"}}</span>
+      </div>
+      <div class="ad-card-body">
+        <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="Debug" {{if .Config.Debug}}checked{{end}}> <span style="color:#8C2A1F;font-weight:600;">{{t "form.debug_enable"}}</span></label>
+      </div>
+    </div>
+
   </div>
-</section>
 
-<!-- VSA 13.1+ -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.vsa_options"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <label class="flex items-center gap-2"><input type="checkbox" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> {{t "form.allow_external"}}</label>
-    <label class="block">
-      <span class="text-sm">{{t "form.external_timeout"}}</span>
-      <input type="number" name="ExternalManagersInstallationTimeout" min="60" max="86400" value="{{.Config.ExternalManagersInstallationTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-    <label class="flex items-center gap-2"><input type="checkbox" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> {{t "form.ha_mode"}}</label>
-    <label class="block">
-      <span class="text-sm">{{t "form.ha_timeout"}}</span>
-      <input type="number" name="HighAvailabilityTimeout" min="60" max="86400" value="{{.Config.HighAvailabilityTimeout}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
+  <!-- ===================== STICKY RAIL ===================== -->
+  <div class="ad-rail"
+       x-data="{ tick:0,
+                 v(n){ this.tick; const f=document.getElementById('config-form'); const el=f&&f.elements[n]; return el?(el.type==='checkbox'?(el.checked?'{{t "form.summary_yes"}}':'{{t "form.summary_no"}}'):el.value):''; },
+                 vd(n,d){ const x=this.v(n); return x?x:d; } }"
+       @input.window="tick++" @change.window="tick++">
+    <!-- Build summary -->
+    <div class="ad-card">
+      <div class="ad-card-head" style="padding:12px 16px;">
+        <span class="mi" style="font-size:16px;color:var(--vg-deep);">fact_check</span>
+        <span class="ad-card-title" style="font-size:13px;">{{t "form.build_summary"}}</span>
+      </div>
+      <div style="padding:6px 16px;">
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.appliance_type"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="cfg.ApplianceType"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.hostname"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="vd('Hostname','—')"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.source_iso"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="vd('SourceISO','—')"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.output_iso"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="vd('OutputISO','{{t "form.summary_auto"}}')"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.use_dhcp"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;" x-text="v('UseDHCP')"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;" x-show="!v('UseDHCP') || v('UseDHCP')==='{{t "form.summary_no"}}'">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.static_ip"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="vd('StaticIP','—')"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:12.5px;">
+          <span style="color:var(--muted);flex-shrink:0;">{{t "form.cfg_only_short"}}</span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;" x-text="v('CFGOnly')"></span>
+        </div>
+      </div>
+    </div>
+    <!-- Generate ISO -->
+    <button type="submit" class="ad-btn ad-btn-primary ad-btn-lg ad-btn-hero ad-btn-block">
+      <span class="mi" style="font-size:20px;">build</span>{{t "form.generate_iso"}}
+    </button>
+    <div style="font-size:11.5px;color:var(--faint);text-align:center;line-height:1.5;">{{t "form.generate_note"}}</div>
   </div>
-</section>
-
-<!-- Monitoring -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.monitoring"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> {{t "form.node_exporter"}}</label>
-    <label class="flex items-center gap-2"><input type="checkbox" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> {{t "form.node_exporter_tls"}}</label>
-  </div>
-</section>
-
-<!-- VBR -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.vbr_tuning"}}</h2>
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <label class="flex items-center gap-2"><input type="checkbox" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> {{t "form.license_vbr_tune"}}</label>
-    <label class="block">
-      <span class="text-sm">{{t "form.license_file"}}</span>
-      <select name="LicenseFile" class="mt-1 w-full border rounded px-2 py-1">
-        <option value="">{{t "form.none_dash"}}</option>
-        {{range .LicenseFiles}}<option value="{{.}}" {{if eq . $.Config.LicenseFile}}selected{{end}}>{{.}}</option>{{end}}
-      </select>
-    </label>
-    <label class="block">
-      <span class="text-sm">{{t "form.syslog_server"}}</span>
-      <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" class="mt-1 w-full border rounded px-2 py-1">
-    </label>
-  </div>
-</section>
-
-<!-- VCSP -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.vcsp"}}</h2>
-  <label class="flex items-center gap-2"><input type="checkbox" name="VCSPConnection" {{if .Config.VCSPConnection}}checked{{end}}> {{t "form.vcsp_connect"}}</label>
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-    <label class="block"><span class="text-sm">{{t "form.vcsp_url"}}</span><input type="url" name="VCSPUrl" value="{{.Config.VCSPUrl}}" class="mt-1 w-full border rounded px-2 py-1"></label>
-    <label class="block"><span class="text-sm">{{t "form.vcsp_login"}}</span><input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}" class="mt-1 w-full border rounded px-2 py-1"></label>
-    <label class="block"><span class="text-sm">{{t "form.vcsp_password"}}</span><input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}" class="mt-1 w-full border rounded px-2 py-1 font-mono"></label>
-  </div>
-</section>
-
-<!-- Restore -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType==='VSA'">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.restore"}}</h2>
-  <label class="flex items-center gap-2"><input type="checkbox" name="RestoreConfig" {{if .Config.RestoreConfig}}checked{{end}}> {{t "form.restore_enable"}}</label>
-  <label class="block max-w-md">
-    <span class="text-sm">{{t "form.so_config_password"}}</span>
-    <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}" class="mt-1 w-full border rounded px-2 py-1 font-mono">
-  </label>
-  <p class="text-xs text-slate-500">{{t "form.restore_hint_pre"}} <code>unattended.xml</code>, <code>veeam_addsoconfpw.sh</code> {{t "form.restore_hint_and"}} <code>conftoresto.bco</code> {{t "form.restore_hint_post"}} <code>/data/conf</code>.</p>
-</section>
-
-<!-- VIA -->
-<section class="bg-white rounded shadow p-4 space-y-3" x-show="cfg.ApplianceType === 'VIA' || cfg.ApplianceType === 'VIAiscsi' || cfg.ApplianceType === 'VIAHR'">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.via_options"}}</h2>
-  <label class="flex items-center gap-2">
-    <input type="checkbox" name="VIASingleDisk" {{if .Config.VIASingleDisk}}checked{{end}}>
-    <span>{{t "form.single_disk"}}</span>
-  </label>
-</section>
-
-<!-- Debug -->
-<section class="bg-white rounded shadow p-4 space-y-3">
-  <h2 class="text-lg font-semibold border-b pb-2">{{t "form.debug"}}</h2>
-  <label class="flex items-center gap-2">
-    <input type="checkbox" name="Debug" {{if .Config.Debug}}checked{{end}}>
-    <span class="text-red-700 font-medium">{{t "form.debug_enable"}}</span>
-  </label>
-</section>
-
-<!-- Submit -->
-<div class="bg-white rounded shadow p-4 flex justify-end gap-2 sticky bottom-0">
-  <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded font-semibold">
-    {{t "form.generate_iso"}}
-  </button>
 </div>
 </form>
 
 <!-- Recent jobs -->
 {{if .Jobs}}
-<section class="bg-white rounded shadow p-4">
-  <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "form.recent_jobs"}}</h2>
-  <table class="w-full text-sm sortable">
-    <thead><tr class="text-left text-slate-500"><th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th data-nosort></th></tr></thead>
+<div class="ad-card" style="margin-top:18px;">
+  <div class="ad-card-head">
+    <span class="ad-card-ico"><span class="mi">history</span></span>
+    <span class="ad-card-title">{{t "form.recent_jobs"}}</span>
+  </div>
+  <table class="ad-table sortable">
+    <thead><tr><th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th data-nosort></th></tr></thead>
     <tbody>
     {{range .Jobs}}
-    <tr class="border-t">
-      <td class="font-mono text-xs"><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline">{{slice .ID 0 8}}</a></td>
+    <tr>
+      <td class="idcell"><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline">{{short8 .ID}}</a></td>
       <td>{{.Appliance}}</td><td>{{.Hostname}}</td>
-      <td><span class="px-2 py-0.5 rounded text-xs
-        {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-800{{end}}
-        {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
-        {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-800{{end}}
-        {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
-      ">{{.State}}</span></td>
-      <td class="text-xs" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{.CreatedAt.Format "15:04:05"}}</td>
-      <td><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "form.open_arrow"}}</a></td>
+      <td><span class="ad-chip {{chipClass (printf "%s" .State)}}"><span class="dot"></span>{{.State}}</span></td>
+      <td class="mono" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{.CreatedAt.Format "15:04:05"}}</td>
+      <td><a href="/jobs/{{.ID}}" class="ad-btn-link">{{t "form.open_arrow"}}</a></td>
     </tr>
     {{end}}
     </tbody>
   </table>
-</section>
+</div>
 {{end}}
 
 </div>

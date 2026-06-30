@@ -2,8 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="space-y-6"
-     x-data="{
+<div x-data="{
        viewer:{open:false,title:'',text:'',loading:false},
        async openFile(url,name){
          this.viewer.open=true; this.viewer.title=name;
@@ -35,94 +34,99 @@
        }
      }">
 
-  <!-- Header + upload -->
-  <div class="flex flex-wrap items-center justify-between gap-4">
-    <h1 class="text-2xl font-bold">{{t "ws.title"}}</h1>
-    <div class="flex gap-2 items-center">
+  <!-- page header -->
+  <div class="ad-head">
+    <div>
+      <div class="ad-eyebrow">{{t "shell.group.library"}}</div>
+      <div class="ad-h1" style="margin-top:3px;">{{t "shell.nav.workspace"}}</div>
+      <div class="ad-subt">{{t "ws.folder_hint_pre"}} <code>/data/iso</code> {{t "ws.folder_hint_post"}}</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
       <button x-show="count>0" x-cloak
               @click="deleteSel()"
-              class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded font-medium text-sm">
-        🗑️ {{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
+              class="ad-btn ad-btn-red">
+        <span class="mi">delete</span>{{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
       </button>
       <form method="POST" action="/media/workspace/upload" enctype="multipart/form-data">
-        <label class="flex items-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-medium text-sm select-none">
-          {{t "ws.upload_iso"}}
-          <input type="file" name="file" accept=".iso" class="hidden"
+        <label class="ad-btn ad-btn-primary" style="cursor:pointer;">
+          <span class="mi">upload</span>{{t "ws.upload_label"}}
+          <input type="file" name="file" accept=".iso" style="display:none;"
                  onchange="document.getElementById('ws-status').textContent={{tjs "ws.uploading"}}; this.form.submit();">
         </label>
       </form>
     </div>
   </div>
-  <p class="text-sm text-slate-500" id="ws-status">
-    {{t "ws.folder_hint_pre"}} <code>/data/iso</code> {{t "ws.folder_hint_post"}}
-  </p>
 
   <!-- File list -->
-  <div class="bg-white rounded shadow overflow-hidden">
+  <div class="ad-card">
+    <div class="ad-card-head">
+      <span class="ad-card-ico"><span class="mi">folder_open</span></span>
+      <span class="ad-card-title">{{t "ws.card_title"}}</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--sunken);padding:2px 9px;border-radius:999px;">{{len .Files}}</span>
+      <span id="ws-status" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
+    </div>
     {{if not .Files}}
-    <p class="text-slate-500 p-8 text-center text-sm">
+    <div style="padding:34px 18px;text-align:center;font-size:13px;color:var(--faint);">
       {{t "ws.no_files_pre"}} <code>/data/iso</code>.
-    </p>
+    </div>
     {{else}}
-    <table class="w-full text-sm sortable">
-      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
-        <tr>
-          <th class="px-3 py-3 w-8" data-nosort>
-            <input type="checkbox" class="rounded"
-                   :checked="allChecked" @change="toggleAll()">
-          </th>
-          <th class="px-4 py-3">{{t "th.file"}}</th>
-          <th class="px-4 py-3">{{t "th.size"}}</th>
-          <th class="px-4 py-3">{{t "th.modified"}}</th>
-          <th class="px-4 py-3 text-right" data-nosort>{{t "common.actions"}}</th>
-        </tr>
-      </thead>
+    <table class="ad-table sortable">
+      <thead><tr>
+        <th data-nosort style="width:40px;">
+          <input type="checkbox" class="ad-check"
+                 :checked="allChecked" @change="toggleAll()">
+        </th>
+        <th>{{t "th.file"}}</th>
+        <th>{{t "th.size"}}</th>
+        <th>{{t "th.modified"}}</th>
+        <th data-nosort style="text-align:right;">{{t "common.actions"}}</th>
+      </tr></thead>
       <tbody>
       {{range .Files}}
-      <tr class="border-t hover:bg-slate-50"
-          :class="sel[{{jsonStr .Name}}] ? 'bg-blue-50' : ''"
+      <tr :class="sel[{{jsonStr .Name}}] ? 'on' : ''"
+          :style="sel[{{jsonStr .Name}}] ? 'background:var(--vg-tint)' : ''"
           x-data='{"editing":false,"newName":{{jsonStr .Name}}}'>
-        <td class="px-3 py-3">
-          <input type="checkbox" class="rounded"
+        <td>
+          <input type="checkbox" class="ad-check"
                  :checked="!!sel[{{jsonStr .Name}}]"
                  @change="toggle({{jsonStr .Name}})">
         </td>
-        <td class="px-4 py-3 font-mono text-sm max-w-xs">
+        <td class="mono" style="max-width:420px;">
           <span x-show="!editing">
             {{if isTextFile .Name}}
-            <button class="text-left hover:text-blue-700 hover:underline break-all"
+            <button type="button" class="ad-btn-link" style="text-align:left;word-break:break-all;"
                     @click="openFile('/media/workspace/'+encodeURIComponent({{jsonStr .Name}})+'/content',{{jsonStr .Name}})">
               {{.Name}}
             </button>
             {{else}}
-            <span class="break-all">{{.Name}}</span>
+            <span style="word-break:break-all;">{{.Name}}</span>
             {{end}}
           </span>
-          <span x-show="editing" class="flex gap-1 items-center flex-wrap">
+          <span x-show="editing" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <input type="text" x-model="newName"
-                   class="border rounded px-2 py-0.5 text-sm font-mono w-64"
+                   class="ad-input mono" style="width:260px;height:32px;"
                    @keydown.enter="submitRename('workspace',{{jsonStr .Name}},newName)"
                    @keydown.escape="editing=false">
-            <button class="bg-emerald-600 text-white rounded px-2 py-0.5 text-xs"
-                    @click="submitRename('workspace',{{jsonStr .Name}},newName)">✓ OK</button>
-            <button class="bg-slate-200 rounded px-2 py-0.5 text-xs"
-                    @click="editing=false">✗</button>
+            <button type="button" class="ad-btn ad-btn-primary" style="height:32px;padding:0 10px;"
+                    @click="submitRename('workspace',{{jsonStr .Name}},newName)"><span class="mi">check</span></button>
+            <button type="button" class="ad-btn ad-btn-secondary" style="height:32px;padding:0 10px;"
+                    @click="editing=false"><span class="mi">close</span></button>
           </span>
         </td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap" data-sort-value="{{.Size}}">{{humanSize .Size}}</td>
-        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap" data-sort-value="{{.ModTime.Unix}}">{{.ModTime.Format "2006-01-02 15:04"}}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+        <td style="white-space:nowrap;color:var(--body);" data-sort-value="{{.Size}}">{{humanSize .Size}}</td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);white-space:nowrap;" data-sort-value="{{.ModTime.Unix}}">{{.ModTime.Format "2006-01-02 15:04"}}</td>
+        <td style="text-align:right;white-space:nowrap;">
           <a href="/media/workspace/{{.Name}}/download"
-             class="text-emerald-600 hover:underline text-xs">{{t "ws.dl"}}</a>
-          <button x-show="!editing" class="text-blue-600 hover:underline text-xs"
-                  @click="editing=true;$nextTick(()=>$el.closest('tr').querySelector('input')?.select())">
-            ✏️</button>
-          <button class="text-red-500 hover:underline text-xs"
+             class="ad-iconbtn" title="{{t "ws.dl_label"}}" style="display:inline-flex;color:var(--vg-deep);"><span class="mi">download</span></a>
+          <button type="button" x-show="!editing" class="ad-iconbtn" title="{{t "common.rename"}}" style="color:var(--body);"
+                  @click="editing=true;$nextTick(()=>$el.closest('tr').querySelector('input[type=text]')?.select())">
+            <span class="mi">drive_file_rename_outline</span></button>
+          <button type="button" class="ad-del" style="display:inline-flex;vertical-align:middle;"
                   hx-delete="/media/workspace/{{.Name}}"
                   hx-target="closest tr"
                   hx-swap="outerHTML swap:300ms"
-                  hx-confirm="{{t "js.delete"}} «{{.Name}}» ?">
-            🗑️</button>
+                  hx-confirm="{{t "js.delete"}} «{{.Name}}» ?" title="{{t "common.delete"}}">
+            <span class="mi">delete</span></button>
         </td>
       </tr>
       {{end}}
@@ -133,21 +137,18 @@
 
   <!-- Viewer modal -->
   <div x-show="viewer.open" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);"
        @click="viewer.open=false"
        @keydown.escape.window="viewer.open=false">
-    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-5xl h-5/6 flex flex-col"
+    <div class="ad-card" style="width:92%;max-width:1024px;height:84vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.4);"
          @click.stop>
-      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
-        <span class="font-mono text-sm font-semibold text-slate-700" x-text="viewer.title"></span>
-        <button @click="viewer.open=false"
-                class="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+      <div class="ad-card-head" style="justify-content:space-between;">
+        <span class="mono" style="font-size:13px;font-weight:700;color:var(--ink);" x-text="viewer.title"></span>
+        <button type="button" @click="viewer.open=false" class="ad-iconbtn"><span class="mi">close</span></button>
       </div>
-      <div class="flex-1 overflow-auto p-4 bg-slate-950">
-        <div x-show="viewer.loading" class="text-slate-400 text-sm">{{t "js.loading"}}</div>
-        <pre x-show="!viewer.loading"
-             class="text-xs font-mono whitespace-pre-wrap text-green-300"
-             x-text="viewer.text"></pre>
+      <div class="ad-log" style="flex:1;border:none;border-radius:0;display:flex;flex-direction:column;min-height:0;">
+        <div x-show="viewer.loading" style="padding:14px 16px;color:#7E8794;font-size:12px;">{{t "js.loading"}}</div>
+        <pre x-show="!viewer.loading" style="max-height:none;flex:1;" x-text="viewer.text"></pre>
       </div>
     </div>
   </div>

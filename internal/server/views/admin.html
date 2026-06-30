@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="space-y-6" x-data="{
+<div x-data="{
   source:          '{{if .OverrideActive}}override{{else}}bakedin{{end}}',
   overrideExists:  {{if .OverrideActive}}true{{else}}false{{end}},
   overrideVersion: '{{.OverridePS1Version}}',
@@ -75,159 +75,162 @@
   }
 }">
 
-  <h1 class="text-2xl font-bold">{{t "admin.title"}}</h1>
-
-  <!-- autodeploy.ps1 card -->
-  <div class="bg-white rounded shadow p-5 space-y-5">
-    <div class="flex items-center justify-between border-b pb-2">
-      <h2 class="font-semibold text-base">{{t "admin.ps1_source"}}</h2>
-      <!-- Current active badge -->
-      <span x-show="overrideExists" x-cloak
-            class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
-        {{t "admin.override_active"}}
-      </span>
-      <span x-show="!overrideExists"
-            class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
-        {{t "admin.bakedin_active"}}
-      </span>
+  <!-- in-page header -->
+  <div class="ad-head">
+    <div>
+      <div class="ad-eyebrow">{{t "admin.eyebrow"}}</div>
+      <div class="ad-h1">{{t "admin.title_plain"}}</div>
+      <div class="ad-subt">{{t "admin.subtitle"}}</div>
     </div>
+  </div>
 
-    <!-- Radio selector cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div style="display:flex;flex-direction:column;gap:18px;">
 
-      <!-- Baked-in card -->
-      <div @click="source='bakedin'" class="rounded-lg border p-4 cursor-pointer select-none transition-all"
-           :class="source==='bakedin'
-             ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50'
-             : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100'">
-        <div class="flex items-start gap-3">
-          <!-- Radio dot -->
-          <div class="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
-               :class="source==='bakedin' ? 'border-blue-500 bg-blue-500' : 'border-slate-400 bg-white'">
-            <div x-show="source==='bakedin'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="font-semibold text-sm text-slate-800">{{t "admin.bakedin_image"}}</div>
-            <div class="text-xs text-slate-400 mt-0.5 font-mono truncate">/opt/autodeploy/autodeploy.ps1</div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap">
-              {{if .BakedPS1Version}}
-              <span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono font-semibold">
-                v{{.BakedPS1Version}}
-              </span>
-              {{else}}
-              <span class="text-xs text-slate-400 italic">{{t "admin.version_unknown"}}</span>
-              {{end}}
-              <span x-show="!overrideExists"
-                    class="text-xs text-blue-600 font-medium">{{t "admin.active"}}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Override card -->
-      <div @click="source='override'" class="rounded-lg border p-4 cursor-pointer select-none transition-all"
-           :class="source==='override'
-             ? 'ring-2 ring-emerald-500 border-emerald-300 bg-emerald-50'
-             : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100'">
-        <div class="flex items-start gap-3">
-          <!-- Radio dot -->
-          <div class="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
-               :class="source==='override' ? 'border-emerald-500 bg-emerald-500' : 'border-slate-400 bg-white'">
-            <div x-show="source==='override'" class="w-1.5 h-1.5 rounded-full bg-white"></div>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="font-semibold text-sm text-slate-800">{{t "admin.override_runtime"}}</div>
-            <div class="text-xs text-slate-400 mt-0.5 font-mono truncate">/data/autodeploy/autodeploy.ps1</div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap">
-              <!-- Version (reactive) -->
-              <template x-if="overrideExists && overrideVersion">
-                <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-semibold"
-                      x-text="'v' + overrideVersion"></span>
-              </template>
-              <template x-if="overrideExists && !overrideVersion">
-                <span class="text-xs text-slate-400 italic">{{t "admin.version_unknown"}}</span>
-              </template>
-              <template x-if="!overrideExists">
-                <span class="text-xs text-slate-400 italic">{{t "admin.not_available"}}</span>
-              </template>
-              <!-- Modtime (reactive) -->
-              <template x-if="overrideExists && overrideModTime">
-                <span class="text-xs text-slate-400" x-text="overrideModTime"></span>
-              </template>
-              <!-- Active badge -->
-              <span x-show="overrideExists" x-cloak
-                    class="text-xs text-emerald-600 font-medium">{{t "admin.active"}}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /grid -->
-
-    <!-- Action buttons -->
-    <div class="flex flex-wrap gap-3 items-center pt-1">
-      <button @click="doApply()" :disabled="applying"
-              class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded font-medium text-sm flex items-center gap-2">
-        <span x-show="!applying">{{t "admin.apply"}}</span>
-        <span x-show="applying" x-cloak>{{t "admin.in_progress"}}</span>
-      </button>
-
-      <button @click="doUpdate()" :disabled="updating"
-              class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-2 rounded font-medium text-sm flex items-center gap-2">
-        <span x-show="!updating">{{t "admin.download_github"}}
-          <code class="bg-slate-600 px-1 rounded text-xs font-mono ml-1">dev</code>
+    <!-- ============ autodeploy.ps1 source card ============ -->
+    <div class="ad-card">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">description</span></span>
+        <span class="ad-card-title">{{t "admin.ps1_source_plain"}}</span>
+        <!-- Current active badge -->
+        <span x-show="overrideExists" x-cloak class="ad-chip ad-chip-running" style="margin-left:auto;">
+          <span class="dot"></span>{{t "admin.override_active"}}
         </span>
-        <span x-show="updating" x-cloak>{{t "admin.downloading"}}</span>
-      </button>
+        <span x-show="!overrideExists" class="ad-chip ad-chip-pending" style="margin-left:auto;">
+          <span class="dot"></span>{{t "admin.bakedin_active"}}
+        </span>
+      </div>
+      <div class="ad-card-body" style="display:flex;flex-direction:column;gap:18px;">
 
-      <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-medium text-sm flex items-center gap-2 cursor-pointer select-none"
-             :class="uploading ? 'opacity-50 pointer-events-none' : ''">
-        <span x-show="!uploading">{{t "admin.import_ps1"}}</span>
-        <span x-show="uploading" x-cloak>{{t "admin.importing"}}</span>
-        <input type="file" accept=".ps1" class="hidden" @change="doUpload($event)" :disabled="uploading">
-      </label>
+        <!-- Radio selector cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;">
+
+          <!-- Baked-in card -->
+          <div @click="source='bakedin'"
+               style="border-radius:9px;border:1px solid var(--bd2);padding:15px;cursor:pointer;user-select:none;transition:border-color 140ms,box-shadow 140ms,background 140ms;"
+               :style="source==='bakedin'
+                 ? 'border-color:var(--vg);background:var(--vg-tint);box-shadow:0 0 0 2px rgba(0,179,54,.18);'
+                 : ''">
+            <div style="display:flex;align-items:flex-start;gap:11px;">
+              <!-- Radio dot -->
+              <div style="margin-top:2px;width:16px;height:16px;border-radius:999px;border:2px solid;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color 140ms,background 140ms;"
+                   :style="source==='bakedin' ? 'border-color:var(--vg);background:var(--vg);' : 'border-color:var(--faint);background:#fff;'">
+                <div x-show="source==='bakedin'" style="width:6px;height:6px;border-radius:999px;background:#fff;"></div>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:13px;color:var(--ink);display:inline-flex;align-items:center;gap:6px;"><span class="mi" style="font-size:17px;color:var(--muted);">image</span>{{t "admin.bakedin_image_plain"}}</div>
+                <div style="font-size:11.5px;color:var(--faint);margin-top:2px;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">/opt/autodeploy/autodeploy.ps1</div>
+                <div style="margin-top:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  {{if .BakedPS1Version}}
+                  <span class="ad-tag mono">v{{.BakedPS1Version}}</span>
+                  {{else}}
+                  <span style="font-size:11.5px;color:var(--faint);font-style:italic;">{{t "admin.version_unknown"}}</span>
+                  {{end}}
+                  <span x-show="!overrideExists" style="font-size:11.5px;color:var(--vg-deep);font-weight:700;display:inline-flex;align-items:center;gap:3px;"><span class="mi" style="font-size:15px;">check_circle</span>{{t "admin.active_plain"}}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Override card -->
+          <div @click="source='override'"
+               style="border-radius:9px;border:1px solid var(--bd2);padding:15px;cursor:pointer;user-select:none;transition:border-color 140ms,box-shadow 140ms,background 140ms;"
+               :style="source==='override'
+                 ? 'border-color:var(--vg);background:var(--vg-tint);box-shadow:0 0 0 2px rgba(0,179,54,.18);'
+                 : ''">
+            <div style="display:flex;align-items:flex-start;gap:11px;">
+              <!-- Radio dot -->
+              <div style="margin-top:2px;width:16px;height:16px;border-radius:999px;border:2px solid;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color 140ms,background 140ms;"
+                   :style="source==='override' ? 'border-color:var(--vg);background:var(--vg);' : 'border-color:var(--faint);background:#fff;'">
+                <div x-show="source==='override'" style="width:6px;height:6px;border-radius:999px;background:#fff;"></div>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:13px;color:var(--ink);display:inline-flex;align-items:center;gap:6px;"><span class="mi" style="font-size:17px;color:var(--muted);">download</span>{{t "admin.override_runtime_plain"}}</div>
+                <div style="font-size:11.5px;color:var(--faint);margin-top:2px;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">/data/autodeploy/autodeploy.ps1</div>
+                <div style="margin-top:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <!-- Version (reactive) -->
+                  <template x-if="overrideExists && overrideVersion">
+                    <span class="ad-tag mono" x-text="'v' + overrideVersion"></span>
+                  </template>
+                  <template x-if="overrideExists && !overrideVersion">
+                    <span style="font-size:11.5px;color:var(--faint);font-style:italic;">{{t "admin.version_unknown"}}</span>
+                  </template>
+                  <template x-if="!overrideExists">
+                    <span style="font-size:11.5px;color:var(--faint);font-style:italic;">{{t "admin.not_available"}}</span>
+                  </template>
+                  <!-- Modtime (reactive) -->
+                  <template x-if="overrideExists && overrideModTime">
+                    <span style="font-size:11.5px;color:var(--faint);" x-text="overrideModTime"></span>
+                  </template>
+                  <!-- Active badge -->
+                  <span x-show="overrideExists" x-cloak style="font-size:11.5px;color:var(--vg-deep);font-weight:700;display:inline-flex;align-items:center;gap:3px;"><span class="mi" style="font-size:15px;">check_circle</span>{{t "admin.active_plain"}}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /grid -->
+
+        <!-- Action buttons -->
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+          <button @click="doApply()" :disabled="applying" class="ad-btn ad-btn-primary">
+            <span x-show="!applying">{{t "admin.apply"}}</span>
+            <span x-show="applying" x-cloak>{{t "admin.in_progress"}}</span>
+          </button>
+
+          <button @click="doUpdate()" :disabled="updating" class="ad-btn ad-btn-dark">
+            <span x-show="!updating" style="display:inline-flex;align-items:center;gap:6px;">
+              {{t "admin.download_github"}}
+              <code style="background:rgba(255,255,255,.16);padding:0 5px;border-radius:4px;font-size:11px;font-family:var(--font-mono);">dev</code>
+            </span>
+            <span x-show="updating" x-cloak>{{t "admin.downloading"}}</span>
+          </button>
+
+          <label class="ad-btn ad-btn-green" style="cursor:pointer;user-select:none;"
+                 :style="uploading ? 'opacity:.55;pointer-events:none;' : ''">
+            <span x-show="!uploading">{{t "admin.import_ps1"}}</span>
+            <span x-show="uploading" x-cloak>{{t "admin.importing"}}</span>
+            <input type="file" accept=".ps1" style="display:none;" @change="doUpload($event)" :disabled="uploading">
+          </label>
+        </div>
+
+        <!-- Feedback -->
+        <div x-show="msg" x-cloak class="ad-info" x-text="msg"></div>
+        <div x-show="err" x-cloak class="ad-warn" style="background:#FCEEEC;border-color:#F3D6D1;color:#8C2A1F;" x-text="err"></div>
+
+        <p style="font-size:11.5px;color:var(--faint);line-height:1.6;border-top:1px solid var(--line);padding-top:13px;margin:0;">
+          {{t "admin.footer_pre"}} <code>/data/autodeploy/</code>
+          {{t "admin.footer_mid"}}<code>dev</code>{{t "admin.footer_mid2"}}
+          <strong>{{t "admin.footer_import"}}</strong> {{t "admin.footer_mid3"}}
+          <em>docker pull</em>, {{t "admin.footer_mid4"}} <strong>{{t "admin.bakedin_image"}}</strong>
+          {{t "admin.footer_post"}}
+        </p>
+      </div>
     </div>
 
-    <!-- Feedback -->
-    <div x-show="msg" x-cloak
-         class="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2"
-         x-text="msg"></div>
-    <div x-show="err" x-cloak
-         class="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"
-         x-text="err"></div>
-
-    <p class="text-xs text-slate-400 leading-relaxed border-t pt-3">
-      {{t "admin.footer_pre"}} <code>/data/autodeploy/</code>
-      {{t "admin.footer_mid"}}<code>dev</code>{{t "admin.footer_mid2"}}
-      <strong>{{t "admin.footer_import"}}</strong> {{t "admin.footer_mid3"}}
-      <em>docker pull</em>, {{t "admin.footer_mid4"}} <strong>{{t "admin.bakedin_image"}}</strong>
-      {{t "admin.footer_post"}}
-    </p>
-  </div>
-
-  <!-- History settings card -->
-  <div class="bg-white rounded shadow p-5 space-y-4">
-    <div class="flex items-center justify-between border-b pb-2">
-      <h2 class="font-semibold text-base">{{t "admin.history_title"}}</h2>
+    <!-- ============ History settings card ============ -->
+    <div class="ad-card">
+      <div class="ad-card-head">
+        <span class="ad-card-ico"><span class="mi">history</span></span>
+        <span class="ad-card-title">{{t "admin.history_title_plain"}}</span>
+      </div>
+      <div class="ad-card-body">
+        <form method="POST" action="/admin/settings" style="display:flex;flex-direction:column;gap:14px;">
+          <div>
+            <label class="ad-flabel" for="max_history">{{t "admin.max_history"}}</label>
+            <input id="max_history" type="number" name="max_history"
+                   min="1" max="1000" value="{{.MaxHistory}}"
+                   class="ad-input" style="width:160px;">
+            <p style="font-size:11.5px;color:var(--faint);margin-top:6px;">{{t "admin.max_history_hint"}}</p>
+          </div>
+          <div>
+            <button type="submit" class="ad-btn ad-btn-primary">
+              <span class="mi">save</span>{{t "admin.history_save_plain"}}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
-    <form method="POST" action="/admin/settings" class="space-y-3">
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1" for="max_history">
-          {{t "admin.max_history"}}
-        </label>
-        <input id="max_history" type="number" name="max_history"
-               min="1" max="1000" value="{{.MaxHistory}}"
-               class="w-32 rounded border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-        <p class="text-xs text-slate-400 mt-1">{{t "admin.max_history_hint"}}</p>
-      </div>
-      <div>
-        <button type="submit"
-                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
-          {{t "admin.history_save"}}
-        </button>
-      </div>
-    </form>
-  </div>
 
+  </div>
 </div>
 {{end}}

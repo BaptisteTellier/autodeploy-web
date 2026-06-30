@@ -22,6 +22,21 @@ var staticFS embed.FS
 var baseFuncMap = template.FuncMap{
 	"add": func(a, b int) int { return a + b },
 	"sub": func(a, b int) int { return a - b },
+	// chipClass maps a job/deploy/node state token to the status-chip CSS class
+	// (see layout.html). The JS twin window.chipClass in app.js must stay in sync
+	// so SSE live updates pick the same colour. State tokens are NOT translated.
+	"chipClass": func(state any) string {
+		switch fmt.Sprintf("%v", state) {
+		case "done", "ready", "success":
+			return "ad-chip-done"
+		case "running", "installing", "uploading", "wiring", "booting", "creating":
+			return "ad-chip-running"
+		case "failed", "error":
+			return "ad-chip-failed"
+		default:
+			return "ad-chip-pending"
+		}
+	},
 	"deflt": func(def, v string) string {
 		if v == "" {
 			return def
@@ -57,6 +72,21 @@ var baseFuncMap = template.FuncMap{
 			return ""
 		}
 		return t.Format("2006-01-02 15:04:05")
+	},
+	// short8 truncates an id-like string to its first 8 characters (dashboard/table display).
+	"short8": func(v any) string {
+		s := fmt.Sprintf("%v", v)
+		if len(s) > 8 {
+			return s[:8]
+		}
+		return s
+	},
+	// shortTime formats a time.Time as "01-02 15:04"; returns "—" for the zero value.
+	"shortTime": func(t time.Time) string {
+		if t.IsZero() {
+			return "—"
+		}
+		return t.Format("01-02 15:04")
 	},
 	// fmtDur formats the elapsed time between two instants (e.g. "5m30s"); returns "" if either is zero.
 	"fmtDur": func(from, to time.Time) string {

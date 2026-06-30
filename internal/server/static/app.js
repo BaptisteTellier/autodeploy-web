@@ -3,6 +3,23 @@
 // All helpers run client-side so password / MFA / GUID generation never round-
 // trips to the server (and is never logged).
 
+// chipClass maps a state token to a status-chip CSS class. Twin of the Go
+// template helper of the same name (embed.go) — keep both in sync so SSE live
+// updates recolour badges consistently. State tokens are NOT translated.
+window.chipClass = function (state) {
+  switch (state) {
+    case 'done': case 'ready': case 'success':
+      return 'ad-chip-done';
+    case 'running': case 'installing': case 'uploading':
+    case 'wiring': case 'booting': case 'creating':
+      return 'ad-chip-running';
+    case 'failed': case 'error':
+      return 'ad-chip-failed';
+    default:
+      return 'ad-chip-pending';
+  }
+};
+
 function formApp() {
   return {
     // Mirror of the server-side Config struct (only the fields we react to).
@@ -25,7 +42,7 @@ function formApp() {
       fd.set('preset_name', name);
       const res = await fetch('/configs', { method: 'POST', body: fd });
       if (res.ok) {
-        location.href = '/?preset=' + encodeURIComponent(name);
+        location.href = '/new?preset=' + encodeURIComponent(name);
       } else {
         alert('Save failed: ' + (await res.text()));
       }
@@ -38,7 +55,7 @@ function formApp() {
       if (!confirm('Delete preset "' + name + '"? This cannot be undone.')) return;
       const res = await fetch('/configs/' + encodeURIComponent(name), { method: 'DELETE' });
       if (res.ok) {
-        location.href = '/'; // reload without the deleted ?preset=
+        location.href = '/new'; // reload without the deleted ?preset=
       } else {
         alert('Delete failed: ' + (await res.text()));
       }
@@ -269,22 +286,10 @@ function applyConfigToForm(data) {
 // --- Wizard ------------------------------------------------------------------
 
 function wizardApp(initialIsos = [], msgs = {}) {
-  // All 12 step definitions. Steps marked vsaOnly are hidden when ApplianceType !== 'VSA'.
-  // Steps marked advanced can be skipped by the user.
-  const STEPS = [
-    { id: 1,  vsaOnly: false, advanced: false },
-    { id: 2,  vsaOnly: false, advanced: false },
-    { id: 3,  vsaOnly: false, advanced: false },
-    { id: 4,  vsaOnly: false, advanced: false },
-    { id: 5,  vsaOnly: false, advanced: false },
-    { id: 6,  vsaOnly: false, advanced: false },
-    { id: 7,  vsaOnly: true,  advanced: true  },
-    { id: 8,  vsaOnly: true,  advanced: true  },
-    { id: 9,  vsaOnly: true,  advanced: true  },
-    { id: 10, vsaOnly: true,  advanced: true  },
-    { id: 11, vsaOnly: false, advanced: true  },
-    { id: 12, vsaOnly: false, advanced: false },
-  ];
+  const TOTAL = 6; // Source · System · Network · Accounts · Advanced · Review
+  // The six advanced feature keys, in display order. Labels/icons/descriptions
+  // come from msgs.adv (passed in from the template so they stay translatable).
+  const ADV_KEYS = ['ntp', 'ha', 'mon', 'lic', 'vcsp', 'restore'];
 
   return {
     // --- State ---------------------------------------------------------------
@@ -294,6 +299,10 @@ function wizardApp(initialIsos = [], msgs = {}) {
     saving: false,
     summary: {},
     _lastAutoPresetName: '', // tracks the last hostname we auto-filled into preset_name
+
+    // Advanced step (step 5) two-phase model.
+    advPhase: 'select',        // 'select' | 'config'
+    advSel: { ntp: false, ha: false, mon: false, lic: false, vcsp: false, restore: false },
 
     // Minimal reactive config — only fields needed for conditional visibility.
     cfg: {
@@ -316,59 +325,123 @@ function wizardApp(initialIsos = [], msgs = {}) {
     isoError: '',
 
     // --- Computed ------------------------------------------------------------
-    get visibleSteps() {
-      return STEPS.filter(s => !s.vsaOnly || this.cfg.ApplianceType === 'VSA');
+    // currentIndex is 0-based; with a flat 6-step model it is simply step-1.
+    get currentIndex() { return this.step - 1; },
+    get totalSteps() { return TOTAL; },
+
+    // Stepper bubbles: one per step, label from msgs.stepLabels.
+    get wizSteps() {
+      const labels = msgs.stepLabels || ['Source', 'System', 'Network', 'Accounts', 'Advanced', 'Review'];
+      return labels.map((label, i) => ({ n: i + 1, label }));
     },
-    get totalSteps() { return this.visibleSteps.length; },
-    get currentIndex() { return this.visibleSteps.findIndex(s => s.id === this.step); },
-    get currentStepDef() { return STEPS.find(s => s.id === this.step) || STEPS[0]; },
-    get progressPct() {
-      const idx = this.visibleSteps.findIndex(s => s.id === this.step);
-      return this.totalSteps > 1 ? Math.round((idx / (this.totalSteps - 1)) * 100) : 0;
+
+    // "Step X of 6" — with the "· Configure" suffix while in the advanced config phase.
+    get stepLabel() {
+      const base = (msgs.stepOf || 'Step {s} of 6').replace('{s}', this.step);
+      if (this.step === 5 && this.advPhase === 'config') {
+        return msgs.stepConfigSuffix ? (base + msgs.stepConfigSuffix) : base;
+      }
+      return base;
     },
-    get isAdvanced() { return this.currentStepDef.advanced; },
+
+    // Skip is only offered on the advanced step's select phase.
+    get showSkip() { return this.step === 5 && this.advPhase === 'select'; },
+
+    get advConfigHint() {
+      const n = ADV_KEYS.filter(k => this.advSel[k]).length;
+      return (msgs.advConfigHint || 'Only the {n} option(s) you enabled — set their values.').replace('{n}', n);
+    },
+
+    // Advanced toggle rows (used by both phase A list and phase B cards).
+    get advToggles() {
+      const meta = msgs.adv || {};
+      return ADV_KEYS.map(key => ({
+        key,
+        icon:  (meta[key] && meta[key].icon)  || 'tune',
+        label: (meta[key] && meta[key].label) || key,
+        desc:  (meta[key] && meta[key].desc)  || '',
+        sel:   !!this.advSel[key],
+      }));
+    },
+
+    toggleAdv(key) { this.advSel[key] = !this.advSel[key]; },
+
+    // Per-feature label/desc/icon lookup for the phase-B config cards.
+    msgsAdv(key) {
+      const meta = (msgs.adv && msgs.adv[key]) || {};
+      return { icon: meta.icon || 'tune', label: meta.label || key, desc: meta.desc || '' };
+    },
+
+    // --- Stepper styling helpers --------------------------------------------
+    bubbleStyle(n) {
+      const base = 'width:30px;height:30px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;transition:all 160ms;';
+      const done = n < this.step, active = n === this.step;
+      return (done || active)
+        ? base + 'background:var(--vg);color:#fff;border:1.5px solid var(--vg);' + (active ? 'box-shadow:0 0 0 4px var(--vg-50);' : '')
+        : base + 'background:#fff;color:var(--faint);border:1.5px solid #C9CCCF;';
+    },
+    labelStyle(n) {
+      const done = n < this.step, active = n === this.step;
+      return 'font-size:11.5px;margin-top:7px;text-align:center;' +
+        (active ? 'color:var(--ink);font-weight:700;' : done ? 'color:var(--vg-deep);font-weight:600;' : 'color:var(--faint);font-weight:500;');
+    },
+    canJump(n) {
+      // Steps up to and including maxReached are clickable.
+      return n <= this.maxReached;
+    },
 
     // --- Navigation ----------------------------------------------------------
     goTo(stepId) {
-      const target = this.visibleSteps.find(s => s.id === stepId);
-      if (!target) return;
-      const targetIdx = this.visibleSteps.findIndex(s => s.id === stepId);
-      const maxIdx = this.visibleSteps.findIndex(s => s.id === this.maxReached);
-      if (targetIdx > maxIdx) return; // can't jump ahead
+      if (stepId < 1 || stepId > TOTAL) return;
+      if (stepId > this.maxReached) return; // can't jump ahead
       this.step = stepId;
+      this.advPhase = 'select';
       this.stepError = '';
     },
 
-    // _advance moves to the next visible step and pushes maxReached forward.
-    _advance() {
-      this.stepError = '';
-      const idx = this.visibleSteps.findIndex(s => s.id === this.step);
-      if (idx < this.visibleSteps.length - 1) {
-        const nextId = this.visibleSteps[idx + 1].id;
-        this.step = nextId;
-        if (this.visibleSteps.findIndex(s => s.id === nextId) >
-            this.visibleSteps.findIndex(s => s.id === this.maxReached)) {
-          this.maxReached = nextId;
-        }
-      }
+    _goToStep(stepId) {
+      this.step = stepId;
+      if (stepId > this.maxReached) this.maxReached = stepId;
     },
 
     next() {
       const err = this._validate();
       if (err) { this.stepError = err; return; }
-      this._advance();
+      this.stepError = '';
+
+      // Advanced step: select → config (only if something is selected), else skip to Review.
+      if (this.step === 5 && this.advPhase === 'select') {
+        const anyAdv = ADV_KEYS.some(k => this.advSel[k]);
+        if (anyAdv) { this.advPhase = 'config'; return; }
+        this._goToStep(6);
+        this.advPhase = 'select';
+        return;
+      }
+      if (this.step === 5 && this.advPhase === 'config') {
+        this._goToStep(6);
+        this.advPhase = 'select';
+        return;
+      }
+
+      if (this.step < TOTAL) {
+        this._goToStep(this.step + 1);
+        this.advPhase = 'select';
+      }
     },
 
     prev() {
       this.stepError = '';
-      const idx = this.visibleSteps.findIndex(s => s.id === this.step);
-      if (idx > 0) this.step = this.visibleSteps[idx - 1].id;
+      // Within the advanced config phase, Back returns to the select phase.
+      if (this.step === 5 && this.advPhase === 'config') { this.advPhase = 'select'; return; }
+      if (this.step > 1) { this.step = this.step - 1; this.advPhase = 'select'; }
     },
 
     skip() {
-      // Skip only allowed on advanced steps (no validation).
-      if (!this.isAdvanced) return;
-      this._advance();
+      // Skip is only offered on the advanced step's select phase → straight to Review.
+      if (!this.showSkip) return;
+      this.stepError = '';
+      this._goToStep(6);
+      this.advPhase = 'select';
     },
 
     // --- ISO Upload ----------------------------------------------------------
@@ -459,16 +532,15 @@ function wizardApp(initialIsos = [], msgs = {}) {
           this.saving = false;
           return;
         }
-        // Mark user as having completed the wizard → expert mode so / doesn't redirect again
-        try { await fetch('/mode/expert'); } catch (_) {}
-        window.location.href = '/?preset=' + encodeURIComponent(name);
+        // Land on the expert build form, pre-loaded with the just-saved preset.
+        window.location.href = '/new?preset=' + encodeURIComponent(name);
       } catch (e) {
         this.stepError = 'Error: ' + e.message;
         this.saving = false;
       }
     },
 
-    // --- Summary builder (called when entering step 12) ----------------------
+    // --- Summary builder (called when entering step 6 / Review) -------------
     buildSummary() {
       const get = name => {
         const el = document.querySelector(`[name="${CSS.escape(name)}"]`);
@@ -488,10 +560,12 @@ function wizardApp(initialIsos = [], msgs = {}) {
         inPlace:      isChecked('InPlace'),
         createBackup: isChecked('CreateBackup'),
         cleanupCfg:   isChecked('CleanupCFGFiles'),
-        nodeExporter: isChecked('NodeExporter'),
-        licenseVbr:   isChecked('LicenseVBRTune'),
-        vcsp:         isChecked('VCSPConnection'),
-        ha:           isChecked('HighAvailabilityEnabled'),
+        // These advanced features are driven by the phase-A toggles (advSel),
+        // emitted via hidden inputs, so read them from advSel rather than .checked.
+        nodeExporter: !!this.advSel.mon,
+        licenseVbr:   !!this.advSel.lic,
+        vcsp:         !!this.advSel.vcsp,
+        ha:           !!this.advSel.ha && isChecked('HighAvailabilityEnabled'),
         debug:        isChecked('Debug'),
       };
       // Auto-fill preset_name with the current hostname, but only if the user
@@ -515,10 +589,12 @@ function wizardApp(initialIsos = [], msgs = {}) {
       };
 
       switch (this.step) {
+        // --- Step 1: Source (appliance type + source ISO) ---
         case 1: {
           if (!get('SourceISO')) return 'Please select or upload a source ISO.';
           return '';
         }
+        // --- Step 2: System (keyboard / timezone / hostname) ---
         case 2: {
           const h = get('Hostname');
           if (!h) return 'Hostname is required.';
@@ -528,6 +604,7 @@ function wizardApp(initialIsos = [], msgs = {}) {
           if (!get('Timezone')) return 'Timezone is required.';
           return '';
         }
+        // --- Step 3: Network (DHCP toggle + static fields) ---
         case 3: {
           if (!this.cfg.UseDHCP) {
             const ipRe = /^\d{1,3}(\.\d{1,3}){3}$/;
@@ -539,6 +616,7 @@ function wizardApp(initialIsos = [], msgs = {}) {
           }
           return '';
         }
+        // --- Step 4: Accounts & security (admin + Security Officer on one card) ---
         case 4: {
           const pw = get('VeeamAdminPassword');
           if (pw.length < 15) return 'Admin password must be at least 15 characters.';
@@ -550,38 +628,34 @@ function wizardApp(initialIsos = [], msgs = {}) {
             const key = get('VeeamAdminMfaSecretKey');
             if (!/^[A-Z2-7]{16,32}$/.test(key)) return 'Admin MFA key: 16–32 Base32 chars (A–Z, 2–7).';
           }
-          return '';
-        }
-        case 5: {
           if (this.cfg.VeeamSoIsEnabled) {
             const soPw = get('VeeamSoPassword');
-            const adminPw = get('VeeamAdminPassword');
             if (soPw.length < 15) return 'Security Officer password must be at least 15 characters.';
-            if (soPw === adminPw) return 'Security Officer password must differ from admin password.';
-            if (this.cfg.VeeamSoIsMfaEnabled) {
-              const key = get('VeeamSoMfaSecretKey');
-              if (!/^[A-Z2-7]{16,32}$/.test(key)) return 'SO MFA key: 16–32 Base32 chars (A–Z, 2–7).';
-            }
+            if (soPw === pw) return 'Security Officer password must differ from admin password.';
+            // SO MFA secret and recovery token are REQUIRED when the SO is enabled.
+            const mfaKey = get('VeeamSoMfaSecretKey');
+            if (!/^[A-Z2-7]{16,32}$/.test(mfaKey)) return 'Security Officer MFA secret is required: 16–32 Base32 chars (A–Z, 2–7).';
+            const token = get('VeeamSoRecoveryToken');
+            if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(token))
+              return 'Security Officer recovery token is required (GUID).';
           }
           return '';
         }
-        case 6: {
-          if (!get('NtpServer')) return 'At least one NTP server is required.';
-          return '';
-        }
-        case 7: {
-          const emTimeout = parseInt(document.querySelector('[name="ExternalManagersInstallationTimeout"]')?.value || '3600', 10);
-          const haTimeout = parseInt(document.querySelector('[name="HighAvailabilityTimeout"]')?.value || '3600', 10);
-          if (emTimeout < 60 || emTimeout > 86400) return 'External managers timeout: 60–86400 seconds.';
-          if (haTimeout < 60 || haTimeout > 86400) return 'HA timeout: 60–86400 seconds.';
-          return '';
-        }
-        case 11: {
+        // --- Step 5: Advanced (optional; validate only selected features' fields) ---
+        case 5: {
+          if (this.advSel.ha) {
+            const emTimeout = parseInt(document.querySelector('[name="ExternalManagersInstallationTimeout"]')?.value || '3600', 10);
+            const haTimeout = parseInt(document.querySelector('[name="HighAvailabilityTimeout"]')?.value || '3600', 10);
+            if (emTimeout < 60 || emTimeout > 86400) return 'External managers timeout: 60–86400 seconds.';
+            if (haTimeout < 60 || haTimeout > 86400) return 'HA timeout: 60–86400 seconds.';
+          }
+          // GRUB timeout lives in the always-present build options.
           const gt = parseInt(document.querySelector('[name="GrubTimeout"]')?.value || '10', 10);
           if (gt < 0 || gt > 300) return 'GRUB timeout: 0–300 seconds.';
           return '';
         }
-        case 12: {
+        // --- Step 6: Review (save-as-preset + Generate) ---
+        case 6: {
           const nameInput = document.getElementById('preset_name');
           const name = (nameInput ? nameInput.value : '').trim();
           if (!name) return 'Please enter a preset name.';

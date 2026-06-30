@@ -2,8 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="space-y-6"
-     x-data="{
+<div x-data="{
        viewer:{open:false,title:'',text:'',loading:false},
        async openFile(url,name){
          this.viewer.open=true; this.viewer.title=name;
@@ -40,55 +39,61 @@
        async copyLink(){ try{ await navigator.clipboard.writeText(this.linkModal.url); this.copied=true; setTimeout(()=>this.copied=false,1500);}catch(e){} },
      }">
 
-  <!-- Breadcrumb + header -->
-  <div class="flex flex-wrap items-center gap-3">
-    <a href="/media/output" class="text-slate-500 hover:underline text-sm">{{t "out.title"}}</a>
-    <span class="text-slate-300">/</span>
-    <h1 class="text-xl font-bold font-mono">{{.FriendlyName}}</h1>
-    <div class="ml-auto flex gap-2">
+  <!-- page header + breadcrumb -->
+  <div class="ad-head">
+    <div>
+      <div class="ad-eyebrow" style="display:flex;align-items:center;gap:7px;">
+        <a href="/media/output" style="color:var(--muted);text-decoration:none;">{{t "shell.nav.output"}}</a>
+        <span class="mi" style="font-size:13px;color:var(--faint);">chevron_right</span>
+      </div>
+      <div class="ad-h1 mono" style="margin-top:3px;font-size:22px;">{{.FriendlyName}}</div>
+      <div class="ad-subt">{{t "outjob.folder_pre"}} <code>/data/output/{{.JobID}}</code></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
       <button x-show="count>0" x-cloak
               @click="deleteSel()"
-              class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium">
-        🗑️ {{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
+              class="ad-btn ad-btn-red">
+        <span class="mi">delete</span>{{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
       </button>
-      <a href="/jobs/{{.JobID}}" class="text-sm text-blue-600 hover:underline self-center">{{t "outjob.view_job"}}</a>
+      <a href="/jobs/{{.JobID}}" class="ad-btn ad-btn-secondary"><span class="mi">search</span>{{t "outjob.view_job_label"}}</a>
     </div>
   </div>
-  <p class="text-sm text-slate-500">
-    {{t "outjob.folder_pre"}} <code>/data/output/{{.JobID}}</code>
-  </p>
 
   <!-- File list -->
-  <div class="bg-white rounded shadow overflow-hidden">
+  <div class="ad-card">
+    <div class="ad-card-head">
+      <span class="ad-card-ico"><span class="mi">inventory_2</span></span>
+      <span class="ad-card-title">{{t "outjob.card_title"}}</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--sunken);padding:2px 9px;border-radius:999px;">{{len .Files}}</span>
+    </div>
     {{if not .Files}}
-    <p class="text-slate-500 p-8 text-center text-sm">
+    <div style="padding:34px 18px;text-align:center;font-size:13px;color:var(--faint);">
       {{t "outjob.none"}}
-    </p>
+    </div>
     {{else}}
-    <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
-        <tr>
-          <th class="px-3 py-3 w-8">
-            <input type="checkbox" class="rounded"
-                   :checked="allChecked" @change="toggleAll()">
-          </th>
-          <th class="px-4 py-3">{{t "th.file"}}</th>
-          <th class="px-4 py-3">{{t "th.size"}}</th>
-          <th class="px-4 py-3">{{t "th.modified"}}</th>
-          <th class="px-4 py-3 text-right">{{t "common.actions"}}</th>
-        </tr>
-      </thead>
+    <table class="ad-table">
+      <thead><tr>
+        <th style="width:40px;">
+          <input type="checkbox" class="ad-check"
+                 :checked="allChecked" @change="toggleAll()">
+        </th>
+        <th>{{t "th.file"}}</th>
+        <th>{{t "th.size"}}</th>
+        <th>{{t "th.modified"}}</th>
+        <th style="text-align:right;">{{t "common.actions"}}</th>
+      </tr></thead>
       <tbody>
       {{range .Files}}
-      <tr class="border-t hover:bg-slate-50" :class="sel[{{jsonStr .Name}}] ? 'bg-blue-50' : ''">
-        <td class="px-3 py-3">
-          <input type="checkbox" class="rounded"
+      <tr :class="sel[{{jsonStr .Name}}] ? 'on' : ''"
+          :style="sel[{{jsonStr .Name}}] ? 'background:var(--vg-tint)' : ''">
+        <td>
+          <input type="checkbox" class="ad-check"
                  :checked="!!sel[{{jsonStr .Name}}]"
                  @change="toggle({{jsonStr .Name}})">
         </td>
-        <td class="px-4 py-3 font-mono text-sm break-all max-w-xs">
+        <td class="mono" style="max-width:420px;word-break:break-all;">
           {{if isTextFile .Name}}
-          <button class="text-left hover:text-blue-700 hover:underline"
+          <button type="button" class="ad-btn-link" style="text-align:left;word-break:break-all;"
                   @click="openFile('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}})+'/content',{{jsonStr .Name}})">
             {{.Name}}
           </button>
@@ -96,18 +101,18 @@
           {{.Name}}
           {{end}}
         </td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{humanSize .Size}}</td>
-        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{{.ModTime.Format "2006-01-02 15:04"}}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+        <td style="white-space:nowrap;color:var(--body);">{{humanSize .Size}}</td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);white-space:nowrap;">{{.ModTime.Format "2006-01-02 15:04"}}</td>
+        <td style="text-align:right;white-space:nowrap;">
           <a href="/media/output/{{$.JobID}}/{{.Name}}/download"
-             class="text-emerald-600 hover:underline text-xs">{{t "ws.dl"}}</a>
+             class="ad-iconbtn" title="{{t "ws.dl_label"}}" style="display:inline-flex;color:var(--vg-deep);"><span class="mi">download</span></a>
           {{if isTextFile .Name}}
-          <button class="text-indigo-600 hover:underline text-xs"
-                  @click="showLink({{jsonStr .Name}})">{{t "outjob.show_link"}}</button>
+          <button type="button" class="ad-iconbtn" title="{{t "outjob.show_link_label"}}" style="color:#3F4FB0;"
+                  @click="showLink({{jsonStr .Name}})"><span class="mi">link</span></button>
           {{end}}
-          <button class="text-red-500 hover:underline text-xs"
+          <button type="button" class="ad-del" style="display:inline-flex;vertical-align:middle;" title="{{t "common.delete"}}"
                   @click="if(confirm({{tjs "js.delete_q_pre"}}+{{jsonStr .Name}}+{{tjs "js.delete_q_post"}})) fetch('/media/output/'+{{jsonStr $.JobID}}+'/'+encodeURIComponent({{jsonStr .Name}}),{method:'DELETE'}).then(()=>location.reload())">
-            🗑️
+            <span class="mi">delete</span>
           </button>
         </td>
       </tr>
@@ -119,44 +124,39 @@
 
   <!-- Viewer modal -->
   <div x-show="viewer.open" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);"
        @click="viewer.open=false"
        @keydown.escape.window="viewer.open=false">
-    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-5xl h-5/6 flex flex-col"
+    <div class="ad-card" style="width:92%;max-width:1024px;height:84vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.4);"
          @click.stop>
-      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
-        <span class="font-mono text-sm font-semibold text-slate-700" x-text="viewer.title"></span>
-        <button @click="viewer.open=false"
-                class="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+      <div class="ad-card-head" style="justify-content:space-between;">
+        <span class="mono" style="font-size:13px;font-weight:700;color:var(--ink);" x-text="viewer.title"></span>
+        <button type="button" @click="viewer.open=false" class="ad-iconbtn"><span class="mi">close</span></button>
       </div>
-      <div class="flex-1 overflow-auto p-4 bg-slate-950">
-        <div x-show="viewer.loading" class="text-slate-400 text-sm">{{t "js.loading"}}</div>
-        <pre x-show="!viewer.loading"
-             class="text-xs font-mono whitespace-pre-wrap text-green-300"
-             x-text="viewer.text"></pre>
+      <div class="ad-log" style="flex:1;border:none;border-radius:0;display:flex;flex-direction:column;min-height:0;">
+        <div x-show="viewer.loading" style="padding:14px 16px;color:#7E8794;font-size:12px;">{{t "js.loading"}}</div>
+        <pre x-show="!viewer.loading" style="max-height:none;flex:1;" x-text="viewer.text"></pre>
       </div>
     </div>
   </div>
 
   <!-- Link modal -->
   <div x-show="linkModal.open" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);"
        @click="linkModal.open=false"
        @keydown.escape.window="linkModal.open=false">
-    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-2xl flex flex-col" @click.stop>
-      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
-        <span class="font-mono text-sm font-semibold text-slate-700" x-text="linkModal.name"></span>
-        <button @click="linkModal.open=false"
-                class="text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
+    <div class="ad-card" style="width:92%;max-width:640px;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.4);" @click.stop>
+      <div class="ad-card-head" style="justify-content:space-between;">
+        <span class="mono" style="font-size:13px;font-weight:700;color:var(--ink);" x-text="linkModal.name"></span>
+        <button type="button" @click="linkModal.open=false" class="ad-iconbtn"><span class="mi">close</span></button>
       </div>
-      <div class="p-5 space-y-3">
-        <h3 class="text-sm font-semibold text-slate-700">{{t "outjob.link_title"}}</h3>
-        <p class="text-xs text-slate-500">{{t "outjob.link_hint"}}</p>
-        <div class="flex gap-2">
+      <div class="ad-card-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div class="ad-info"><span class="mi">link</span><div><strong>{{t "outjob.link_title"}}</strong> — {{t "outjob.link_hint"}}</div></div>
+        <div style="display:flex;gap:8px;align-items:center;">
           <input type="text" readonly x-model="linkModal.url" @focus="$el.select()"
-                 class="flex-1 border rounded px-2 py-1.5 text-xs font-mono bg-slate-50">
-          <button @click="copyLink()"
-                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap"
+                 class="ad-input mono" style="flex:1;background:var(--sunken);">
+          <button type="button" @click="copyLink()"
+                  class="ad-btn ad-btn-indigo" style="white-space:nowrap;"
                   x-text="copied ? {{tjs "outjob.copied"}} : {{tjs "outjob.copy"}}"></button>
         </div>
       </div>

@@ -2,8 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="space-y-6"
-     x-data="{
+<div x-data="{
        sel: {},
        get count() { return Object.keys(this.sel).length; },
        toggle(n) {
@@ -27,86 +26,91 @@
        }
      }">
 
-  <!-- Header + upload -->
-  <div class="flex flex-wrap items-center justify-between gap-4">
-    <h1 class="text-2xl font-bold">{{t "lic.title"}}</h1>
-    <div class="flex gap-2 items-center">
+  <!-- page header + upload -->
+  <div class="ad-head">
+    <div>
+      <div class="ad-eyebrow">{{t "shell.group.library"}}</div>
+      <div class="ad-h1" style="margin-top:3px;">{{t "shell.nav.licenses"}}</div>
+      <div class="ad-subt">{{t "lic.folder_hint_pre"}} <code>/data/license</code> {{t "lic.folder_hint_post"}}</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
       <button x-show="count>0" x-cloak
               @click="deleteSel()"
-              class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded font-medium text-sm">
-        🗑️ {{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
+              class="ad-btn ad-btn-red">
+        <span class="mi">delete</span>{{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
       </button>
       <form method="POST" action="/media/license/upload" enctype="multipart/form-data" id="upload-form">
-        <label class="flex items-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-medium text-sm select-none">
-          {{t "lic.upload"}}
-          <input type="file" name="file" accept=".lic" class="hidden"
+        <label class="ad-btn ad-btn-primary" style="cursor:pointer;">
+          <span class="mi">upload</span>{{t "lic.upload_label"}}
+          <input type="file" name="file" accept=".lic" style="display:none;"
                  onchange="document.getElementById('upload-status').textContent={{tjs "ws.uploading"}}; this.form.submit();">
         </label>
       </form>
     </div>
   </div>
-  <p class="text-sm text-slate-500" id="upload-status">
-    {{t "lic.folder_hint_pre"}} <code>/data/license</code> {{t "lic.folder_hint_post"}}
-  </p>
 
   <!-- File list -->
-  <div class="bg-white rounded shadow overflow-hidden">
+  <div class="ad-card">
+    <div class="ad-card-head">
+      <span class="ad-card-ico"><span class="mi">key</span></span>
+      <span class="ad-card-title">{{t "lic.card_title"}}</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--sunken);padding:2px 9px;border-radius:999px;">{{len .Files}}</span>
+      <span id="upload-status" style="margin-left:auto;font-size:12px;color:var(--muted);"></span>
+    </div>
     {{if not .Files}}
-    <p class="text-slate-500 p-8 text-center text-sm">
+    <div style="padding:34px 18px;text-align:center;font-size:13px;color:var(--faint);">
       {{t "lic.none_pre"}} <code>/data/license</code>{{t "lic.none_post"}}<br>
       {{t "lic.none_hint"}} <code>./data/license/</code>.
-    </p>
+    </div>
     {{else}}
-    <table class="w-full text-sm sortable">
-      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
-        <tr>
-          <th class="px-3 py-3 w-8" data-nosort>
-            <input type="checkbox" class="rounded"
-                   :checked="allChecked" @change="toggleAll()">
-          </th>
-          <th class="px-4 py-3">{{t "th.file_name"}}</th>
-          <th class="px-4 py-3">{{t "th.size"}}</th>
-          <th class="px-4 py-3">{{t "th.modified_on"}}</th>
-          <th class="px-4 py-3 text-right" data-nosort>{{t "common.actions"}}</th>
-        </tr>
-      </thead>
+    <table class="ad-table sortable">
+      <thead><tr>
+        <th data-nosort style="width:40px;">
+          <input type="checkbox" class="ad-check"
+                 :checked="allChecked" @change="toggleAll()">
+        </th>
+        <th>{{t "th.file_name"}}</th>
+        <th>{{t "th.size"}}</th>
+        <th>{{t "th.modified_on"}}</th>
+        <th data-nosort style="text-align:right;">{{t "common.actions"}}</th>
+      </tr></thead>
       <tbody>
       {{range .Files}}
-      <tr class="border-t hover:bg-slate-50"
-          :class="sel[{{jsonStr .Name}}] ? 'bg-blue-50' : ''"
+      <tr :class="sel[{{jsonStr .Name}}] ? 'on' : ''"
+          :style="sel[{{jsonStr .Name}}] ? 'background:var(--vg-tint)' : ''"
           x-data='{"editing":false,"newName":{{jsonStr .Name}}}'>
-        <td class="px-3 py-3">
-          <input type="checkbox" class="rounded"
+        <td>
+          <input type="checkbox" class="ad-check"
                  :checked="!!sel[{{jsonStr .Name}}]"
                  @change="toggle({{jsonStr .Name}})">
         </td>
-        <td class="px-4 py-3 font-mono text-sm max-w-xs">
-          <span x-show="!editing" class="break-all">{{.Name}}</span>
-          <span x-show="editing" class="flex gap-1 items-center flex-wrap">
+        <td class="mono" style="max-width:420px;">
+          <span x-show="!editing" style="word-break:break-all;">{{.Name}}</span>
+          <span x-show="editing" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <input type="text" x-model="newName"
-                   class="border rounded px-2 py-0.5 text-sm font-mono w-64"
+                   class="ad-input mono" style="width:260px;height:32px;"
                    @keydown.enter="submitRename('license', {{jsonStr .Name}}, newName)"
                    @keydown.escape="editing=false">
-            <button class="bg-emerald-600 text-white rounded px-2 py-0.5 text-xs whitespace-nowrap"
-                    @click="submitRename('license', {{jsonStr .Name}}, newName)">✓ OK</button>
-            <button class="bg-slate-200 rounded px-2 py-0.5 text-xs"
-                    @click="editing=false">✗</button>
+            <button type="button" class="ad-btn ad-btn-primary" style="height:32px;padding:0 10px;"
+                    @click="submitRename('license', {{jsonStr .Name}}, newName)"><span class="mi">check</span></button>
+            <button type="button" class="ad-btn ad-btn-secondary" style="height:32px;padding:0 10px;"
+                    @click="editing=false"><span class="mi">close</span></button>
           </span>
         </td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap" data-sort-value="{{.Size}}">{{humanSize .Size}}</td>
-        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap" data-sort-value="{{.ModTime.Unix}}">{{.ModTime.Format "2006-01-02 15:04"}}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
-          <button x-show="!editing"
-                  class="text-blue-600 hover:underline text-xs"
-                  @click="editing=true; $nextTick(()=>$el.closest('tr').querySelector('input')?.select())">
-            ✏️
+        <td style="white-space:nowrap;color:var(--body);" data-sort-value="{{.Size}}">{{humanSize .Size}}</td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);white-space:nowrap;" data-sort-value="{{.ModTime.Unix}}">{{.ModTime.Format "2006-01-02 15:04"}}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button type="button" x-show="!editing"
+                  class="ad-iconbtn" title="{{t "common.rename"}}" style="color:var(--body);"
+                  @click="editing=true; $nextTick(()=>$el.closest('tr').querySelector('input[type=text]')?.select())">
+            <span class="mi">drive_file_rename_outline</span>
           </button>
-          <button class="text-red-500 hover:underline text-xs"
+          <button type="button" class="ad-del" style="display:inline-flex;vertical-align:middle;" title="{{t "common.delete"}}"
                   hx-delete="/media/license/{{.Name}}"
                   hx-target="closest tr"
                   hx-swap="outerHTML swap:300ms"
                   hx-confirm="{{t "lic.confirm_delete"}}{{.Name}}» ?">
-            🗑️
+            <span class="mi">delete</span>
           </button>
         </td>
       </tr>

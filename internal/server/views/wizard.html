@@ -2,781 +2,580 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div x-data="wizardApp([{{range .SourceISOs}}{{jsonStr .}},{{end}}], {saveError: {{tjs "wiz.save_error"}}})" x-cloak class="max-w-3xl mx-auto">
+<div x-data="wizardApp([{{range .SourceISOs}}{{jsonStr .}},{{end}}], {
+       saveError: {{tjs "wiz.save_error"}},
+       stepLabels: [{{tjs "wiz.steplabel.1"}},{{tjs "wiz.steplabel.2"}},{{tjs "wiz.steplabel.3"}},{{tjs "wiz.steplabel.4"}},{{tjs "wiz.steplabel.5"}},{{tjs "wiz.steplabel.6"}}],
+       stepOf: {{tjs "wiz.step_of6"}},
+       stepConfigSuffix: {{tjs "wiz.step5_configure"}},
+       advConfigHint: {{tjs "wiz.step5.config_hint"}},
+       adv: {
+         ntp:     {icon:'schedule',           label:{{tjs "wiz.adv.ntp.label"}},     desc:{{tjs "wiz.adv.ntp.desc"}}},
+         ha:      {icon:'hub',                label:{{tjs "wiz.adv.ha.label"}},      desc:{{tjs "wiz.adv.ha.desc"}}},
+         mon:     {icon:'monitoring',         label:{{tjs "wiz.adv.mon.label"}},     desc:{{tjs "wiz.adv.mon.desc"}}},
+         lic:     {icon:'workspace_premium',  label:{{tjs "wiz.adv.lic.label"}},     desc:{{tjs "wiz.adv.lic.desc"}}},
+         vcsp:    {icon:'cloud',              label:{{tjs "wiz.adv.vcsp.label"}},    desc:{{tjs "wiz.adv.vcsp.desc"}}},
+         restore: {icon:'restore',            label:{{tjs "wiz.adv.restore.label"}}, desc:{{tjs "wiz.adv.restore.desc"}}}
+       }
+     })" x-cloak style="max-width:780px;margin:0 auto;">
 
-  <!-- Progress bar + step counter -->
-  <div class="mb-6">
-    <div class="w-full bg-slate-200 rounded-full h-2 mb-2">
-      <div class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
-           :style="'width:'+progressPct+'%'"></div>
-    </div>
-    <!-- Step counter -->
-    <p class="text-xs text-slate-400"
-       x-text="{{tjs "wiz.step_of"}}.replace('{s}',currentIndex+1).replace('{t}',totalSteps)"></p>
+  <!-- header -->
+  <div style="text-align:center;margin-bottom:8px;">
+    <div class="ad-h1">{{t "wiz.page_title"}}</div>
+    <div class="ad-subt">{{t "wiz.page_subtitle"}}</div>
   </div>
+  <div style="text-align:center;font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--vg-deep);margin-bottom:14px;"
+       x-text="stepLabel"></div>
 
-  <!-- Breadcrumb / step dots -->
-  <div class="flex items-center justify-center gap-1.5 mb-8 flex-wrap">
-    <template x-for="s in visibleSteps" :key="s.id">
-      <button type="button"
-              @click="goTo(s.id)"
-              :disabled="visibleSteps.findIndex(vs=>vs.id===s.id) > visibleSteps.findIndex(vs=>vs.id===maxReached)"
-              :class="{
-                'bg-emerald-600 text-white': s.id===step,
-                'bg-emerald-100 text-emerald-700': s.id!==step && visibleSteps.findIndex(vs=>vs.id===s.id)<=visibleSteps.findIndex(vs=>vs.id===maxReached),
-                'bg-slate-200 text-slate-400 cursor-not-allowed': visibleSteps.findIndex(vs=>vs.id===s.id)>visibleSteps.findIndex(vs=>vs.id===maxReached)
-              }"
-              class="w-7 h-7 rounded-full text-xs font-semibold transition-colors"
-              x-text="visibleSteps.findIndex(vs=>vs.id===s.id)+1">
-      </button>
+  <!-- stepper -->
+  <div style="display:flex;align-items:flex-start;margin-bottom:22px;padding:0 6px;">
+    <template x-for="(st, i) in wizSteps" :key="st.n">
+      <div style="display:flex;align-items:flex-start;flex:1;" :style="i===0?'flex:0 0 auto;':''">
+        <div x-show="i > 0" style="flex:1;height:2px;margin:14px 5px 0;border-radius:2px;"
+             :style="'background:'+(st.n <= step ? 'var(--vg)' : '#DFE3E6')+';'"></div>
+        <div style="display:flex;flex-direction:column;align-items:center;"
+             :style="canJump(st.n) ? 'cursor:pointer;' : 'cursor:not-allowed;'"
+             @click="goTo(st.n)">
+          <div :style="bubbleStyle(st.n)">
+            <span x-show="st.n < step" style="font-family:var(--mi);font-size:17px;">check</span>
+            <span x-show="st.n >= step" x-text="st.n"></span>
+          </div>
+          <div :style="labelStyle(st.n)" x-text="st.label"></div>
+        </div>
+      </div>
     </template>
   </div>
 
   <!-- The wizard form — one form, all steps inside, x-show controls visibility -->
   <form id="wizard-form" @submit.prevent>
 
-    <!-- ===== STEP 1: ISO + Appliance ===== -->
-    <div x-show="step===1"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.1.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.1.subtitle"}}</p>
-      </div>
+    <!-- step card -->
+    <div style="background:var(--card);border:1px solid var(--bd);border-radius:12px;box-shadow:0 2px 10px rgba(28,32,41,.06);padding:24px;min-height:300px;">
 
-      <!-- ApplianceType -->
-      <div class="space-y-1.5">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.appliance_type"}}</label>
-          {{helpTip "wiz.help.ApplianceType"}}
-        </div>
-        <select name="ApplianceType" x-model="cfg.ApplianceType"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          {{range .ApplianceTypes}}<option value="{{.}}">{{.}}</option>{{end}}
-        </select>
-      </div>
+      <!-- ===== STEP 1: Source ISO & appliance ===== -->
+      <div x-show="step===1"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0">
+        <div class="ad-h1" style="font-size:20px;">{{t "wiz.step.1.title"}}</div>
+        <div class="ad-subt" style="margin-bottom:20px;">{{t "wiz.step.1.subtitle"}}</div>
 
-      <!-- Source ISO -->
-      <div class="space-y-2">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.source_iso"}}</label>
-          {{helpTip "wiz.help.SourceISO"}}
-        </div>
-        <!-- Single source of truth for SourceISO — Alpine keeps it in sync -->
-        <input type="hidden" name="SourceISO" :value="isoSelected">
-
-        <!-- Mode toggle -->
-        <div class="flex gap-2">
-          <button type="button" @click="isoMode='select'"
-                  :class="isoMode==='select' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">{{t "wiz.iso_select"}}</button>
-          <button type="button" @click="isoMode='upload'"
-                  :class="isoMode==='upload' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">{{t "wiz.iso_upload"}}</button>
-        </div>
-
-        <!-- Select existing — fully reactive, list refreshes after upload -->
-        <div x-show="isoMode==='select'">
-          <p x-show="isoStatus==='done'" x-cloak class="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 mb-2">{{t "wiz.iso_done"}}</p>
-          <div x-show="isoList.length === 0" class="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">{{t "wiz.iso_none"}}</div>
-          <select x-show="isoList.length > 0" x-model="isoSelected"
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <option value="">{{t "form.select_iso"}}</option>
-            <template x-for="iso in isoList" :key="iso">
-              <option :value="iso" x-text="iso"></option>
-            </template>
+        <!-- ApplianceType -->
+        <div style="margin-bottom:18px;">
+          <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.appliance_type"}} {{helpTip "wiz.help.ApplianceType"}}</span>
+          <select name="ApplianceType" x-model="cfg.ApplianceType" class="ad-select">
+            {{range .ApplianceTypes}}<option value="{{.}}">{{.}}</option>{{end}}
           </select>
         </div>
 
-        <!-- Upload -->
-        <div x-show="isoMode==='upload'" class="space-y-2">
-          <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border-2 border-dashed border-slate-300 hover:border-emerald-400 rounded-lg px-4 py-6 text-center transition-colors">
-            <div class="flex-1">
-              <div class="text-sm font-medium text-slate-600">📁 {{t "wiz.iso_upload"}}</div>
-              <div class="text-xs text-slate-400 mt-1">.iso — up to 25 GB</div>
-            </div>
-            <input type="file" accept=".iso" class="hidden"
-                   @change="uploadISO($event.target.files[0])">
-          </label>
-          <div x-show="isoStatus==='uploading'" class="space-y-1">
-            <div class="flex justify-between text-xs text-slate-500">
-              <span>{{t "wiz.iso_uploading"}}</span>
-              <span x-text="isoProgress+'%'"></span>
-            </div>
-            <div class="w-full bg-slate-200 rounded-full h-2">
-              <div class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
-                   :style="'width:'+isoProgress+'%'"></div>
-            </div>
-          </div>
-          <p x-show="isoStatus==='error'" class="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2" x-text="{{tjs "wiz.iso_error"}} + isoError"></p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== STEP 2: Regional ===== -->
-    <div x-show="step===2"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.2.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.2.subtitle"}}</p>
-      </div>
-
-      <!-- Keyboard Layout -->
-      <div class="space-y-1.5" x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const opts=new Set([{{range .KeyboardLayouts}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{kbd:opts.has(v)?v:'custom',kbdTxt:opts.has(v)?'':v}})()">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.keyboard_layout"}}</label>
-          {{helpTip "wiz.help.KeyboardLayout"}}
-        </div>
-        <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          {{range .KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
-        </select>
-        <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout" x-model="kbdTxt"
-               placeholder="e.g. fr-latin9"
-               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-      </div>
-
-      <!-- Timezone -->
-      <div class="space-y-1.5" x-data="(()=>{const v={{jsonStr .Config.Timezone}};const opts=new Set([{{range .Timezones}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{tz:opts.has(v)?v:'custom',tzTxt:opts.has(v)?'':v}})()">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.timezone"}}</label>
-          {{helpTip "wiz.help.Timezone"}}
-        </div>
-        <select x-model="tz" :name="tz!=='custom'?'Timezone':null"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          {{range .Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
-        </select>
-        <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone" x-model="tzTxt"
-               placeholder="e.g. America/New_York"
-               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-      </div>
-
-      <!-- Hostname -->
-      <div class="space-y-1.5">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.hostname"}}</label>
-          {{helpTip "wiz.help.Hostname"}}
-        </div>
-        <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required
-               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-               placeholder="veeam-server">
-      </div>
-    </div>
-
-    <!-- ===== STEP 3: Network ===== -->
-    <div x-show="step===3"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.3.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.3.subtitle"}}</p>
-      </div>
-
-      <!-- DHCP toggle -->
-      <div class="flex items-start gap-3">
-        <input type="checkbox" name="UseDHCP" id="wiz-dhcp" x-model="cfg.UseDHCP"
-               class="mt-0.5 rounded border-slate-300">
+        <!-- Source ISO -->
         <div>
-          <label for="wiz-dhcp" class="text-sm font-medium text-slate-700">{{t "form.use_dhcp"}}</label>
+          <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.source_iso"}} {{helpTip "wiz.help.SourceISO"}}</span>
+          <!-- Single source of truth for SourceISO — Alpine keeps it in sync -->
+          <input type="hidden" name="SourceISO" :value="isoSelected">
+
+          <!-- Mode toggle -->
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button type="button" @click="isoMode='select'"
+                    class="ad-btn" :class="isoMode==='select' ? 'ad-btn-primary' : 'ad-btn-secondary'">{{t "wiz.iso_select"}}</button>
+            <button type="button" @click="isoMode='upload'"
+                    class="ad-btn" :class="isoMode==='upload' ? 'ad-btn-primary' : 'ad-btn-secondary'">{{t "wiz.iso_upload"}}</button>
+          </div>
+
+          <!-- Select existing — fully reactive, list refreshes after upload -->
+          <div x-show="isoMode==='select'">
+            <div x-show="isoStatus==='done'" x-cloak class="ad-info" style="margin-bottom:10px;"><span class="mi">check_circle</span>{{t "wiz.iso_done"}}</div>
+            <div x-show="isoList.length === 0" class="ad-warn" style="margin:0;"><span class="mi">warning</span>{{t "wiz.iso_none"}}</div>
+            <select x-show="isoList.length > 0" x-model="isoSelected" class="ad-select mono">
+              <option value="">{{t "form.select_iso"}}</option>
+              <template x-for="iso in isoList" :key="iso">
+                <option :value="iso" x-text="iso"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- Upload -->
+          <div x-show="isoMode==='upload'" style="display:flex;flex-direction:column;gap:10px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--sunken);border:2px dashed var(--bd2);border-radius:8px;padding:22px 16px;text-align:center;">
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:600;color:var(--body);"><span class="mi" style="font-size:18px;vertical-align:-3px;">upload_file</span> {{t "wiz.iso_upload"}}</div>
+                <div style="font-size:11.5px;color:var(--faint);margin-top:4px;">.iso — up to 25 GB</div>
+              </div>
+              <input type="file" accept=".iso" style="display:none" @change="uploadISO($event.target.files[0])">
+            </label>
+            <div x-show="isoStatus==='uploading'" style="display:flex;flex-direction:column;gap:5px;">
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);">
+                <span>{{t "wiz.iso_uploading"}}</span>
+                <span x-text="isoProgress+'%'"></span>
+              </div>
+              <div style="width:100%;background:#E9EDF0;border-radius:999px;height:8px;overflow:hidden;">
+                <div style="background:var(--vg);height:8px;border-radius:999px;transition:width 300ms;" :style="'width:'+isoProgress+'%'"></div>
+              </div>
+            </div>
+            <div x-show="isoStatus==='error'" class="ad-warn" style="margin:0;" x-text="{{tjs "wiz.iso_error"}} + isoError"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== STEP 2: System & locale ===== -->
+      <div x-show="step===2"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0">
+        <div class="ad-h1" style="font-size:20px;">{{t "wiz.step2.title"}}</div>
+        <div class="ad-subt" style="margin-bottom:20px;">{{t "wiz.step2.subtitle"}}</div>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+
+          <!-- Keyboard Layout -->
+          <div x-data="(()=>{const v={{jsonStr .Config.KeyboardLayout}};const opts=new Set([{{range .KeyboardLayouts}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{kbd:opts.has(v)?v:'custom',kbdTxt:opts.has(v)?'':v}})()">
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.keyboard_layout"}} {{helpTip "wiz.help.KeyboardLayout"}}</span>
+            <select x-model="kbd" :name="kbd!=='custom'?'KeyboardLayout':null" class="ad-select">
+              {{range .KeyboardLayouts}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+            </select>
+            <input x-show="kbd==='custom'" :disabled="kbd!=='custom'" type="text" name="KeyboardLayout" x-model="kbdTxt"
+                   placeholder="e.g. fr-latin9" class="ad-input mono" style="margin-top:8px;">
+          </div>
+
+          <!-- Timezone -->
+          <div x-data="(()=>{const v={{jsonStr .Config.Timezone}};const opts=new Set([{{range .Timezones}}{{if ne .Value "custom"}}{{jsonStr .Value}},{{end}}{{end}}]);return{tz:opts.has(v)?v:'custom',tzTxt:opts.has(v)?'':v}})()">
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.timezone"}} {{helpTip "wiz.help.Timezone"}}</span>
+            <select x-model="tz" :name="tz!=='custom'?'Timezone':null" class="ad-select">
+              {{range .Timezones}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+            </select>
+            <input x-show="tz==='custom'" :disabled="tz!=='custom'" type="text" name="Timezone" x-model="tzTxt"
+                   placeholder="e.g. America/New_York" class="ad-input mono" style="margin-top:8px;">
+          </div>
+
+          <!-- Hostname -->
+          <div>
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.hostname"}} {{helpTip "wiz.help.Hostname"}}</span>
+            <input type="text" name="Hostname" value="{{.Config.Hostname}}" maxlength="15" required
+                   class="ad-input mono" placeholder="veeam-server">
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== STEP 3: Network ===== -->
+      <div x-show="step===3"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0">
+        <div class="ad-h1" style="font-size:20px;">{{t "wiz.step.3.title"}}</div>
+        <div class="ad-subt" style="margin-bottom:20px;">{{t "wiz.step.3.subtitle"}}</div>
+
+        <!-- DHCP toggle -->
+        <label class="ad-checkrow" style="font-weight:600;padding:12px 14px;border:1px solid var(--bd2);border-radius:8px;margin-bottom:16px;">
+          <input type="checkbox" name="UseDHCP" id="wiz-dhcp" x-model="cfg.UseDHCP" class="ad-check">
+          <span style="flex:1;">{{t "form.use_dhcp"}}</span>
           {{helpTip "wiz.help.UseDHCP"}}
-        </div>
-      </div>
+        </label>
 
-      <!-- Static IP fields -->
-      <div x-show="!cfg.UseDHCP" class="space-y-4 border-t pt-4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div class="space-y-1.5">
-            <div class="flex items-center gap-1">
-              <label class="text-sm font-medium text-slate-700">{{t "form.static_ip"}}</label>
-              {{helpTip "wiz.help.StaticIP"}}
-            </div>
-            <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" placeholder="192.168.1.100"
-                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        <!-- Static IP fields -->
+        <div x-show="!cfg.UseDHCP" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;">
+          <div>
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.static_ip"}} {{helpTip "wiz.help.StaticIP"}}</span>
+            <input type="text" name="StaticIP" value="{{.Config.StaticIP}}" placeholder="192.168.1.100" class="ad-input mono">
           </div>
-          <div class="space-y-1.5">
-            <div class="flex items-center gap-1">
-              <label class="text-sm font-medium text-slate-700">{{t "form.subnet"}}</label>
-              {{helpTip "wiz.help.Subnet"}}
-            </div>
-            <input type="text" name="Subnet" value="{{.Config.Subnet}}" placeholder="255.255.255.0"
-                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <div>
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.subnet"}} {{helpTip "wiz.help.Subnet"}}</span>
+            <input type="text" name="Subnet" value="{{.Config.Subnet}}" placeholder="255.255.255.0" class="ad-input mono">
           </div>
-          <div class="space-y-1.5">
-            <div class="flex items-center gap-1">
-              <label class="text-sm font-medium text-slate-700">{{t "form.gateway"}}</label>
-              {{helpTip "wiz.help.Gateway"}}
-            </div>
-            <input type="text" name="Gateway" value="{{.Config.Gateway}}" placeholder="192.168.1.1"
-                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+          <div>
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.gateway"}} {{helpTip "wiz.help.Gateway"}}</span>
+            <input type="text" name="Gateway" value="{{.Config.Gateway}}" placeholder="192.168.1.1" class="ad-input mono">
           </div>
-          <div class="space-y-1.5">
-            <div class="flex items-center gap-1">
-              <label class="text-sm font-medium text-slate-700">{{t "form.dns_servers"}}</label>
-              {{helpTip "wiz.help.DNSServers"}}
-            </div>
+          <div>
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.dns_servers"}} {{helpTip "wiz.help.DNSServers"}}</span>
             <textarea name="DNSServers" rows="2" placeholder="192.168.1.1&#10;8.8.8.8"
-                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">{{range .Config.DNSServers}}{{.}}
+                      class="ad-input mono" style="height:auto;padding:8px 11px;line-height:1.5;">{{range .Config.DNSServers}}{{.}}
 {{end}}</textarea>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- ===== STEP 4: Admin Account ===== -->
-    <div x-show="step===4"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.4.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.4.subtitle"}}</p>
-      </div>
+      <!-- ===== STEP 4: Accounts & security ===== -->
+      <div x-show="step===4"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0">
+        <div class="ad-h1" style="font-size:20px;">{{t "wiz.step4.title"}}</div>
+        <div class="ad-subt" style="margin-bottom:18px;">{{t "wiz.step4.subtitle"}}</div>
+        <div style="display:flex;flex-direction:column;gap:16px;">
 
-      <!-- Admin Password -->
-      <div class="space-y-1.5">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.password_mixed15"}}</label>
-          {{helpTip "wiz.help.VeeamAdminPassword"}}
-        </div>
-        <div class="flex gap-2">
-          <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}"
-                 class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          <button type="button" @click="fillPassword('VeeamAdminPassword')"
-                  class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg" title="Generate">🎲</button>
-        </div>
-      </div>
-
-      <!-- Admin MFA -->
-      <div class="space-y-3">
-        <div class="flex items-start gap-3">
-          <input type="checkbox" name="VeeamAdminIsMfaEnabled" id="wiz-admin-mfa"
-                 x-model="cfg.VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}}
-                 class="mt-0.5 rounded border-slate-300">
+          <!-- Admin Password -->
           <div>
-            <label for="wiz-admin-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.password_mixed15"}} {{helpTip "wiz.help.VeeamAdminPassword"}}</span>
+            <div style="display:flex;gap:8px;">
+              <input type="text" name="VeeamAdminPassword" value="{{.Config.VeeamAdminPassword}}" class="ad-input mono" style="flex:1;">
+              <button type="button" @click="fillPassword('VeeamAdminPassword')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
+            </div>
+          </div>
+
+          <!-- Admin MFA -->
+          <label class="ad-checkrow">
+            <input type="checkbox" name="VeeamAdminIsMfaEnabled" id="wiz-admin-mfa"
+                   x-model="cfg.VeeamAdminIsMfaEnabled" {{if .Config.VeeamAdminIsMfaEnabled}}checked{{end}} class="ad-check">
+            <span>{{t "form.mfa_enabled"}}</span>
             {{helpTip "wiz.help.VeeamAdminIsMfaEnabled"}}
+          </label>
+          <div x-show="cfg.VeeamAdminIsMfaEnabled" style="padding-left:23px;">
+            <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32"}} {{helpTip "wiz.help.VeeamAdminMfaSecretKey"}}</span>
+            <div style="display:flex;gap:8px;">
+              <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
+              <button type="button" @click="fillBase32('VeeamAdminMfaSecretKey')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
+            </div>
           </div>
-        </div>
-        <div x-show="cfg.VeeamAdminIsMfaEnabled" class="space-y-1.5 pl-7">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
-            {{helpTip "wiz.help.VeeamAdminMfaSecretKey"}}
+
+          <!-- Security Officer enable -->
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border:1px solid var(--vg-100);background:var(--vg-50);border-radius:8px;">
+            <label for="wiz-so-enabled" style="font-size:13.5px;font-weight:600;color:var(--vg-deep);display:flex;align-items:center;gap:6px;cursor:pointer;">{{t "form.so_enabled"}} {{helpTip "wiz.help.VeeamSoIsEnabled"}}</label>
+            <input type="checkbox" name="VeeamSoIsEnabled" id="wiz-so-enabled"
+                   x-model="cfg.VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}} class="ad-check">
           </div>
-          <div class="flex gap-2">
-            <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}"
-                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono uppercase focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <button type="button" @click="fillBase32('VeeamAdminMfaSecretKey')"
-                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg" title="Generate">🎲</button>
+
+          <div x-show="cfg.VeeamSoIsEnabled" style="display:flex;flex-direction:column;gap:14px;">
+            <div class="ad-info"><span class="mi">verified_user</span>{{t "wiz.so_required_note"}}</div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
+              <!-- SO Password -->
+              <div>
+                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.password_so"}} {{helpTip "wiz.help.VeeamSoPassword"}}</span>
+                <div style="display:flex;gap:8px;">
+                  <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}" class="ad-input mono" style="flex:1;">
+                  <button type="button" @click="fillPassword('VeeamSoPassword')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
+                </div>
+              </div>
+
+              <!-- SO MFA toggle -->
+              <label class="ad-checkrow" style="grid-column:span 2;">
+                <input type="checkbox" name="VeeamSoIsMfaEnabled" id="wiz-so-mfa"
+                       x-model="cfg.VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}} class="ad-check">
+                <span>{{t "form.mfa_enabled"}}</span>
+                {{helpTip "wiz.help.VeeamSoIsMfaEnabled"}}
+              </label>
+
+              <!-- SO MFA secret (REQUIRED when SO enabled) -->
+              <div :style="cfg.VeeamSoIsMfaEnabled ? 'grid-column:span 2;' : 'grid-column:span 2;'">
+                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32"}} <span class="ad-req">{{t "wiz.required"}}</span> {{helpTip "wiz.help.VeeamSoMfaSecretKey"}}</span>
+                <div style="display:flex;gap:8px;">
+                  <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
+                  <button type="button" @click="fillBase32('VeeamSoMfaSecretKey')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
+                </div>
+              </div>
+
+              <!-- SO Recovery token (REQUIRED when SO enabled) -->
+              <div style="grid-column:span 2;">
+                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.recovery_token"}} <span class="ad-req">{{t "wiz.required"}}</span> {{helpTip "wiz.help.VeeamSoRecoveryToken"}}</span>
+                <div style="display:flex;gap:8px;">
+                  <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}" class="ad-input mono" style="flex:1;">
+                  <button type="button" @click="fillGUID('VeeamSoRecoveryToken')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- ===== STEP 5: Security Officer ===== -->
-    <div x-show="step===5"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.5.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.5.subtitle"}}</p>
-      </div>
+      <!-- ===== STEP 5: Advanced options (two phases) ===== -->
+      <div x-show="step===5"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0">
 
-      <div class="flex items-start gap-3">
-        <input type="checkbox" name="VeeamSoIsEnabled" id="wiz-so-enabled"
-               x-model="cfg.VeeamSoIsEnabled" {{if .Config.VeeamSoIsEnabled}}checked{{end}}
-               class="mt-0.5 rounded border-slate-300">
-        <div>
-          <label for="wiz-so-enabled" class="text-sm font-medium text-slate-700">{{t "form.so_enabled"}}</label>
-          {{helpTip "wiz.help.VeeamSoIsEnabled"}}
-        </div>
-      </div>
-
-      <div x-show="cfg.VeeamSoIsEnabled" class="space-y-4 border-t pt-4">
-        <!-- SO Password -->
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.password_so"}}</label>
-            {{helpTip "wiz.help.VeeamSoPassword"}}
+        <!-- Phase A: select -->
+        <div x-show="advPhase==='select'">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="ad-h1" style="font-size:20px;white-space:nowrap;">{{t "wiz.step5.title"}}</div>
+            <span style="font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8A5A00;background:#F8E5C3;padding:2px 8px;border-radius:999px;flex-shrink:0;">{{t "wiz.optional"}}</span>
           </div>
-          <div class="flex gap-2">
-            <input type="text" name="VeeamSoPassword" value="{{.Config.VeeamSoPassword}}"
-                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <button type="button" @click="fillPassword('VeeamSoPassword')"
-                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg" title="Generate">🎲</button>
+          <div class="ad-subt" style="margin-bottom:18px;">{{t "wiz.step5.select_hint"}}</div>
+
+          <div style="display:flex;flex-direction:column;border:1px solid var(--line);border-radius:9px;overflow:hidden;">
+            <template x-for="a in advToggles" :key="a.key">
+              <label style="display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line);cursor:pointer;"
+                     :style="a.sel ? 'background:var(--vg-tint);' : ''">
+                <span style="width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"
+                      :style="a.sel ? 'background:var(--vg-50);color:var(--vg-deep);' : 'background:var(--sunken);color:var(--muted);'">
+                  <span class="mi" style="font-size:18px;" x-text="a.icon"></span>
+                </span>
+                <span style="flex:1;">
+                  <span style="font-size:13.5px;font-weight:600;color:var(--ink);display:block;" x-text="a.label"></span>
+                  <span style="font-size:11.5px;color:var(--faint);" x-text="a.desc"></span>
+                </span>
+                <input type="checkbox" class="ad-check" :checked="a.sel" @change="toggleAdv(a.key)">
+              </label>
+            </template>
           </div>
         </div>
 
-        <!-- SO MFA -->
-        <div class="flex items-start gap-3">
-          <input type="checkbox" name="VeeamSoIsMfaEnabled" id="wiz-so-mfa"
-                 x-model="cfg.VeeamSoIsMfaEnabled" {{if .Config.VeeamSoIsMfaEnabled}}checked{{end}}
-                 class="mt-0.5 rounded border-slate-300">
-          <div>
-            <label for="wiz-so-mfa" class="text-sm font-medium text-slate-700">{{t "form.mfa_enabled"}}</label>
-            {{helpTip "wiz.help.VeeamSoIsMfaEnabled"}}
+        <!-- Phase B: configure selected only -->
+        <div x-show="advPhase==='config'">
+          <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
+            <div class="ad-h1" style="font-size:20px;white-space:nowrap;">{{t "wiz.step5.config_title"}}</div>
+            <button type="button" class="ad-btn-link" @click="advPhase='select'"><span class="mi">tune</span>{{t "wiz.change_selection"}}</button>
           </div>
-        </div>
-        <div x-show="cfg.VeeamSoIsMfaEnabled" class="space-y-1.5 pl-7">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.mfa_secret_b32"}}</label>
-            {{helpTip "wiz.help.VeeamSoMfaSecretKey"}}
-          </div>
-          <div class="flex gap-2">
-            <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}"
-                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono uppercase focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <button type="button" @click="fillBase32('VeeamSoMfaSecretKey')"
-                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg">🎲</button>
-          </div>
-        </div>
+          <div class="ad-subt" style="margin-bottom:18px;" x-text="advConfigHint"></div>
 
-        <!-- Recovery Token -->
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.recovery_token"}}</label>
-            {{helpTip "wiz.help.VeeamSoRecoveryToken"}}
-          </div>
-          <div class="flex gap-2">
-            <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}"
-                   class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="optional">
-            <button type="button" @click="fillGUID('VeeamSoRecoveryToken')"
-                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-lg">🎲</button>
-          </div>
-        </div>
-      </div>
-    </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
 
-    <!-- ===== STEP 6: NTP ===== -->
-    <div x-show="step===6"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.6.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.6.subtitle"}}</p>
-      </div>
-      <div class="space-y-1.5">
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium text-slate-700">{{t "form.ntp_servers"}}</label>
-          {{helpTip "wiz.help.NtpServer"}}
-        </div>
-        <textarea name="NtpServer" rows="3" placeholder="time.nist.gov&#10;pool.ntp.org"
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">{{range .Config.NtpServer}}{{.}}
+            <!-- NTP -->
+            <div x-show="advSel.ntp" style="border:1px solid var(--vg-100);border-radius:10px;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;background:var(--vg-50);border-bottom:1px solid var(--vg-100);">
+                <span style="width:30px;height:30px;border-radius:8px;background:#fff;color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:17px;">schedule</span></span>
+                <span style="flex:1;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);display:block;" x-text="(msgsAdv('ntp')).label"></span><span style="font-size:11.5px;color:var(--vg-deep);" x-text="(msgsAdv('ntp')).desc"></span></span>
+                <button type="button" class="ad-del" :title="{{tjs "wiz.disable_option"}}" @click="toggleAdv('ntp')"><span class="mi">close</span></button>
+              </div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <div>
+                  <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.ntp_servers"}} {{helpTip "wiz.help.NtpServer"}}</span>
+                  <textarea name="NtpServer" rows="3" placeholder="time.nist.gov&#10;pool.ntp.org"
+                            class="ad-input mono" style="height:auto;padding:8px 11px;line-height:1.5;">{{range .Config.NtpServer}}{{.}}
 {{end}}</textarea>
-      </div>
-      <div class="flex items-start gap-3">
-        <input type="checkbox" name="NtpRunSync" id="wiz-ntp-sync" {{if .Config.NtpRunSync}}checked{{end}}
-               class="mt-0.5 rounded border-slate-300">
-        <div>
-          <label for="wiz-ntp-sync" class="text-sm font-medium text-slate-700">{{t "form.ntp_sync"}}</label>
-          {{helpTip "wiz.help.NtpRunSync"}}
-        </div>
-      </div>
-    </div>
+                </div>
+                <label class="ad-checkrow">
+                  <input type="checkbox" name="NtpRunSync" id="wiz-ntp-sync" {{if .Config.NtpRunSync}}checked{{end}} class="ad-check">
+                  <span>{{t "form.ntp_sync"}}</span>
+                  {{helpTip "wiz.help.NtpRunSync"}}
+                </label>
+              </div>
+            </div>
 
-    <!-- ===== STEP 7: Ext. Managers + HA ===== -->
-    <div x-show="step===7"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
-      <div class="flex items-start justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.7.title"}}</h2>
-          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.7.subtitle"}}</p>
-        </div>
-        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
-      </div>
-      <div class="space-y-4">
-        <div class="flex items-center gap-3">
-          <input type="checkbox" name="ExternalManagersInstallationEnabled" id="wiz-em"
-                 class="rounded border-slate-300">
-          <div>
-            <label for="wiz-em" class="text-sm font-medium text-slate-700">{{t "form.allow_external"}}</label>
-            {{helpTip "wiz.help.ExternalManagersInstallationEnabled"}}
-          </div>
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-slate-700">{{t "form.external_timeout"}}</label>
-          <input type="number" name="ExternalManagersInstallationTimeout" value="{{.Config.ExternalManagersInstallationTimeout}}" min="60" max="86400"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-        <div class="flex items-center gap-3">
-          <input type="checkbox" name="HighAvailabilityEnabled" id="wiz-ha"
-                 class="rounded border-slate-300">
-          <div>
-            <label for="wiz-ha" class="text-sm font-medium text-slate-700">{{t "form.ha_mode"}}</label>
-            {{helpTip "wiz.help.HighAvailabilityEnabled"}}
-          </div>
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-slate-700">{{t "form.ha_timeout"}}</label>
-          <input type="number" name="HighAvailabilityTimeout" value="{{.Config.HighAvailabilityTimeout}}" min="60" max="86400"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-      </div>
-    </div>
+            <!-- External managers + HA -->
+            <div x-show="advSel.ha" style="border:1px solid var(--vg-100);border-radius:10px;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;background:var(--vg-50);border-bottom:1px solid var(--vg-100);">
+                <span style="width:30px;height:30px;border-radius:8px;background:#fff;color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:17px;">hub</span></span>
+                <span style="flex:1;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);display:block;" x-text="(msgsAdv('ha')).label"></span><span style="font-size:11.5px;color:var(--vg-deep);" x-text="(msgsAdv('ha')).desc"></span></span>
+                <button type="button" class="ad-del" :title="{{tjs "wiz.disable_option"}}" @click="toggleAdv('ha')"><span class="mi">close</span></button>
+              </div>
+              <div style="padding:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+                <label class="ad-checkrow" style="grid-column:span 2;">
+                  <input type="checkbox" name="ExternalManagersInstallationEnabled" id="wiz-em" class="ad-check">
+                  <span>{{t "form.allow_external"}}</span>
+                  {{helpTip "wiz.help.ExternalManagersInstallationEnabled"}}
+                </label>
+                <div>
+                  <span class="ad-flabel">{{t "form.external_timeout"}}</span>
+                  <input type="number" name="ExternalManagersInstallationTimeout" value="{{.Config.ExternalManagersInstallationTimeout}}" min="60" max="86400" class="ad-input">
+                </div>
+                <label class="ad-checkrow" style="grid-column:span 2;">
+                  <input type="checkbox" name="HighAvailabilityEnabled" id="wiz-ha" class="ad-check">
+                  <span>{{t "form.ha_mode"}}</span>
+                  {{helpTip "wiz.help.HighAvailabilityEnabled"}}
+                </label>
+                <div>
+                  <span class="ad-flabel">{{t "form.ha_timeout"}}</span>
+                  <input type="number" name="HighAvailabilityTimeout" value="{{.Config.HighAvailabilityTimeout}}" min="60" max="86400" class="ad-input">
+                </div>
+              </div>
+            </div>
 
-    <!-- ===== STEP 8: Monitoring + VBR ===== -->
-    <div x-show="step===8"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
-      <div class="flex items-start justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.8.title"}}</h2>
-          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.8.subtitle"}}</p>
-        </div>
-        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
-      </div>
-      <div class="space-y-4">
-        <div class="flex items-center gap-3">
-          <input type="checkbox" name="NodeExporter" id="wiz-nexporter" x-model="cfg.NodeExporter"
-                 class="rounded border-slate-300">
-          <div>
-            <label for="wiz-nexporter" class="text-sm font-medium text-slate-700">{{t "form.node_exporter"}}</label>
-            {{helpTip "wiz.help.NodeExporter"}}
-          </div>
-        </div>
-        <div x-show="cfg.NodeExporter" class="pl-7">
-          <div class="flex items-center gap-3">
-            <input type="checkbox" name="NodeExporterTLSEnabled" class="rounded border-slate-300">
-            <label class="text-sm font-medium text-slate-700">{{t "form.node_exporter_tls"}}</label>
-          </div>
-        </div>
-        <div class="flex items-center gap-3">
-          <input type="checkbox" name="LicenseVBRTune" id="wiz-vbr" class="rounded border-slate-300">
-          <div>
-            <label for="wiz-vbr" class="text-sm font-medium text-slate-700">{{t "form.license_vbr_tune"}}</label>
-            {{helpTip "wiz.help.LicenseVBRTune"}}
-          </div>
-        </div>
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.license_file"}}</label>
-            {{helpTip "wiz.help.LicenseFile"}}
-          </div>
-          <select name="LicenseFile" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <option value="">— {{t "form.none_dash"}} —</option>
-            {{range .LicenseFiles}}<option value="{{.}}">{{.}}</option>{{end}}
-          </select>
-        </div>
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.syslog_server"}}</label>
-            {{helpTip "wiz.help.SyslogServer"}}
-          </div>
-          <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" placeholder="192.168.1.100"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-      </div>
-    </div>
+            <!-- node_exporter -->
+            <div x-show="advSel.mon" style="border:1px solid var(--vg-100);border-radius:10px;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;background:var(--vg-50);border-bottom:1px solid var(--vg-100);">
+                <span style="width:30px;height:30px;border-radius:8px;background:#fff;color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:17px;">monitoring</span></span>
+                <span style="flex:1;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);display:block;" x-text="(msgsAdv('mon')).label"></span><span style="font-size:11.5px;color:var(--vg-deep);" x-text="(msgsAdv('mon')).desc"></span></span>
+                <button type="button" class="ad-del" :title="{{tjs "wiz.disable_option"}}" @click="toggleAdv('mon')"><span class="mi">close</span></button>
+              </div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <!-- enabled flag emitted only while this feature is selected -->
+                <input type="hidden" name="NodeExporter" :value="advSel.mon ? 'on' : ''">
+                <label class="ad-checkrow" style="height:38px;padding:0 12px;border:1px solid var(--bd2);border-radius:7px;justify-content:space-between;">
+                  <span>{{t "form.node_exporter_tls"}}</span>
+                  <input type="checkbox" name="NodeExporterTLSEnabled" class="ad-check">
+                </label>
+              </div>
+            </div>
 
-    <!-- ===== STEP 9: VCSP ===== -->
-    <div x-show="step===9"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
-      <div class="flex items-start justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.9.title"}}</h2>
-          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.9.subtitle"}}</p>
-        </div>
-        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
-      </div>
-      <div class="flex items-center gap-3">
-        <input type="checkbox" name="VCSPConnection" id="wiz-vcsp" class="rounded border-slate-300">
-        <div>
-          <label for="wiz-vcsp" class="text-sm font-medium text-slate-700">{{t "form.vcsp_connect"}}</label>
-          {{helpTip "wiz.help.VCSPConnection"}}
-        </div>
-      </div>
-      <div class="grid grid-cols-1 gap-4">
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-slate-700">{{t "form.vcsp_url"}}</label>
-          <input type="text" name="VCSPUrl" value="{{.Config.VCSPUrl}}" placeholder="https://vcsp.example.com"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-slate-700">{{t "form.vcsp_login"}}</label>
-          <input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-slate-700">{{t "form.vcsp_password"}}</label>
-          <input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-      </div>
-    </div>
+            <!-- LicenseVBRTune -->
+            <div x-show="advSel.lic" style="border:1px solid var(--vg-100);border-radius:10px;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;background:var(--vg-50);border-bottom:1px solid var(--vg-100);">
+                <span style="width:30px;height:30px;border-radius:8px;background:#fff;color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:17px;">workspace_premium</span></span>
+                <span style="flex:1;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);display:block;" x-text="(msgsAdv('lic')).label"></span><span style="font-size:11.5px;color:var(--vg-deep);" x-text="(msgsAdv('lic')).desc"></span></span>
+                <button type="button" class="ad-del" :title="{{tjs "wiz.disable_option"}}" @click="toggleAdv('lic')"><span class="mi">close</span></button>
+              </div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <input type="hidden" name="LicenseVBRTune" :value="advSel.lic ? 'on' : ''">
+                <div>
+                  <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.license_file"}} {{helpTip "wiz.help.LicenseFile"}}</span>
+                  <select name="LicenseFile" class="ad-select">
+                    <option value="">{{t "form.none_dash"}}</option>
+                    {{range .LicenseFiles}}<option value="{{.}}">{{.}}</option>{{end}}
+                  </select>
+                </div>
+                <div>
+                  <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.syslog_server"}} {{helpTip "wiz.help.SyslogServer"}}</span>
+                  <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" placeholder="192.168.1.100" class="ad-input mono">
+                </div>
+              </div>
+            </div>
 
-    <!-- ===== STEP 10: Restore ===== -->
-    <div x-show="step===10"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
-      <div class="flex items-start justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.10.title"}}</h2>
-          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.10.subtitle"}}</p>
-        </div>
-        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
-      </div>
-      <div class="flex items-center gap-3">
-        <input type="checkbox" name="RestoreConfig" id="wiz-restore" class="rounded border-slate-300">
-        <div>
-          <label for="wiz-restore" class="text-sm font-medium text-slate-700">{{t "form.restore_enable"}}</label>
-          {{helpTip "wiz.help.RestoreConfig"}}
-        </div>
-      </div>
-      <div class="space-y-1.5">
-        <label class="text-sm font-medium text-slate-700">{{t "form.so_config_password"}}</label>
-        <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}"
-               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-      </div>
-    </div>
+            <!-- VCSP -->
+            <div x-show="advSel.vcsp" style="border:1px solid var(--vg-100);border-radius:10px;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;background:var(--vg-50);border-bottom:1px solid var(--vg-100);">
+                <span style="width:30px;height:30px;border-radius:8px;background:#fff;color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:17px;">cloud</span></span>
+                <span style="flex:1;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);display:block;" x-text="(msgsAdv('vcsp')).label"></span><span style="font-size:11.5px;color:var(--vg-deep);" x-text="(msgsAdv('vcsp')).desc"></span></span>
+                <button type="button" class="ad-del" :title="{{tjs "wiz.disable_option"}}" @click="toggleAdv('vcsp')"><span class="mi">close</span></button>
+              </div>
+              <div style="padding:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+                <input type="hidden" name="VCSPConnection" :value="advSel.vcsp ? 'on' : ''">
+                <div style="grid-column:span 2;">
+                  <span class="ad-flabel">{{t "form.vcsp_url"}}</span>
+                  <input type="text" name="VCSPUrl" value="{{.Config.VCSPUrl}}" placeholder="https://vcsp.example.com" class="ad-input mono">
+                </div>
+                <div>
+                  <span class="ad-flabel">{{t "form.vcsp_login"}}</span>
+                  <input type="text" name="VCSPLogin" value="{{.Config.VCSPLogin}}" class="ad-input">
+                </div>
+                <div>
+                  <span class="ad-flabel">{{t "form.vcsp_password"}}</span>
+                  <input type="text" name="VCSPPassword" value="{{.Config.VCSPPassword}}" class="ad-input mono">
+                </div>
+              </div>
+            </div>
 
-    <!-- ===== STEP 11: Other Options ===== -->
-    <div x-show="step===11"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-amber-200 p-6 space-y-5">
-      <div class="flex items-start justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.11.title"}}</h2>
-          <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.11.subtitle"}}</p>
-        </div>
-        <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{{t "wiz.advanced"}}</span>
-      </div>
-      <div class="space-y-4">
-        <!-- VIA only: single disk -->
-        <div x-show="cfg.ApplianceType!=='VSA'" class="flex items-start gap-3">
-          <input type="checkbox" name="VIASingleDisk" id="wiz-single-disk" class="mt-0.5 rounded border-slate-300">
-          <div>
-            <label for="wiz-single-disk" class="text-sm font-medium text-slate-700">{{t "form.single_disk"}}</label>
-            {{helpTip "wiz.help.VIASingleDisk"}}
+            <!-- Restore config -->
+            <div x-show="advSel.restore" style="border:1px solid var(--vg-100);border-radius:10px;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;background:var(--vg-50);border-bottom:1px solid var(--vg-100);">
+                <span style="width:30px;height:30px;border-radius:8px;background:#fff;color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:17px;">restore</span></span>
+                <span style="flex:1;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);display:block;" x-text="(msgsAdv('restore')).label"></span><span style="font-size:11.5px;color:var(--vg-deep);" x-text="(msgsAdv('restore')).desc"></span></span>
+                <button type="button" class="ad-del" :title="{{tjs "wiz.disable_option"}}" @click="toggleAdv('restore')"><span class="mi">close</span></button>
+              </div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <label class="ad-checkrow" style="height:38px;padding:0 12px;border:1px solid var(--bd2);border-radius:7px;justify-content:space-between;">
+                  <span>{{t "form.restore_enable"}}</span>
+                  <input type="checkbox" name="RestoreConfig" id="wiz-restore" class="ad-check">
+                  {{helpTip "wiz.help.RestoreConfig"}}
+                </label>
+                <div>
+                  <span class="ad-flabel">{{t "form.so_config_password"}}</span>
+                  <input type="text" name="ConfigPasswordSo" value="{{.Config.ConfigPasswordSo}}" class="ad-input mono">
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
-        <!-- Output ISO name -->
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-slate-700">{{t "form.output_iso"}}</label>
-          <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="{{t "form.output_iso_ph"}}"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-        <!-- GRUB Timeout -->
-        <div class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <label class="text-sm font-medium text-slate-700">{{t "form.grub_timeout"}}</label>
-            {{helpTip "wiz.help.GrubTimeout"}}
-          </div>
-          <input type="number" name="GrubTimeout" value="{{.Config.GrubTimeout}}" min="0" max="300"
-                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </div>
-        <!-- Build options -->
-        <div class="grid grid-cols-2 gap-3">
-          <div class="flex items-center gap-2">
-            <input type="checkbox" name="CFGOnly" id="wiz-cfg-only" class="rounded border-slate-300">
+
+        <!-- Build & output options — always present so their values submit (kept off the toggle list) -->
+        <div x-show="advPhase==='select'" style="margin-top:16px;">
+          <div class="ad-divider"><span class="ad-grouplabel">{{t "wiz.build_options"}}</span><span class="rule"></span></div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+            <!-- VIA only: single disk -->
+            <label x-show="cfg.ApplianceType!=='VSA'" class="ad-checkrow" style="grid-column:span 2;">
+              <input type="checkbox" name="VIASingleDisk" id="wiz-single-disk" class="ad-check">
+              <span>{{t "form.single_disk"}}</span>
+              {{helpTip "wiz.help.VIASingleDisk"}}
+            </label>
             <div>
-              <label for="wiz-cfg-only" class="text-sm text-slate-700">{{t "form.cfg_only"}}</label>
+              <span class="ad-flabel">{{t "form.output_iso"}}</span>
+              <input type="text" name="OutputISO" value="{{.Config.OutputISO}}" placeholder="{{t "form.output_iso_ph"}}" class="ad-input mono">
+            </div>
+            <div>
+              <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.grub_timeout"}} {{helpTip "wiz.help.GrubTimeout"}}</span>
+              <input type="number" name="GrubTimeout" value="{{.Config.GrubTimeout}}" min="0" max="300" class="ad-input">
+            </div>
+            <label class="ad-checkrow">
+              <input type="checkbox" name="CFGOnly" id="wiz-cfg-only" class="ad-check">
+              <span>{{t "form.cfg_only"}}</span>
               {{helpTip "wiz.help.CFGOnly"}}
-            </div>
-          </div>
-          <div class="flex items-start gap-2">
-            <input type="checkbox" name="InPlace" id="wiz-inplace" class="mt-0.5 rounded border-slate-300">
-            <div>
-              <label for="wiz-inplace" class="text-sm text-slate-700">{{t "form.inplace"}}</label>
+            </label>
+            <label class="ad-checkrow">
+              <input type="checkbox" name="InPlace" id="wiz-inplace" class="ad-check">
+              <span>{{t "form.inplace"}}</span>
               {{helpTip "wiz.help.InPlace"}}
-            </div>
-          </div>
-          <div class="flex items-start gap-2">
-            <input type="checkbox" name="CreateBackup" id="wiz-backup" class="mt-0.5 rounded border-slate-300">
-            <div>
-              <label for="wiz-backup" class="text-sm text-slate-700">{{t "form.create_backup"}}</label>
+            </label>
+            <label class="ad-checkrow">
+              <input type="checkbox" name="CreateBackup" id="wiz-backup" class="ad-check">
+              <span>{{t "form.create_backup"}}</span>
               {{helpTip "wiz.help.CreateBackup"}}
-            </div>
-          </div>
-          <div class="flex items-start gap-2">
-            <input type="checkbox" name="CleanupCFGFiles" id="wiz-cleanup" class="mt-0.5 rounded border-slate-300">
-            <div>
-              <label for="wiz-cleanup" class="text-sm text-slate-700">{{t "form.cleanup_cfg"}}</label>
+            </label>
+            <label class="ad-checkrow">
+              <input type="checkbox" name="CleanupCFGFiles" id="wiz-cleanup" class="ad-check">
+              <span>{{t "form.cleanup_cfg"}}</span>
               {{helpTip "wiz.help.CleanupCFGFiles"}}
-            </div>
-          </div>
-        </div>
-        <!-- Debug -->
-        <div class="flex items-center gap-2 border-t pt-4">
-          <input type="checkbox" name="Debug" id="wiz-debug" class="rounded border-slate-300">
-          <div>
-            <label for="wiz-debug" class="text-sm font-medium text-slate-700">{{t "form.debug"}}</label>
-            {{helpTip "wiz.help.Debug"}}
+            </label>
+            <label class="ad-checkrow" style="grid-column:span 2;">
+              <input type="checkbox" name="Debug" id="wiz-debug" class="ad-check">
+              <span style="color:#8C2A1F;font-weight:600;">{{t "form.debug"}}</span>
+              {{helpTip "wiz.help.Debug"}}
+            </label>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- ===== STEP 12: Save Preset ===== -->
-    <div x-show="step===12"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-x-4"
-         x-transition:enter-end="opacity-100 translate-x-0"
-         class="bg-white rounded-xl shadow-sm border border-emerald-200 p-6 space-y-5">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-800">{{t "wiz.step.12.title"}}</h2>
-        <p class="text-sm text-slate-500 mt-0.5">{{t "wiz.step.12.subtitle"}}</p>
-      </div>
-      <!-- Summary card — populated when entering step 12 -->
-      <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 border" x-init="$watch('step', v => { if(v===12) buildSummary(); })">
-        <div class="font-semibold text-slate-800 mb-3">{{t "wiz.summary_title"}}</div>
-        <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-          <!-- Always visible -->
-          <span class="text-slate-500">Appliance</span>
-          <span class="font-mono font-semibold" x-text="cfg.ApplianceType"></span>
+      <!-- ===== STEP 6: Review & generate ===== -->
+      <div x-show="step===6"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0"
+           x-init="$watch('step', v => { if(v===6) buildSummary(); })">
+        <div class="ad-h1" style="font-size:20px;">{{t "wiz.step6.title"}}</div>
+        <div class="ad-subt" style="margin-bottom:18px;">{{t "wiz.step6.subtitle"}}</div>
 
-          <span class="text-slate-500">{{t "form.hostname"}}</span>
-          <span class="font-mono" x-text="summary.hostname || '—'"></span>
+        <!-- Summary grid -->
+        <div style="background:var(--sunken);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px;">
+          <div style="display:grid;grid-template-columns:auto 1fr auto 1fr;gap:10px 16px;font-size:12.5px;align-items:center;">
+            <span style="color:var(--muted);">Appliance</span><span style="font-family:var(--font-mono);font-weight:600;" x-text="cfg.ApplianceType"></span>
+            <span style="color:var(--muted);">{{t "form.hostname"}}</span><span style="font-family:var(--font-mono);" x-text="summary.hostname || '—'"></span>
+            <span style="color:var(--muted);">{{t "form.keyboard_layout"}}</span><span style="font-family:var(--font-mono);" x-text="summary.keyboard || '—'"></span>
+            <span style="color:var(--muted);">{{t "form.timezone"}}</span><span style="font-family:var(--font-mono);" x-text="summary.timezone || '—'"></span>
+            <span style="color:var(--muted);">{{t "form.network"}}</span><span style="font-family:var(--font-mono);" x-text="cfg.UseDHCP ? 'DHCP' : (summary.ip || 'Static')"></span>
+            <span style="color:var(--muted);">MFA Admin</span><span :style="cfg.VeeamAdminIsMfaEnabled?'color:var(--vg-deep);font-weight:600;':'color:var(--faint);'" x-text="cfg.VeeamAdminIsMfaEnabled ? '✓ enabled' : '✗ disabled'"></span>
+            <span style="color:var(--muted);">Security Officer</span><span :style="cfg.VeeamSoIsEnabled?'color:var(--vg-deep);font-weight:600;':'color:var(--faint);'" x-text="cfg.VeeamSoIsEnabled ? ('✓' + (cfg.VeeamSoIsMfaEnabled ? ' + MFA' : '')) : '✗ disabled'"></span>
+            <span style="color:var(--muted);">{{t "form.ntp"}}</span><span style="font-family:var(--font-mono);" x-text="summary.ntp || '—'"></span>
+            <template x-if="summary.cfgOnly"><span style="color:var(--muted);">{{t "form.cfg_only"}}</span></template>
+            <template x-if="summary.cfgOnly"><span style="color:#8A5A00;font-weight:600;">✓</span></template>
+            <template x-if="summary.inPlace"><span style="color:var(--muted);">{{t "form.inplace"}}</span></template>
+            <template x-if="summary.inPlace"><span style="color:#8A5A00;font-weight:600;">✓</span></template>
+            <template x-if="summary.createBackup"><span style="color:var(--muted);">{{t "form.create_backup"}}</span></template>
+            <template x-if="summary.createBackup"><span style="color:var(--vg-deep);font-weight:600;">✓</span></template>
+            <template x-if="summary.cleanupCfg"><span style="color:var(--muted);">{{t "form.cleanup_cfg"}}</span></template>
+            <template x-if="summary.cleanupCfg"><span style="color:var(--vg-deep);font-weight:600;">✓</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.nodeExporter"><span style="color:var(--muted);">{{t "form.node_exporter"}}</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.nodeExporter"><span style="color:var(--vg-deep);font-weight:600;">✓</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.licenseVbr"><span style="color:var(--muted);">{{t "form.license_vbr_tune"}}</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.licenseVbr"><span style="color:var(--vg-deep);font-weight:600;">✓</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.vcsp"><span style="color:var(--muted);">{{t "form.vcsp"}}</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.vcsp"><span style="color:var(--vg-deep);font-weight:600;">✓</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.ha"><span style="color:var(--muted);">HA</span></template>
+            <template x-if="cfg.ApplianceType==='VSA' && summary.ha"><span style="color:var(--vg-deep);font-weight:600;">✓</span></template>
+            <template x-if="summary.debug"><span style="color:var(--muted);">{{t "form.debug"}}</span></template>
+            <template x-if="summary.debug"><span style="color:#8C2A1F;font-weight:600;">⚠ enabled</span></template>
+          </div>
+        </div>
 
-          <span class="text-slate-500">{{t "form.keyboard_layout"}}</span>
-          <span class="font-mono" x-text="summary.keyboard || '—'"></span>
-
-          <span class="text-slate-500">{{t "form.timezone"}}</span>
-          <span class="font-mono" x-text="summary.timezone || '—'"></span>
-
-          <span class="text-slate-500">{{t "form.network"}}</span>
-          <span x-text="cfg.UseDHCP ? 'DHCP' : (summary.ip || 'Static')"></span>
-
-          <span class="text-slate-500">MFA Admin</span>
-          <span x-text="cfg.VeeamAdminIsMfaEnabled ? '✓ enabled' : '✗ disabled'"></span>
-
-          <span class="text-slate-500">Security Officer</span>
-          <span x-text="cfg.VeeamSoIsEnabled ? ('✓' + (cfg.VeeamSoIsMfaEnabled ? ' + MFA' : '')) : '✗ disabled'"></span>
-
-          <span class="text-slate-500">{{t "form.ntp"}}</span>
-          <span class="font-mono truncate" x-text="summary.ntp || '—'"></span>
-
-          <!-- Options toggled on -->
-          <template x-if="summary.cfgOnly">
-            <span class="text-slate-500">{{t "form.cfg_only"}}</span>
-          </template>
-          <template x-if="summary.cfgOnly">
-            <span class="text-amber-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="summary.inPlace">
-            <span class="text-slate-500">{{t "form.inplace"}}</span>
-          </template>
-          <template x-if="summary.inPlace">
-            <span class="text-amber-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="summary.createBackup">
-            <span class="text-slate-500">{{t "form.create_backup"}}</span>
-          </template>
-          <template x-if="summary.createBackup">
-            <span class="text-emerald-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="summary.cleanupCfg">
-            <span class="text-slate-500">{{t "form.cleanup_cfg"}}</span>
-          </template>
-          <template x-if="summary.cleanupCfg">
-            <span class="text-emerald-600 font-medium">✓</span>
-          </template>
-
-          <!-- VSA-only options -->
-          <template x-if="cfg.ApplianceType==='VSA' && summary.nodeExporter">
-            <span class="text-slate-500">{{t "form.node_exporter"}}</span>
-          </template>
-          <template x-if="cfg.ApplianceType==='VSA' && summary.nodeExporter">
-            <span class="text-emerald-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="cfg.ApplianceType==='VSA' && summary.licenseVbr">
-            <span class="text-slate-500">{{t "form.license_vbr_tune"}}</span>
-          </template>
-          <template x-if="cfg.ApplianceType==='VSA' && summary.licenseVbr">
-            <span class="text-emerald-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="cfg.ApplianceType==='VSA' && summary.vcsp">
-            <span class="text-slate-500">{{t "form.vcsp"}}</span>
-          </template>
-          <template x-if="cfg.ApplianceType==='VSA' && summary.vcsp">
-            <span class="text-emerald-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="cfg.ApplianceType==='VSA' && summary.ha">
-            <span class="text-slate-500">HA</span>
-          </template>
-          <template x-if="cfg.ApplianceType==='VSA' && summary.ha">
-            <span class="text-emerald-600 font-medium">✓</span>
-          </template>
-
-          <template x-if="summary.debug">
-            <span class="text-slate-500">{{t "form.debug"}}</span>
-          </template>
-          <template x-if="summary.debug">
-            <span class="text-red-600 font-medium">⚠️ enabled</span>
-          </template>
+        <!-- Preset name -->
+        <div>
+          <span class="ad-flabel">{{t "wiz.preset_name_label"}}</span>
+          <input type="text" id="preset_name" name="preset_name" placeholder="{{t "wiz.preset_name_ph"}}" maxlength="64" class="ad-input mono">
+          <p style="font-size:11.5px;color:var(--faint);margin-top:5px;">{{t "form.preset_name_ph"}}</p>
         </div>
       </div>
-      <!-- Preset name -->
-      <div class="space-y-1.5">
-        <label class="text-sm font-medium text-slate-700">{{t "wiz.preset_name_label"}}</label>
-        <input type="text" id="preset_name" name="preset_name" placeholder="{{t "wiz.preset_name_ph"}}" maxlength="64"
-               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        <p class="text-xs text-slate-400">{{t "form.preset_name_ph"}}</p>
-      </div>
-    </div>
 
+    </div><!-- end step card -->
   </form><!-- end #wizard-form -->
 
   <!-- Error message -->
-  <div x-show="stepError" x-cloak class="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700"
-       x-text="stepError"></div>
+  <div x-show="stepError" x-cloak class="ad-warn" style="margin-top:14px;"><span class="mi">error</span><span x-text="stepError"></span></div>
 
-  <!-- Navigation buttons -->
-  <div class="mt-6 flex items-center justify-between gap-3">
-    <div class="flex gap-2">
-      <button type="button" @click="prev()" x-show="currentIndex > 0"
-              class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">
-        {{t "wiz.prev"}}
+  <!-- nav -->
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;">
+    <div>
+      <button type="button" class="ad-btn ad-btn-secondary" @click="prev()" x-show="currentIndex > 0">
+        <span class="mi">arrow_back</span>{{t "wiz.back_label"}}
       </button>
-      <a href="/mode/expert" x-show="currentIndex === 0"
-         class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-medium transition-colors">
-        {{t "nav.expert_mode"}} →
-      </a>
+      <a href="/mode/expert" class="ad-btn ad-btn-secondary" x-show="currentIndex === 0">{{t "wiz.switch_expert"}}</a>
     </div>
-    <div class="flex gap-2">
-      <button type="button" @click="skip()" x-show="isAdvanced && !saving"
-              class="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-sm font-medium transition-colors">
-        {{t "wiz.skip"}}
+    <div style="display:flex;gap:10px;">
+      <button type="button" class="ad-btn ad-btn-amber" @click="skip()" x-show="showSkip && !saving">{{t "wiz.skip_label"}}</button>
+      <button type="button" class="ad-btn ad-btn-primary" @click="next()" x-show="step !== 6 && !saving">
+        {{t "wiz.next_label"}}<span class="mi">arrow_forward</span>
       </button>
-      <button type="button" @click="next()" x-show="step !== 12 && !saving"
-              class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors">
-        {{t "wiz.next"}}
-      </button>
-      <button type="button" @click="finish()" x-show="step === 12" :disabled="saving"
-              class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2">
+      <button type="button" class="ad-btn ad-btn-primary ad-btn-hero" @click="finish()" x-show="step === 6" :disabled="saving">
+        <span class="mi">build</span>
         <span x-show="!saving">{{t "wiz.finish"}}</span>
         <span x-show="saving" x-cloak>{{t "wiz.saving"}}</span>
       </button>
     </div>
   </div>
-
 
 </div>
 {{end}}

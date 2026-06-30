@@ -4,96 +4,367 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>autodeploy-web · {{.Version}}{{if .Commit}}+{{.Commit}}{{end}}</title>
+
 <link rel="stylesheet" href="/static/tailwind.css">
 <script src="/static/tailwind.js"></script>
+<script>
+  // Veeam-green-on-Securiti palette exposed as Tailwind utilities for the
+  // re-skinned pages (the shell itself uses the CSS variables below).
+  window.tailwind = window.tailwind || {};
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        veeam: { DEFAULT:'#00B336', btn:'#05A437', dark:'#018A2C', deep:'#06702A',
+                 50:'#ECFBF1', 100:'#CFF3DA', tint:'#F4FBF6' },
+        ink:'#1F2229', rail:'#1F2229', body:'#4C4E54', muted:'#62646A', faint:'#8F9094',
+        layout:'#F0F5F8', sunken:'#F6F8F9', line:'#EDF0F0',
+      },
+      fontFamily: {
+        sans:['Nunito Sans','Circular Pro','system-ui','sans-serif'],
+        display:['Jost','ITC Avant Garde Gothic Std','sans-serif'],
+        mono:['JetBrains Mono','Menlo','monospace'],
+      },
+    }},
+  };
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;700&family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,600;0,6..12,700;0,6..12,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0">
+
 <script src="/static/htmx.min.js" defer></script>
 <script src="/static/app.js" defer></script>
 <script src="/static/alpine.min.js" defer></script>
-</head>
-<body class="bg-slate-50 text-slate-800 min-h-screen">
-<header class="bg-emerald-700 text-white sticky top-0 z-50 shadow-md">
-  <div class="container mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
-    <a href="/" class="text-lg font-bold whitespace-nowrap">🚀 autodeploy-web</a>
-    <div class="flex items-center gap-5 flex-wrap justify-end">
-      <nav class="flex items-center gap-1 text-sm flex-wrap">
-        <a href="/wizard"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "wizard"}}bg-emerald-800 font-semibold{{end}}">
-          {{t "nav.wizard"}}
-        </a>
-        <a href="/"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "newjob"}}bg-emerald-800 font-semibold{{end}}">
-          ✨ {{t "nav.new_job"}}
-        </a>
-        <a href="/media/workspace"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "workspace"}}bg-emerald-800 font-semibold{{end}}">
-          📁 {{t "nav.workspace"}}
-        </a>
-        <a href="/media/output"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "output"}}bg-emerald-800 font-semibold{{end}}">
-          📦 {{t "nav.output"}}
-        </a>
-        <a href="/media/license"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "license"}}bg-emerald-800 font-semibold{{end}}">
-          🔑 {{t "nav.licenses"}}
-        </a>
-        <a href="/jobs"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "jobs"}}bg-emerald-800 font-semibold{{end}}">
-          📋 {{t "nav.jobs"}}
-        </a>
-        <a href="/deploy"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "deploy"}}bg-emerald-800 font-semibold{{end}}">
-          {{t "nav.deploy"}}
-        </a>
-        <a href="/craft-api"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "craftapi"}}bg-emerald-800 font-semibold{{end}}">
-          🛠️ {{t "nav.craft"}}
-        </a>
-        <a href="/admin"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 {{if eq .NavSection "admin"}}bg-emerald-800 font-semibold{{end}}"
-           title="{{t "nav.settings"}}">
-          ⚙️ <span class="hidden sm:inline">{{t "nav.settings"}}</span>
-        </a>
-        <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank"
-           class="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-emerald-600 opacity-75 hover:opacity-100">
-          GitHub
-        </a>
-      </nav>
 
-      <!-- Language switcher (FR / EN flags) -->
-      <div class="flex items-center gap-1.5">
-        <a href="/lang/en" title="English" aria-label="Switch to English"
-           class="block w-7 h-5 rounded-sm overflow-hidden border border-white/30 ring-offset-2 ring-offset-emerald-700 transition {{if eq .Lang "en"}}ring-2 ring-white{{else}}opacity-60 hover:opacity-100{{end}}">
-          <svg viewBox="0 0 60 30" class="w-full h-full block" preserveAspectRatio="none" aria-hidden="true">
-            <clipPath id="uk-cross"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath>
-            <path d="M0,0 v30 h60 v-30 z" fill="#012169"/>
-            <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/>
-            <path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#uk-cross)" stroke="#C8102E" stroke-width="4"/>
-            <path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/>
-            <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/>
-          </svg>
-        </a>
-        <a href="/lang/fr" title="Français" aria-label="Passer en français"
-           class="block w-7 h-5 rounded-sm overflow-hidden border border-white/30 ring-offset-2 ring-offset-emerald-700 transition {{if eq .Lang "fr"}}ring-2 ring-white{{else}}opacity-60 hover:opacity-100{{end}}">
-          <svg viewBox="0 0 3 2" class="w-full h-full block" preserveAspectRatio="none" aria-hidden="true">
-            <rect width="3" height="2" fill="#fff"/>
-            <rect width="1" height="2" x="0" fill="#0055A4"/>
-            <rect width="1" height="2" x="2" fill="#EF4135"/>
-          </svg>
+<style>
+  :root{
+    --vg:#00B336; --vg-button:#05A437; --vg-dark:#018A2C; --vg-deep:#06702A;
+    --vg-50:#ECFBF1; --vg-100:#CFF3DA; --vg-tint:#F4FBF6;
+    --ink:#1F2229; --rail:#1F2229; --rail2:#2A2D34;
+    --body:#4C4E54; --muted:#62646A; --faint:#8F9094;
+    --layout:#F0F5F8; --card:#FFFFFF; --sunken:#F6F8F9; --line:#EDF0F0;
+    --bd:rgba(0,0,0,0.08); --bd2:#D7D9DB;
+    --mi:'Material Symbols Outlined';
+    --font-ui:'Nunito Sans','Circular Pro',-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
+    --font-display:'Jost','ITC Avant Garde Gothic Std','Helvetica Neue',Arial,sans-serif;
+    --font-mono:'JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  html,body{margin:0;padding:0;background:var(--layout);}
+  *{box-sizing:border-box;}
+  [x-cloak]{display:none!important;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#cfd6db;border-radius:8px;border:2px solid transparent;background-clip:content-box;}
+  @keyframes adpulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+  /* Material Symbol glyph */
+  .mi{font-family:var(--mi);line-height:1;font-weight:normal;font-style:normal;
+      letter-spacing:normal;text-transform:none;white-space:nowrap;direction:ltr;
+      -webkit-font-feature-settings:'liga';-webkit-font-smoothing:antialiased;}
+
+  /* ---- shell ---- */
+  .ad-shell{display:flex;height:100vh;min-height:680px;overflow:hidden;
+            background:var(--layout);font-family:var(--font-ui);color:var(--ink);font-size:14px;}
+  .ad-sidebar{width:248px;flex-shrink:0;background:var(--rail);display:flex;flex-direction:column;}
+  .ad-brand{height:60px;flex-shrink:0;display:flex;align-items:center;gap:11px;padding:0 16px;
+            border-bottom:1px solid rgba(255,255,255,.07);text-decoration:none;}
+  .ad-brand-tile{width:34px;height:34px;border-radius:8px;background:var(--vg);display:flex;
+                 align-items:center;justify-content:center;color:#fff;flex-shrink:0;
+                 box-shadow:0 2px 8px rgba(0,179,54,.35);}
+  .ad-brand-word{color:#fff;font-weight:800;font-size:15.5px;letter-spacing:-.01em;}
+  .ad-nav{flex:1;overflow-y:auto;padding:10px;}
+  .ad-group{margin-bottom:4px;}
+  .ad-group-label{padding:12px 12px 5px;font-size:10px;font-weight:800;letter-spacing:.09em;
+                  text-transform:uppercase;color:#6C6F76;}
+  .ad-navrow{display:flex;align-items:center;gap:11px;padding:8px 11px;border-radius:7px;
+             font-size:13.5px;color:#AEB0B4;font-weight:500;text-decoration:none;cursor:pointer;
+             transition:background 150ms ease,color 150ms ease;}
+  .ad-navrow:hover{background:rgba(255,255,255,.07);color:#fff;}
+  .ad-navrow.active{background:rgba(0,179,54,.15);color:#fff;font-weight:600;
+                    box-shadow:inset 3px 0 0 var(--vg);}
+  .ad-navrow .mi{font-size:19px;flex-shrink:0;}
+  .ad-foot{flex-shrink:0;padding:8px 10px 12px;border-top:1px solid rgba(255,255,255,.07);}
+  .ad-ver{padding:9px 12px 2px;font-size:11px;color:#6C6F76;font-family:var(--font-mono);}
+
+  .ad-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .ad-topbar{height:60px;flex-shrink:0;background:var(--card);border-bottom:1px solid var(--bd);
+             display:flex;align-items:center;gap:16px;padding:0 24px;}
+  .ad-crumb{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);}
+  .ad-crumb .mi{font-size:14px;color:var(--faint);}
+  .ad-crumb .sep{font-size:13px;color:#C3C5C8;}
+  .ad-crumb .here{color:var(--ink);font-weight:600;}
+  .ad-pagetitle{font-family:var(--font-display);font-size:18px;font-weight:500;color:var(--ink);
+                line-height:1.1;letter-spacing:-.01em;}
+  .ad-search{margin-left:auto;display:flex;align-items:center;gap:7px;height:36px;padding:0 12px;
+             background:var(--sunken);border:1px solid #E6E9EB;border-radius:6px;width:248px;
+             font-size:13px;color:var(--faint);user-select:none;}
+  .ad-search .mi{font-size:17px;}
+  .ad-iconbtn{width:36px;height:36px;border-radius:6px;border:none;background:transparent;
+              color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;
+              justify-content:center;transition:background 150ms ease;}
+  .ad-iconbtn:hover{background:var(--sunken);}
+  .ad-iconbtn .mi{font-size:20px;}
+  .ad-menu{position:absolute;right:0;top:44px;min-width:180px;background:#fff;border:1px solid var(--bd2);
+           border-radius:8px;box-shadow:0 10px 28px rgba(28,32,41,.18);padding:6px;z-index:60;}
+  .ad-menu a{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;
+             font-size:13px;color:var(--body);text-decoration:none;}
+  .ad-menu a:hover{background:var(--sunken);}
+  .ad-menu a.on{color:var(--vg-deep);font-weight:700;background:var(--vg-50);}
+  .ad-menu .mi{font-size:16px;color:var(--faint);}
+  .ad-menu-sep{height:1px;background:var(--line);margin:5px 2px;}
+  .ad-identity{display:flex;align-items:center;gap:9px;padding-left:6px;}
+  .ad-avatar{width:32px;height:32px;border-radius:999px;background:var(--vg);color:#fff;
+             font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+
+  .ad-scroll{flex:1;overflow-y:auto;}
+  .ad-page{max-width:1240px;margin:0 auto;padding:26px 28px 56px;}
+
+  /* =========================================================================
+     Shared component vocabulary (re-skin classes used by every page).
+     Values mirror design_handoff/Autodeploy-Web Redesign.dc.html exactly.
+     ========================================================================= */
+
+  /* in-page header */
+  .ad-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;}
+  .ad-eyebrow{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);}
+  .ad-h1{font-family:var(--font-display);font-size:26px;font-weight:500;color:var(--ink);letter-spacing:-.02em;line-height:1.1;}
+  .ad-h1.lg{font-size:30px;}
+  .ad-subt{font-size:13px;color:var(--muted);margin-top:4px;}
+
+  /* cards */
+  .ad-card{background:var(--card);border:1px solid var(--bd);border-radius:10px;box-shadow:0 1px 2px rgba(28,32,41,.05);overflow:hidden;}
+  .ad-card-head{padding:13px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px;}
+  .ad-card-title{font-weight:700;font-size:14px;}
+  .ad-card-body{padding:18px;}
+  .ad-card-ico{width:28px;height:28px;border-radius:7px;background:var(--vg-50);color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .ad-card-ico .mi{font-size:17px;}
+
+  /* buttons */
+  .ad-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 13px;border-radius:6px;border:1px solid transparent;font-weight:600;font-size:13px;cursor:pointer;font-family:var(--font-ui);text-decoration:none;white-space:nowrap;transition:background 150ms ease,box-shadow 150ms ease;}
+  .ad-btn .mi{font-size:17px;}
+  .ad-btn:disabled{opacity:.55;cursor:not-allowed;}
+  .ad-btn-primary{background:var(--vg-button);color:#fff;}
+  .ad-btn-primary:hover{background:var(--vg-dark);}
+  .ad-btn-secondary{background:#fff;color:var(--body);border-color:var(--bd2);}
+  .ad-btn-secondary:hover{background:var(--sunken);}
+  .ad-btn-green{background:var(--vg-50);color:var(--vg-deep);border-color:var(--vg-100);}
+  .ad-btn-green:hover{background:#E0F7E8;}
+  .ad-btn-amber{background:#FCF4E2;color:#8A5A00;border-color:#F0DDB0;}
+  .ad-btn-amber:hover{background:#F8ECCF;}
+  .ad-btn-red{background:#FCEEEC;color:#8C2A1F;border-color:#F3D6D1;}
+  .ad-btn-red:hover{background:#F9E2DE;}
+  .ad-btn-indigo{background:#EEF1FF;color:#3F4FB0;border-color:#C7D2FE;}
+  .ad-btn-indigo:hover{background:#E3E8FF;}
+  .ad-btn-dark{background:var(--ink);color:#fff;}
+  .ad-btn-dark:hover{background:#000;}
+  .ad-btn-lg{height:46px;border-radius:8px;font-size:14.5px;font-weight:700;}
+  .ad-btn-hero{box-shadow:0 4px 14px rgba(0,179,54,.3);}
+  .ad-btn-block{width:100%;}
+  .ad-btn-link{background:transparent;border:none;color:var(--vg-deep);font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-family:var(--font-ui);padding:0;}
+  .ad-gen{width:40px;height:38px;border:1px solid var(--bd2);border-radius:6px;background:var(--sunken);color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 150ms,color 150ms;}
+  .ad-gen:hover{background:#EBEEF0;color:var(--vg-deep);}
+  .ad-gen .mi{font-size:18px;}
+  .ad-del{width:36px;height:36px;border:1px solid #F3D6D1;border-radius:6px;background:#FCEEEC;color:#8C2A1F;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .ad-del .mi{font-size:17px;}
+
+  /* form fields */
+  .ad-flabel{font-size:12.5px;font-weight:600;color:var(--body);margin-bottom:5px;display:block;}
+  .ad-hint{color:var(--faint);font-weight:500;}
+  .ad-input,.ad-select{width:100%;height:38px;padding:0 11px;border:1px solid var(--bd2);border-radius:6px;font-size:13px;background:#fff;color:var(--ink);outline:none;font-family:var(--font-ui);transition:border-color 140ms,box-shadow 140ms;}
+  .ad-select{padding-right:30px;}
+  .ad-input:focus,.ad-select:focus{border-color:var(--vg);box-shadow:0 0 0 3px rgba(0,179,54,.15);}
+  .ad-input.mono,.ad-select.mono{font-family:var(--font-mono);font-size:12px;}
+  .ad-check{width:15px;height:15px;accent-color:var(--vg);}
+  .ad-checkrow{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--ink);}
+
+  /* status chips — class chosen by chipClass(state) so the SSE JS contract holds */
+  .ad-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;}
+  .ad-chip .dot{width:6px;height:6px;border-radius:999px;flex-shrink:0;}
+  .ad-chip-done{background:#D6E9CA;color:#3F6E1F;}      .ad-chip-done .dot{background:#70B246;}
+  .ad-chip-running{background:#E4F2FB;color:#0779A5;}   .ad-chip-running .dot{background:#1CA8DD;animation:adpulse 1.6s ease-in-out infinite;}
+  .ad-chip-failed{background:#F8D6D1;color:#8C2A1F;}    .ad-chip-failed .dot{background:#D95858;}
+  .ad-chip-pending{background:#E9E9EA;color:#4C4E54;}   .ad-chip-pending .dot{background:#8F9094;}
+  .ad-chip-lg{padding:3px 11px;font-size:12px;}         .ad-chip-lg .dot{width:7px;height:7px;}
+  .ad-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:4px;background:#EEF1F4;color:var(--body);font-size:11px;font-weight:700;}
+
+  /* role pills */
+  .ad-role{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;}
+  .ad-role .mi{font-size:14px;}
+  .ad-role-vsa{background:var(--vg-50);color:#06702A;}
+  .ad-role-proxy{background:#E4F2FB;color:#0779A5;}
+  .ad-role-hr{background:#EFEAFB;color:#6B46C1;}
+
+  /* tables */
+  .ad-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .ad-table th{text-align:left;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);}
+  .ad-table th:first-child,.ad-table td:first-child{padding-left:18px;}
+  .ad-table th:last-child,.ad-table td:last-child{padding-right:18px;}
+  .ad-table td{padding:11px 12px;border-bottom:1px solid var(--line);font-size:13px;}
+  .ad-table tbody tr:hover{background:var(--vg-tint);}
+  .ad-table .mono{font-family:var(--font-mono);}
+  .ad-table .idcell{font-family:var(--font-mono);font-size:12px;color:var(--vg-deep);font-weight:600;}
+  .ad-table-sunkenhead th{background:var(--sunken);}
+
+  /* KPI tiles */
+  .ad-kpi{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:16px 18px;box-shadow:0 1px 2px rgba(28,32,41,.05);}
+  .ad-kpi-top{display:flex;align-items:center;justify-content:space-between;}
+  .ad-kpi-label{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);}
+  .ad-kpi-ico{width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;}
+  .ad-kpi-ico .mi{font-size:16px;}
+  .ad-kpi-val{font-family:var(--font-display);font-size:30px;font-weight:500;color:var(--ink);line-height:1.05;letter-spacing:-.02em;margin-top:8px;font-variant-numeric:tabular-nums;}
+  .ad-kpi-meta{font-size:11.5px;margin-top:3px;}
+
+  /* segmented toggle */
+  .ad-seg{display:inline-flex;background:#E9EDF0;border-radius:8px;padding:3px;}
+  .ad-seg button{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 14px;border-radius:6px;border:none;background:transparent;color:var(--muted);font-weight:600;font-size:12.5px;cursor:pointer;font-family:var(--font-ui);transition:background 140ms,color 140ms;}
+  .ad-seg button .mi{font-size:16px;}
+  .ad-seg button.on{background:#fff;color:var(--vg-deep);font-weight:700;box-shadow:0 1px 2px rgba(28,32,41,.12);}
+
+  /* misc */
+  .ad-sunken{background:var(--sunken);border-radius:7px;}
+  .ad-grouplabel{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);}
+  .ad-req{font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--vg-deep);background:var(--vg-50);border:1px solid var(--vg-100);padding:1px 6px;border-radius:999px;}
+  .ad-pill-vsa{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--vg-deep);background:var(--vg-50);border:1px solid var(--vg-100);padding:2px 8px;border-radius:999px;}
+  .ad-info{background:var(--vg-tint);border:1px solid var(--vg-100);border-radius:8px;font-size:12.5px;color:var(--vg-deep);display:flex;align-items:center;gap:8px;padding:11px 14px;}
+  .ad-warn{background:#FCF4E2;border:1px solid #F0DDB0;color:#8A5A00;border-radius:8px;padding:11px 14px;font-size:13px;display:flex;align-items:center;gap:9px;}
+  .ad-warn .mi,.ad-info .mi{font-size:18px;flex-shrink:0;}
+  .ad-divider{display:flex;align-items:center;gap:10px;margin:2px 0 10px;}
+  .ad-divider .rule{flex:1;height:1px;background:var(--line);}
+
+  /* dark live log */
+  .ad-log{background:#13161C;border:1px solid #20242C;border-radius:10px;overflow:hidden;}
+  .ad-log-head{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #20242C;}
+  .ad-log-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7E8794;display:inline-flex;align-items:center;gap:7px;}
+  .ad-log-title .dot{width:7px;height:7px;border-radius:999px;background:var(--vg);animation:adpulse 1.6s ease-in-out infinite;}
+  .ad-log-auto{font-size:11px;color:#7E8794;display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+  .ad-log pre{margin:0;padding:14px 16px;max-height:300px;overflow:auto;font-family:var(--font-mono);font-size:12px;line-height:1.65;color:#9BE7B4;white-space:pre-wrap;}
+
+  /* sticky right rail */
+  .ad-rail{position:sticky;top:0;display:flex;flex-direction:column;gap:14px;}
+  .ad-2col{display:grid;grid-template-columns:minmax(0,1fr) 312px;gap:18px;align-items:start;}
+  @media (max-width:900px){.ad-2col{grid-template-columns:minmax(0,1fr);}}
+</style>
+</head>
+
+<body class="ad-shell">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="ad-sidebar">
+    <a href="/" class="ad-brand">
+      <span class="ad-brand-tile"><span class="mi" style="font-size:20px;">rocket_launch</span></span>
+      <span class="ad-brand-word">autodeploy<span style="color:var(--vg);">-web</span></span>
+    </a>
+
+    <nav class="ad-nav">
+      <div class="ad-group">
+        <a href="/" class="ad-navrow{{if eq .NavSection "dashboard"}} active{{end}}">
+          <span class="mi">space_dashboard</span><span>{{t "shell.nav.dashboard"}}</span>
         </a>
       </div>
 
-      <span class="text-xs opacity-75 font-mono whitespace-nowrap"
-            title="version {{.Version}}{{if .Commit}} · commit {{.Commit}}{{end}}{{if .BuildDate}} · built {{.BuildDate}}{{end}}">
-        v{{.Version}}{{if .Commit}} · <span class="opacity-90">{{.Commit}}</span>{{end}}
-      </span>
+      <div class="ad-group">
+        <div class="ad-group-label">{{t "shell.group.build"}}</div>
+        <a href="/mode/expert" class="ad-navrow{{if eq .NavSection "newjob"}} active{{end}}">
+          <span class="mi">note_add</span><span>{{t "shell.nav.new_job"}}</span>
+        </a>
+        <a href="/wizard" class="ad-navrow{{if eq .NavSection "wizard"}} active{{end}}">
+          <span class="mi">auto_awesome</span><span>{{t "shell.nav.wizard"}}</span>
+        </a>
+      </div>
+
+      <div class="ad-group">
+        <div class="ad-group-label">{{t "shell.group.deploy"}}</div>
+        <a href="/deploy" class="ad-navrow{{if eq .NavSection "deploy"}} active{{end}}">
+          <span class="mi">lan</span><span>{{t "shell.nav.deploy"}}</span>
+        </a>
+        <a href="/craft-api" class="ad-navrow{{if eq .NavSection "craftapi"}} active{{end}}">
+          <span class="mi">code</span><span>{{t "shell.nav.craft"}}</span>
+        </a>
+      </div>
+
+      <div class="ad-group">
+        <div class="ad-group-label">{{t "shell.group.library"}}</div>
+        <a href="/media/workspace" class="ad-navrow{{if eq .NavSection "workspace"}} active{{end}}">
+          <span class="mi">folder_open</span><span>{{t "shell.nav.workspace"}}</span>
+        </a>
+        <a href="/media/output" class="ad-navrow{{if eq .NavSection "output"}} active{{end}}">
+          <span class="mi">inventory_2</span><span>{{t "shell.nav.output"}}</span>
+        </a>
+        <a href="/media/license" class="ad-navrow{{if eq .NavSection "license"}} active{{end}}">
+          <span class="mi">key</span><span>{{t "shell.nav.licenses"}}</span>
+        </a>
+      </div>
+
+      <div class="ad-group">
+        <div class="ad-group-label">{{t "shell.group.history"}}</div>
+        <a href="/jobs" class="ad-navrow{{if eq .NavSection "jobs"}} active{{end}}">
+          <span class="mi">history</span><span>{{t "shell.nav.jobs"}}</span>
+        </a>
+      </div>
+    </nav>
+
+    <div class="ad-foot">
+      <a href="/admin" class="ad-navrow{{if eq .NavSection "admin"}} active{{end}}">
+        <span class="mi">settings</span><span>{{t "shell.nav.settings"}}</span>
+      </a>
+      <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" rel="noopener" class="ad-navrow">
+        <span class="mi">code</span><span>{{t "shell.nav.github"}}</span>
+        <span class="mi" style="font-size:14px;margin-left:auto;opacity:.6;">open_in_new</span>
+      </a>
+      <div class="ad-ver" title="version {{.Version}}{{if .Commit}} · commit {{.Commit}}{{end}}{{if .BuildDate}} · built {{.BuildDate}}{{end}}">
+        v{{.Version}}{{if .Commit}} · {{.Commit}}{{end}}
+      </div>
     </div>
-  </div>
-</header>
-<main class="container mx-auto px-4 py-6">
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="ad-main">
+
+    <!-- top bar -->
+    <header class="ad-topbar">
+      <div style="display:flex;flex-direction:column;gap:1px;min-width:0;">
+        <div class="ad-crumb">
+          <span class="mi">home</span>
+          <span class="mi sep">chevron_right</span>
+          <span class="here">{{t (printf "shell.crumb.%s" .NavSection)}}</span>
+        </div>
+        <div class="ad-pagetitle">{{t (printf "shell.title.%s" .NavSection)}}</div>
+      </div>
+
+      <div class="ad-search">
+        <span class="mi">search</span><span>{{t "shell.search"}}</span>
+      </div>
+
+      <div style="position:relative;" x-data="{m:false}">
+        <button type="button" class="ad-iconbtn" @click="m=!m" :aria-expanded="m" title="{{t "shell.help"}}">
+          <span class="mi">help</span>
+        </button>
+        <div x-show="m" x-cloak @click.outside="m=false" class="ad-menu">
+          <a href="/lang/en" class="{{if eq .Lang "en"}}on{{end}}"><span class="mi">language</span>English</a>
+          <a href="/lang/fr" class="{{if eq .Lang "fr"}}on{{end}}"><span class="mi">language</span>Français</a>
+          <div class="ad-menu-sep"></div>
+          <a href="/admin"><span class="mi">settings</span>{{t "shell.nav.settings"}}</a>
+          <a href="https://github.com/BaptisteTellier/autodeploy-web" target="_blank" rel="noopener"><span class="mi">help</span>{{t "shell.nav.github"}}</a>
+        </div>
+      </div>
+
+      <div class="ad-identity">
+        <div class="ad-avatar">VM</div>
+        <div style="font-size:12px;line-height:1.2;">
+          <div style="font-weight:700;color:var(--ink);">vmaster</div>
+          <div style="color:var(--faint);font-family:var(--font-mono);font-size:11px;">LAN</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- page scroll area -->
+    <div class="ad-scroll">
+      <div class="ad-page">
 {{template "content" .}}
-</main>
-<footer class="text-center text-xs text-slate-500 py-6">
-{{t "footer.pre"}}<a href="https://github.com/BaptisteTellier/autodeploy" class="underline">BaptisteTellier/autodeploy</a>{{t "footer.post"}}
-</footer>
+      </div>
+    </div>
+
+  </main>
+
 </body>
 </html>{{end}}

@@ -2,127 +2,127 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="max-w-4xl mx-auto space-y-4"
+<div style="max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px;"
      x-data="consoleApp({{jsonStr .Deployment.ID}})"
      x-init="init()">
 
-  <div class="flex flex-wrap items-center gap-3">
-    <a href="/deploy" class="text-slate-500 hover:underline text-sm">{{t "deploy.back"}}</a>
-    <h1 class="text-xl font-bold font-mono">{{.Deployment.Kind}}</h1>
-    <span id="dep-state" class="ml-auto px-3 py-1 rounded text-sm inline-block
-      {{if eq (printf "%s" .Deployment.State) "done"}}bg-emerald-100 text-emerald-800{{end}}
-      {{if eq (printf "%s" .Deployment.State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
-      {{if eq (printf "%s" .Deployment.State) "failed"}}bg-red-100 text-red-800{{end}}
-      {{if eq (printf "%s" .Deployment.State) "pending"}}bg-slate-100 text-slate-800{{end}}
-      {{if eq (printf "%s" .Deployment.State) "canceled"}}bg-slate-200 text-slate-700{{end}}
-      {{if eq (printf "%s" .Deployment.State) "removed"}}bg-slate-200 text-slate-700{{end}}
-    ">{{.Deployment.State}}</span>
-  </div>
-  <div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-slate-400 tabular-nums">
-    <span>Started: <span class="text-slate-600">{{fmtTime .Deployment.CreatedAt}}</span></span>
-    {{if not .Deployment.FinishedAt.IsZero}}
-    <span>Finished: <span class="text-slate-600">{{fmtTime .Deployment.FinishedAt}}</span></span>
-    <span>Duration: <span class="text-slate-600">{{fmtDur .Deployment.CreatedAt .Deployment.FinishedAt}}</span></span>
-    {{end}}
+  <!-- header: back link, mono name + short id + state chip + meta line -->
+  <div>
+    <a href="/deploy" class="ad-btn-link"><span class="mi" style="font-size:16px;">arrow_back</span>{{t "deploy.back"}}</a>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap;">
+      <span style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--ink);">{{.Deployment.Kind}}</span>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">{{short8 .Deployment.ID}}</span>
+      <span id="dep-state" class="ad-chip ad-chip-lg {{chipClass .Deployment.State}}"><span class="dot"></span>{{.Deployment.State}}</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:7px;font-size:12px;color:var(--faint);font-family:var(--font-mono);">
+      <span>{{t "th.started"}} <span style="color:var(--body);">{{fmtTime .Deployment.CreatedAt}}</span></span>
+      {{if not .Deployment.FinishedAt.IsZero}}
+      <span>{{t "deploy.elapsed"}} <span style="color:var(--body);">{{fmtDur .Deployment.CreatedAt .Deployment.FinishedAt}}</span></span>
+      {{end}}
+      <span>{{t "dash.col_provider"}} <span style="color:var(--body);">{{.Deployment.Form.Provider}}</span></span>
+      <span>{{t "dash.col_nodes"}} <span style="color:var(--body);">{{len .Deployment.Nodes}}</span></span>
+    </div>
   </div>
 
-  <!-- Actions: stop a running deployment, or remove it (destroying its VMs) -->
-  <div x-data="{ showRemove:false, confirmed:false }" class="flex flex-wrap items-center gap-2">
-    <span id="dep-actions" data-running="{{if or (eq (printf "%s" .Deployment.State) "running") (eq (printf "%s" .Deployment.State) "pending")}}1{{end}}" class="contents">
+  <!-- Actions: stop a running deployment, retry/re-wire/copy a finished one, or remove it (destroying its VMs) -->
+  <div x-data="{ showRemove:false, confirmed:false }" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+    <span id="dep-actions" data-running="{{if or (eq (printf "%s" .Deployment.State) "running") (eq (printf "%s" .Deployment.State) "pending")}}1{{end}}" style="display:contents;">
       {{if or (eq (printf "%s" .Deployment.State) "running") (eq (printf "%s" .Deployment.State) "pending")}}
       <form method="POST" action="/deploy/{{.Deployment.ID}}/stop">
-        <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors">⏹ {{t "deploy.stop"}}</button>
+        <button type="submit" class="ad-btn ad-btn-amber"><span class="mi">stop_circle</span>{{t "deploy.stop"}}</button>
       </form>
       {{end}}
     </span>
     {{if or (eq (printf "%s" .Deployment.State) "done") (eq (printf "%s" .Deployment.State) "failed") (eq (printf "%s" .Deployment.State) "canceled") (eq (printf "%s" .Deployment.State) "removed")}}
     <form method="POST" action="/deploy/{{.Deployment.ID}}/retry">
-      <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors">↻ {{t "deploy.retry"}}</button>
+      <button type="submit" class="ad-btn ad-btn-secondary"><span class="mi">replay</span>{{t "deploy.retry"}}</button>
     </form>
     {{if and .Deployment.HasWirer (eq (printf "%s" .Deployment.State) "failed")}}
-    <form method="POST" action="/deploy/{{.Deployment.ID}}/rewire" class="flex items-center gap-1">
+    <form method="POST" action="/deploy/{{.Deployment.ID}}/rewire" style="display:flex;align-items:center;gap:6px;">
       <input name="wire_timeout" type="number" min="5" value="{{or (.Deployment.Form.Text.wire_timeout) "45"}}"
-             class="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+             class="ad-input mono" style="width:62px;height:34px;"
              title="{{t "deploy.rewire_timeout"}}">
-      <span class="text-xs text-slate-400">min</span>
-      <button type="submit" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">🔌 {{t "deploy.rewire"}}</button>
+      <span style="font-size:11px;color:var(--faint);">min</span>
+      <button type="submit" class="ad-btn ad-btn-secondary"><span class="mi">cable</span>{{t "deploy.rewire"}}</button>
     </form>
     {{end}}
-    <a href="/deploy?copy={{.Deployment.ID}}"
-       class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">⧉ {{t "deploy.copy_to_deploy"}}</a>
-    {{end}}
-    {{if ne (printf "%s" .Deployment.State) "removed"}}
-    <button type="button" @click="showRemove=true; confirmed=false"
-            class="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">🗑 {{t "deploy.remove"}}</button>
+    <a href="/deploy?copy={{.Deployment.ID}}" class="ad-btn ad-btn-secondary"><span class="mi">content_copy</span>{{t "deploy.copy_to_deploy"}}</a>
     {{end}}
 
     <!-- VSA REST API console toggle (on the same action row; errors clearly if the VSA isn't up) -->
     <button type="button"
             @click="sessionOpen ? closeSession() : openSession()"
             :disabled="loading"
-            class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
-            :class="sessionOpen
-              ? 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200'
-              : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'">
+            class="ad-btn ad-btn-indigo">
+      <span class="mi">terminal</span>
       <span x-text="sessionOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
     </button>
 
+    {{if ne (printf "%s" .Deployment.State) "removed"}}
+    <button type="button" @click="showRemove=true; confirmed=false" class="ad-btn ad-btn-red"><span class="mi">delete</span>{{t "deploy.remove"}}</button>
+    {{end}}
+
     <!-- Confirmation modal -->
     <div x-show="showRemove" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showRemove=false" @keydown.escape.window="showRemove=false">
-      <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-        <h3 class="font-semibold text-slate-800">{{t "deploy.remove_title"}}</h3>
-        <p class="text-sm text-slate-600">{{t "deploy.remove_warning"}}</p>
-        <p class="text-xs text-slate-500 font-mono">{{len .Deployment.Nodes}} VM(s) · {{.Deployment.Kind}}</p>
-        <label class="flex items-start gap-2 text-sm text-slate-700">
-          <input type="checkbox" x-model="confirmed" class="mt-0.5 rounded border-slate-300">
-          <span>{{t "deploy.remove_confirm"}}</span>
-        </label>
-        <div class="flex justify-end gap-2">
-          <button type="button" @click="showRemove=false" class="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200">{{t "deploy.cancel"}}</button>
-          <form method="POST" action="/deploy/{{.Deployment.ID}}/remove">
-            <button type="submit" :disabled="!confirmed"
-                    class="px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">{{t "deploy.remove_button"}}</button>
-          </form>
+      <div class="ad-card" style="max-width:28rem;width:100%;">
+        <div class="ad-card-body" style="display:flex;flex-direction:column;gap:14px;">
+          <h3 style="font-family:var(--font-display);font-size:17px;font-weight:600;color:var(--ink);">{{t "deploy.remove_title"}}</h3>
+          <p style="font-size:13px;color:var(--body);line-height:1.5;">{{t "deploy.remove_warning"}}</p>
+          <p style="font-size:12px;color:var(--faint);font-family:var(--font-mono);">{{len .Deployment.Nodes}} VM(s) · {{.Deployment.Kind}}</p>
+          <label class="ad-checkrow" style="align-items:flex-start;">
+            <input type="checkbox" x-model="confirmed" class="ad-check" style="margin-top:2px;">
+            <span style="font-size:13px;color:var(--body);">{{t "deploy.remove_confirm"}}</span>
+          </label>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" @click="showRemove=false" class="ad-btn ad-btn-secondary">{{t "deploy.cancel"}}</button>
+            <form method="POST" action="/deploy/{{.Deployment.ID}}/remove">
+              <button type="submit" :disabled="!confirmed" class="ad-btn ad-btn-red" style="font-weight:700;">{{t "deploy.remove_button"}}</button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
   {{if .Deployment.Error}}
-  <div class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">⚠️ {{.Deployment.Error}}</div>
+  <div class="ad-warn"><span class="mi">warning</span>{{.Deployment.Error}}</div>
   {{end}}
 
   <!-- Node statuses -->
-  <div class="bg-white rounded shadow overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
+  <div class="ad-card">
+    <table class="ad-table ad-table-sunkenhead">
+      <thead>
         <tr>
-          <th class="px-4 py-3">{{t "th.hostname"}}</th>
-          <th class="px-4 py-3">{{t "deploy.topology"}}</th>
-          <th class="px-4 py-3">{{t "deploy.step"}}</th>
-          <th class="px-4 py-3">{{t "deploy.vmid"}}</th>
-          <th class="px-4 py-3">{{t "deploy.node_ip"}}</th>
+          <th>{{t "th.hostname"}}</th>
+          <th>{{t "th.role"}}</th>
+          <th>{{t "deploy.step"}}</th>
+          <th>{{t "deploy.vmid"}}</th>
+          <th>{{t "deploy.node_ip"}}</th>
         </tr>
       </thead>
       <tbody>
       {{range $i, $n := .Deployment.Nodes}}
-      <tr class="border-t">
-        <td class="px-4 py-3 font-mono">{{$n.Hostname}}</td>
-        <td class="px-4 py-3">{{$n.Role}}</td>
-        <td class="px-4 py-3">
-          <span data-step="{{$i}}" class="text-xs px-2 py-0.5 rounded-full
-            {{if eq $n.Step "ready"}}bg-emerald-100 text-emerald-700{{else if eq $n.Step "failed"}}bg-red-100 text-red-700{{else if (or (eq $n.Step "queued") (eq $n.Step "created") (eq $n.Step "canceled") (eq $n.Step "removed"))}}bg-slate-100 text-slate-600{{else}}bg-blue-100 text-blue-700{{end}}">{{$n.Step}}</span>
-          <!-- ISO upload progress bar — revealed live by the "progress" SSE event -->
-          <div class="deploy-progress mt-1 flex items-center gap-2 {{if not (and (eq $n.Step "uploading") (gt $n.Progress 0))}}hidden{{end}}" data-node="{{$i}}">
-            <div class="w-32 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-              <div class="prog-bar bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width:{{$n.Progress}}%"></div>
-            </div>
-            <span class="prog-pct text-[10px] text-slate-400 tabular-nums">{{$n.Progress}}%</span>
-          </div>
-          {{if $n.Error}}<div class="text-xs text-red-600 mt-1">{{$n.Error}}</div>{{end}}
+      <tr>
+        <td class="mono" style="font-weight:600;">{{$n.Hostname}}</td>
+        <td>
+          {{if eq $n.Role "VSA"}}<span class="ad-role ad-role-vsa"><span class="mi">dns</span>{{$n.Role}}</span>
+          {{else if eq $n.Role "VIA-Proxy"}}<span class="ad-role ad-role-proxy"><span class="mi">swap_horiz</span>{{$n.Role}}</span>
+          {{else if eq $n.Role "VIA-HR"}}<span class="ad-role ad-role-hr"><span class="mi">shield</span>{{$n.Role}}</span>
+          {{else}}<span class="ad-role ad-role-vsa"><span class="mi">dns</span>{{$n.Role}}</span>{{end}}
         </td>
-        <td data-vmid="{{$i}}" class="px-4 py-3 font-mono text-slate-600">{{$n.VMID}}</td>
-        <td data-ip="{{$i}}" class="px-4 py-3 font-mono text-slate-600">{{$n.IP}}</td>
+        <td>
+          <span data-step="{{$i}}" class="ad-chip {{chipClass $n.Step}}"><span class="dot"></span>{{$n.Step}}</span>
+          <!-- ISO upload progress bar — revealed live by the "progress" SSE event -->
+          <div class="deploy-progress {{if not (and (eq $n.Step "uploading") (gt $n.Progress 0))}}hidden{{end}}" data-node="{{$i}}" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <div style="width:130px;height:5px;background:#E4E7EA;border-radius:999px;overflow:hidden;">
+              <div class="prog-bar" style="height:5px;border-radius:999px;background:var(--vg);width:{{$n.Progress}}%;transition:width 300ms;"></div>
+            </div>
+            <span class="prog-pct" style="font-size:10.5px;color:var(--faint);font-family:var(--font-mono);">{{$n.Progress}}%</span>
+          </div>
+          {{if $n.Error}}<div style="font-size:11.5px;color:#8C2A1F;margin-top:5px;">{{$n.Error}}</div>{{end}}
+        </td>
+        <td data-vmid="{{$i}}" class="mono" style="color:var(--muted);">{{$n.VMID}}</td>
+        <td data-ip="{{$i}}" class="mono" style="color:var(--muted);">{{$n.IP}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -130,80 +130,73 @@
   </div>
 
   <!-- Live log -->
-  <div class="bg-slate-900 rounded shadow p-3 overflow-hidden">
-    <div class="flex items-center justify-between mb-2">
-      <span class="text-slate-400 text-xs uppercase">{{t "deploy.live_log"}}</span>
+  <div class="ad-log">
+    <div class="ad-log-head">
+      <span class="ad-log-title"><span class="dot"></span>{{t "deploy.live_log"}}</span>
     </div>
-    <pre id="log" class="text-green-300 text-xs font-mono max-h-[60vh] overflow-auto whitespace-pre-wrap">{{range .Lines}}{{.}}
+    <pre id="log">{{range .Lines}}{{.}}
 {{end}}</pre>
   </div>
 
-  <!-- VSA REST API Console modal (stays in DOM when closed — history preserved) -->
-  <div x-show="open" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-       @click.self="open=false"
-       @keydown.escape.window="open=false">
-    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-4xl h-5/6 flex flex-col" @click.stop>
-      <!-- Modal header -->
-      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
-        <span class="font-semibold text-slate-700">{{t "deploy.console_title"}}</span>
-        <button @click="open=false" class="text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
+  <!-- VSA REST API console -->
+  <div class="ad-card">
+    <div class="ad-card-head" style="justify-content:flex-start;">
+      <span class="ad-card-ico" style="background:#EEF1FF;color:#3F4FB0;"><span class="mi">terminal</span></span>
+      <span class="ad-card-title">{{t "deploy.console_title"}}</span>
+      <span x-show="sessionOpen" x-cloak style="font-size:11px;color:var(--faint);margin-left:auto;">{{t "deploy.console_subtitle"}}</span>
+    </div>
+    <!-- Warning -->
+    <div class="ad-warn" style="border-radius:0;border-left:none;border-right:none;border-top:none;">
+      <span class="mi">warning</span>{{t "deploy.console_warning"}}
+    </div>
+    <!-- Request form -->
+    <div class="ad-card-body" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label class="ad-flabel" style="margin-bottom:0;">{{t "deploy.console_method"}}</label>
+        <select x-model="method" class="ad-select mono" style="width:auto;height:36px;">
+          <option>GET</option>
+          <option>POST</option>
+          <option>PUT</option>
+          <option>DELETE</option>
+        </select>
       </div>
-      <!-- Warning -->
-      <div class="px-5 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
-        {{t "deploy.console_warning"}}
+      <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:12rem;">
+        <label class="ad-flabel" style="margin-bottom:0;">{{t "deploy.console_path"}}</label>
+        <input type="text" x-model="path" placeholder="/api/v1/serverInfo"
+               class="ad-input mono" style="height:36px;"
+               @keydown.enter="sendRequest()">
       </div>
-      <!-- Request form -->
-      <div class="px-5 py-3 border-b flex flex-wrap gap-2 items-end">
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_method"}}</label>
-          <select x-model="method" class="border border-slate-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-            <option>GET</option>
-            <option>POST</option>
-            <option>PUT</option>
-            <option>DELETE</option>
-          </select>
-        </div>
-        <div class="flex flex-col gap-1 flex-1 min-w-48">
-          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_path"}}</label>
-          <input type="text" x-model="path" placeholder="/api/v1/serverInfo"
-                 class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                 @keydown.enter="sendRequest()">
-        </div>
-        <div class="flex flex-col gap-1 flex-1 min-w-48">
-          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_body"}}</label>
-          <textarea x-model="reqBody" rows="2" placeholder="{}"
-                    class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
-        </div>
-        <button type="button" @click="sendRequest()" :disabled="loading"
-                class="px-3 py-1.5 rounded text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
-          {{t "deploy.console_send"}}
-        </button>
+      <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:12rem;">
+        <label class="ad-flabel" style="margin-bottom:0;">{{t "deploy.console_body"}}</label>
+        <textarea x-model="reqBody" rows="2" placeholder="{}"
+                  class="ad-input mono" style="height:auto;padding:8px 11px;"></textarea>
       </div>
-      <!-- History -->
-      <div id="console-history" class="flex-1 overflow-auto p-3 bg-slate-950 space-y-3 font-mono text-xs">
-        <template x-if="history.length === 0">
-          <p class="text-slate-500 italic">{{t "deploy.console_empty"}}</p>
-        </template>
-        <template x-for="(entry, idx) in history" :key="idx">
-          <div class="border-b border-slate-800 pb-3">
-            <!-- Request line -->
-            <div class="flex items-center gap-2 mb-1">
-              <span class="font-bold text-indigo-400" x-text="entry.method"></span>
-              <span class="text-slate-300" x-text="entry.path"></span>
-              <span class="ml-auto text-slate-500 tabular-nums" x-text="entry.ts"></span>
-            </div>
-            <!-- Status badge -->
-            <div class="mb-1">
-              <span class="text-[10px] px-1.5 py-0.5 rounded font-bold"
-                    :class="entry.status >= 200 && entry.status < 300 ? 'bg-emerald-900 text-emerald-300' : 'bg-red-900 text-red-300'"
-                    x-text="'HTTP ' + entry.status + ' · ' + {{tjs "deploy.console_status"}}"></span>
-            </div>
-            <!-- Response body -->
-            <pre class="text-green-300 whitespace-pre-wrap break-all max-h-64 overflow-auto" x-text="entry.body"></pre>
+      <button type="button" @click="sendRequest()" :disabled="loading" class="ad-btn ad-btn-indigo">{{t "deploy.console_send"}}</button>
+    </div>
+    <!-- History -->
+    <div id="console-history" style="margin:0 16px 16px;background:#0E1014;border-radius:8px;padding:12px 14px;max-height:24rem;overflow:auto;font-family:var(--font-mono);font-size:11.5px;display:flex;flex-direction:column;gap:12px;">
+      <template x-if="history.length === 0">
+        <p style="color:#7E8794;font-style:italic;">{{t "deploy.console_empty"}}</p>
+      </template>
+      <template x-for="(entry, idx) in history" :key="idx">
+        <div style="border-bottom:1px solid #20242C;padding-bottom:12px;">
+          <!-- Request line -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+            <span style="font-weight:700;color:#8b9bf0;" x-text="entry.method"></span>
+            <span style="color:#C9CDD3;" x-text="entry.path"></span>
+            <span style="margin-left:auto;color:#7E8794;font-variant-numeric:tabular-nums;" x-text="entry.ts"></span>
           </div>
-        </template>
-      </div>
+          <!-- Status badge -->
+          <div style="margin-bottom:5px;">
+            <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:4px;"
+                  :class="entry.status >= 200 && entry.status < 300 ? '' : ''"
+                  :style="entry.status >= 200 && entry.status < 300 ? 'background:#0c3b22;color:#79e0a0;' : 'background:#3b0c0c;color:#e09a9a;'"
+                  x-text="'HTTP ' + entry.status + ' · ' + {{tjs "deploy.console_status"}}"></span>
+          </div>
+          <!-- Response body -->
+          <pre style="margin:0;color:#9BE7B4;white-space:pre-wrap;word-break:break-all;max-height:16rem;overflow:auto;" x-text="entry.body"></pre>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -348,19 +341,14 @@
       log.textContent += e.data + "\n";
       log.scrollTop = log.scrollHeight;
     });
-    // Live per-node status: badge colour by step (mirrors the server template).
-    function depStepClass(step) {
-      if (step === 'ready')  return 'bg-emerald-100 text-emerald-700';
-      if (step === 'failed') return 'bg-red-100 text-red-700';
-      if (['queued','created','canceled','removed'].includes(step)) return 'bg-slate-100 text-slate-600';
-      return 'bg-blue-100 text-blue-700';
-    }
+    // Live per-node status: chip colour by step (mirrors the server template via window.chipClass).
     es.addEventListener('node', e => {
       let d; try { d = JSON.parse(e.data); } catch (_) { return; }
       const badge = document.querySelector('[data-step="' + d.i + '"]');
       if (badge) {
-        badge.textContent = d.step;
-        badge.className = 'text-xs px-2 py-0.5 rounded-full ' + depStepClass(d.step);
+        badge.className = 'ad-chip ' + window.chipClass(d.step);
+        badge.innerHTML = '<span class="dot"></span>';
+        badge.append(d.step);
       }
       if (d.vm_id) {
         const vmCell = document.querySelector('[data-vmid="' + d.i + '"]');
@@ -387,7 +375,9 @@
       box.querySelector('.prog-pct').textContent = pct + '%';
     });
     es.addEventListener('state', e => {
-      stateEl.textContent = e.data;
+      stateEl.className = 'ad-chip ad-chip-lg ' + window.chipClass(e.data);
+      stateEl.innerHTML = '<span class="dot"></span>';
+      stateEl.append(e.data);
       if (finals.has(e.data)) {
         es.close();
         // Reload to refresh the server-rendered node status table.

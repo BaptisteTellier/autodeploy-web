@@ -2,1366 +2,1345 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="max-w-3xl mx-auto space-y-6">
 
+<div class="ad-head">
   <div>
-    <h1 class="text-2xl font-bold text-slate-800">{{t "deploy.title"}}</h1>
-    <p class="text-sm text-slate-500 mt-0.5">{{t "deploy.subtitle"}}</p>
+    <div class="ad-h1">{{t "deploy.title"}}</div>
+    <div class="ad-subt">{{t "deploy.subtitle"}}</div>
   </div>
-
-  <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
-    {{t "deploy.warning"}}
-  </div>
-
-  {{if not .Outputs}}
-  <div class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg px-4 py-3">
-    {{t "deploy.no_outputs"}} <a href="/wizard" class="underline font-medium">{{t "nav.wizard"}}</a>
-  </div>
-  {{end}}
-
-  <script>
-    const DEPLOY_CATALOG = {
-      {{range .Kinds}}"{{.Kind}}": [{{range .Roles}}{{jsonStr .}},{{end}}],{{end}}
-    };
-    const DEPLOY_STANDALONE = {
-      {{range .Kinds}}"{{.Kind}}": {{if .Standalone}}true{{else}}false{{end}},{{end}}
-    };
-    const OUTPUTS = {{.OutputsJSON}};
-    const OUTPUTS_BY_ID = Object.fromEntries(OUTPUTS.map(o => [o.job_id, o]));
-    const DEPLOY_PREFILL = {{.PrefillJSON}};
-  </script>
-
-  <!-- Deploy templates — save / load / delete a named (non-secret) form snapshot -->
-  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
-    <div>
-      <label class="block text-xs font-semibold uppercase text-slate-500">{{t "deploy.load_template"}}</label>
-      <div class="flex gap-1">
-        <select id="deploy_preset_select" class="border border-slate-300 rounded px-2 py-1 text-sm bg-white"
-                onchange="if(this.value){location.href='/deploy?preset='+encodeURIComponent(this.value);}">
-          <option value="">{{t "form.select_dash"}}</option>
-          {{range .DeployPresets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
-        </select>
-        <button type="button" title="{{t "form.delete_preset"}}"
-                class="bg-red-100 text-red-700 hover:bg-red-200 rounded px-2 py-1 text-sm" onclick="deployDeleteTemplate()">🗑</button>
-      </div>
-    </div>
-    <div>
-      <label class="block text-xs font-semibold uppercase text-slate-500">{{t "deploy.save_template"}}</label>
-      <div class="flex gap-1">
-        <input id="deploy_preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}" value="{{.PresetName}}"
-               class="border border-slate-300 rounded px-2 py-1 text-sm">
-        <button type="button" class="bg-slate-700 text-white rounded px-3 py-1 text-sm" onclick="deploySaveTemplate()">{{t "form.save"}}</button>
-      </div>
-    </div>
-  </div>
-
-  <form id="deploy-form" method="POST" action="/deploy" class="space-y-6"
-        x-init="
-          $watch('wire', function(v){ if(v) powerOn=true; });
-          $watch('ks',   function(v){ if(v) powerOn=true; });
-          if (DEPLOY_PREFILL) {
-            const p = DEPLOY_PREFILL;
-            if (p.kind && DEPLOY_CATALOG[p.kind]) kind = p.kind;
-            if (p.provider) provider = p.provider;
-            ks   = !!p.remote_ks;
-            wire = !!p.wire;
-            if (p.power_on) powerOn = true;
-            if (p.text && p.text.ks_base_url) ksbase = p.text.ks_base_url;
-            if (Array.isArray(p.node_outputs)) {
-              const b = (DEPLOY_CATALOG[kind]||[]).length;
-              for (let i=b; i<p.node_outputs.length; i++){
-                const role = p.text && p.text['node_'+i+'_role'];
-                if (role) extra.push(role);
-              }
-              p.node_outputs.forEach(function(v,i){ if(v) sel[i]=v; });
-            }
-            if (Array.isArray(p.node_boots)) {
-              p.node_boots.forEach(function(v,i){ if(v){ adv[i]=true; edited[i]=true; bootcmd[i]=v; } });
-            }
-            wireNodeExp = !!(p.checks && p.checks.wire_node_exporter);
-            wireS3       = !!(p.checks && p.checks.wire_s3);
-            wireS3Compat = !!(p.checks && p.checks.wire_s3_compatible);
-            wireS3Overwrite = !!(p.checks && p.checks.wire_s3_overwrite);
-            targetInsecure = !!(p.checks && p.checks.target_insecure);
-            if (p.text && p.text.wire_license) licenseFile = p.text.wire_license;
-            if (p.text && p.text.wire_s3_mount_node) s3MountNode = p.text.wire_s3_mount_node;
-            if (p.text && p.text.target_deploy_id) targetDeployID = p.text.target_deploy_id;
-            wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
-            // Seed res[] for all discoverable fields so the hidden inputs submit
-            // the correct prefilled values even before Connect is pressed.
-            const discoFields=[
-              'pve_node','pve_storage','pve_iso_storage','vm_bridge',
-              'vs_datacenter','vs_cluster','vs_resource_pool','vs_datastore','vs_network','vs_folder',
-              'hv_switch','hv_vm_path',
-              'ws_install_dir','ws_vnet',
-            ];
-            discoFields.forEach(function(k){ if(p.text && p.text[k]) res[k]=p.text[k]; });
-            $nextTick(function(){
-              if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
-              if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.checked=!!v; });
-            });
-          } else {
-            const k=new URLSearchParams(location.search).get('kind');
-            if(k && DEPLOY_CATALOG[k]) kind=k;
-          }
-        "
-        x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
-                  targetDeployID:'', targetInsecure:true,
-                  testConn:{busy:false,state:'',msg:''},
-                  res:{pve_node:'',pve_storage:'',pve_iso_storage:'',vm_bridge:'',vs_datacenter:'',vs_cluster:'',vs_resource_pool:'',vs_datastore:'',vs_network:'',vs_folder:'',hv_switch:'',hv_vm_path:'',ws_install_dir:'',ws_vnet:''},
-                  manual:{},
-                  disco:{busy:false,state:'',msg:'',resources:{}},
-                  async connectLoad(provider){
-                    this.disco={busy:true,state:'',msg:'',resources:this.disco.resources};
-                    try{
-                      const fd=new FormData(document.getElementById('deploy-form'));
-                      fd.set('provider',provider);
-                      const r=await fetch('/deploy/hypervisor/discover',{method:'POST',body:fd});
-                      const d=await r.json();
-                      const got=d.resources||{};
-                      this.disco={busy:false,state:d.ok?'ok':'err',msg:d.message||'',resources:got};
-                      if(!d.ok) return;
-                      // Reconcile: if the current value for a field is non-empty but
-                      // is no longer in the returned options, reset to '' so the
-                      // placeholder shows instead of submitting a stale default.
-                      Object.keys(got).forEach(function(f){
-                        const opts=got[f]||[];
-                        if(!opts.length || this.manual[f]) return;
-                        const v=this.res[f];
-                        if(v && !opts.some(function(o){return o.value===v;}.bind(this))){
-                          this.res[f]='';
-                        }
-                      }.bind(this));
-                    }catch(e){this.disco={busy:false,state:'err',msg:String(e),resources:{}};}
-                  },
-                  gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
-                  get ksCapable(){ return ['proxmox','vsphere','hyperv','workstation'].includes(this.provider); },
-                  get s3MountCandidates(){ return this.displayOrder.map((idx,pos)=>({idx,pos})).filter(o => (this.roles[o.idx]||'').includes('Proxy') && this.summ(o.idx) && this.summ(o.idx).hostname).map(o => ({ idx:o.idx, value:this.summ(o.idx).hostname, label:(o.pos+1)+'. '+this.roles[o.idx]+' — '+this.summ(o.idx).hostname })); },
-                  extra: [],
-                  baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
-                  get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
-                  get isStandalone(){ return !!(this.kind && DEPLOY_STANDALONE[this.kind]); },
-                  async testConnection(kind){
-                    this.testConn={busy:true,state:'',msg:''};
-                    try{
-                      const fd=new FormData(document.getElementById('deploy-form'));
-                      fd.set('kind',kind);
-                      const r=await fetch('/deploy/test-connection',{method:'POST',body:fd});
-                      const d=await r.json();
-                      this.testConn={busy:false,state:d.ok?'ok':'err',msg:d.message||''};
-                    }catch(e){this.testConn={busy:false,state:'err',msg:String(e)};}
-                  },
-                  groupRank(role){ if(!role) return 1; if(role.startsWith('VSA')) return 0; if(role.includes('HR')) return 2; return 1; },
-                  groupLabel(role){ const r=this.groupRank(role); return r===0?this.gLabels.vsa:r===2?this.gLabels.hr:this.gLabels.proxy; },
-                  get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
-                  addVIA(role){ this.extra.push(role); },
-                  removeNode(idx){ const b=this.baseLen(); if(idx<b) return; this.extra.splice(idx-b,1); const n=this.roles.length; ['sel','bootcmd','adv','edited'].forEach(m=>{ for(let k=idx;k<n;k++){ this[m][k]=this[m][k+1]; } delete this[m][n]; }); },
-                  get ipConflict(){ const seen={}, dups={}; this.roles.forEach((r,i)=>{ const o=this.summ(i); if(!o||!o.network||o.network==='DHCP') return; if(seen[o.network]) dups[o.network]=true; else seen[o.network]=true; }); return Object.keys(dups); },
-                  get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
-                  get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
-                  get isHA(){ return this.kind.startsWith('vsa-ha'); },
-                  get effectivePowerOn(){ return this.powerOn || this.wire || this.ks; },
-                  summ(i){ return OUTPUTS_BY_ID[this.sel[i]] || null; },
-                  diskCountFor(i){ const o=this.summ(i); return o&&o.single_disk?1:2; },
-                  diskMin(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
-                  diskDefault(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
-                  ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/media/output/'+this.sel[i]+'/'+o.cfg_file+'/content'; },
-                  ipArg(i){ const o=this.summ(i);
-                    if(!o || !o.network || o.network==='DHCP') return 'ip=dhcp';
-                    return 'ip='+o.network+'::'+(o.gateway||'')+':'+(o.netmask||'')+':'+(o.hostname||'')+'::none'; },
-                  defaultBoot(i){ const vsa=(this.roles[i]||'').indexOf('VSA')===0;
-                    const o=this.summ(i);
-                    const sd=!vsa && o && o.single_disk;
-                    const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+(sd?' inst.vsingledisk':'')+' '+this.ipArg(i)+' quiet inst.assumeyes';
-                    return lx+'\ninitrdefi /images/pxeboot/initrd.img\nboot'; },
-                  revealBoot(i){ if(!this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
-                  refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
-                  wirePreview(){
-                    const vsaIdxs=this.roles.map((r,i)=>r.startsWith('VSA')?i:-1).filter(i=>i>=0);
-                    const vsaIP=vsaIdxs.length>0?(this.summ(vsaIdxs[0])?.network||'<VSA-IP>'):'<VSA-IP>';
-                    const ep='https://'+vsaIP+':9419';
-                    const L=[];
-                    L.push('POST '+ep+'/api/oauth2/token');
-                    L.push('  body: { grant_type:password, username:veeamadmin, password:*** }');
-                    L.push('');
-                    if(this.licenseFile){
-                      L.push('# Install license (VSA boots unlicensed under remote kickstart)');
-                      L.push('GET  '+ep+'/api/v1/license  # skip if already Valid');
-                      L.push('POST '+ep+'/api/v1/license/install');
-                      L.push('  body: { license: <base64 of '+this.licenseFile+'> }');
-                      L.push('');
-                    }
-                    this.roles.forEach(function(role,i){
-                      if(role.startsWith('VSA')) return;
-                      const ip=this.summ(i)?.network||'<node-IP>';
-                      L.push('# '+role+' ('+ip+') — wait for port 6160/443/22');
-                      L.push('GET  '+ep+'/api/v1/backupInfrastructure/managedServers');
-                      L.push('POST '+ep+'/api/v1/backupInfrastructure/managedServers  # if not already registered');
-                      L.push('  body: { name:'+ip+', type:LinuxHost, pairingCode:000000 }');
-                      if(role.includes('HR')){
-                        L.push('GET  '+ep+'/api/v1/backupInfrastructure/repositories');
-                        L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories  # type=LinuxHardened, if absent');
-                        L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/var/lib/veeam/backups, immutabilityDays:7 }');
-                      } else if(role.includes('Proxy')){
-                        L.push('POST '+ep+'/api/v1/backupInfrastructure/vsphereProxies');
-                        L.push('  body: { hostId:<id>, maxTasksCount:4 }');
-                      }
-                      L.push('');
-                    }.bind(this));
-                    if(vsaIdxs.length>=2){
-                      const secIP=this.summ(vsaIdxs[1])?.network||'<secondary-IP>';
-                      const hasHR=this.roles.some(r=>r.includes('HR'));
-                      if(hasHR){
-                        L.push('# Redirect config backup before removing default repo');
-                        L.push('PUT  '+ep+'/api/v1/configBackup/target');
-                        L.push('  body: { repositoryId:<hardened-repo-id> }');
-                        L.push('DELETE '+ep+'/api/v1/backupInfrastructure/repositories/<default-repo-id>');
-                        L.push('');
-                      }
-                      L.push('# HA cluster');
-                      L.push('POST '+ep+'/api/v1/credentials');
-                      L.push('  body: { username:veeamadmin, password:*** }');
-                      L.push('POST '+ep+'/api/v1/connectionCertificate?host='+secIP);
-                      L.push('POST '+ep+'/api/v1/highAvailabilityCluster');
-                      L.push('  body: { primaryNodeIpAddress:'+vsaIP+', secondaryNodeIpAddress:'+secIP+', clusterDnsName:<dns>, clusterEndpoint:<vip>, certificate:{…} }');
-                    }
-                    // Advanced options, applied on the primary VSA.
-                    if(this.wireNodeExp){
-                      L.push('');
-                      L.push('# node_exporter (Prometheus metrics)');
-                      L.push('PUT  '+ep+'/api/v1/generalOptions/nodeExporterSettings');
-                      L.push('  body: { metricsSharingEnabled:true, tlsEnabled:<tls>, auth:{ type:None|UsernamePassword } }');
-                    }
-                    {
-                      const sl=(document.getElementsByName('wire_syslog_server')[0]||{}).value;
-                      if(sl){
-                        L.push('');
-                        L.push('# syslog event forwarding');
-                        L.push('PUT  '+ep+'/api/v1/generalOptions/eventForwarding');
-                        L.push('  body: { syslogServer:{ serverName:'+sl+', port:<port>, transportProtocol:<proto> } }');
-                      }
-                    }
-                    if(this.wireS3){
-                      const t=this.wireS3Compat?'S3Compatible':'AmazonS3';
-                      const bucket=(document.getElementsByName('wire_s3_bucket')[0]||{}).value||'<bucket>';
-                      L.push('');
-                      L.push('# object-storage repository ('+t+')');
-                      L.push('POST '+ep+'/api/v1/cloudCredentials');
-                      L.push('  body: { type:Amazon, accessKey:***, secretKey:*** }');
-                      L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories');
-                      L.push('  body: { type:'+t+', bucket:{ bucketName:'+bucket+', folderName:<folder> } }');
-                    }
-                    return L.join('\n');
-                  } }">
-
-    <!-- Topology + per-slot output selection -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
-      <h2 class="font-semibold text-slate-800">{{t "deploy.topology"}}</h2>
-      <select name="kind" x-model="kind" @change="sel={}; extra=[]; bootcmd={}; adv={}; edited={}; targetDeployID=''" required
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        <option value="">{{t "deploy.select_topology"}}</option>
-        <optgroup label="{{t "deploy.optgroup_new"}}">
-          {{range .Kinds}}{{if not .Standalone}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}{{end}}
-        </optgroup>
-        <optgroup label="{{t "deploy.optgroup_existing"}}">
-          {{range .Kinds}}{{if .Standalone}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}{{end}}
-        </optgroup>
-      </select>
-
-      <div x-show="roles.length" x-cloak class="space-y-3">
-        <h3 class="text-sm font-medium text-slate-600">{{t "deploy.nodes"}}</h3>
-        <template x-for="(idx, pos) in displayOrder" :key="idx">
-          <div>
-            <!-- Group delimiter header: shown when this is the first card of its group -->
-            <div x-show="pos===0 || groupRank(roles[displayOrder[pos-1]]) !== groupRank(roles[idx])"
-                 class="text-xs font-semibold uppercase tracking-wide text-slate-500 pt-2 pb-1 border-t border-slate-200 mt-2"
-                 x-text="groupLabel(roles[idx])"></div>
-
-            <!-- Node card -->
-            <div class="border border-slate-200 rounded-lg p-4 space-y-3">
-              <input type="hidden" :name="'node_'+idx+'_role'" :value="roles[idx]">
-              <div class="flex items-center justify-between gap-2">
-                <div class="text-sm font-semibold text-emerald-700" x-text="(pos+1)+'. '+roles[idx]"></div>
-                <div class="flex gap-1">
-                  <button type="button" x-show="!roles[idx].startsWith('VSA')" @click="addVIA(roles[idx])"
-                          title="{{t "deploy.add_via"}}"
-                          class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold">＋</button>
-                  <button type="button" x-show="idx >= baseLen()" @click="removeNode(idx)"
-                          title="{{t "deploy.remove_node"}}"
-                          class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-semibold">✕</button>
-                </div>
-              </div>
-              <select :name="'node_'+idx+'_output'" x-model="sel[idx]" required @change="refreshBoot(idx)"
-                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.select_output"}}</option>
-                {{range .Outputs}}<option value="{{.JobID}}">{{.Name}}</option>{{end}}
-              </select>
-
-              <!-- Summary of the chosen output -->
-              <div x-show="summ(idx)" x-cloak class="bg-slate-50 rounded-lg p-3 border text-xs">
-                <div class="grid grid-cols-2 gap-x-6 gap-y-1">
-                  <span class="text-slate-500">{{t "th.appliance"}}</span><span class="font-mono font-semibold" x-text="summ(idx)?.appliance"></span>
-                  <span class="text-slate-500">{{t "form.hostname"}}</span><span class="font-mono" x-text="summ(idx)?.hostname || '—'"></span>
-                  <span class="text-slate-500">{{t "form.network"}}</span><span class="font-mono" x-text="summ(idx)?.network || '—'"></span>
-                  <span class="text-slate-500">MFA</span><span x-text="summ(idx)?.mfa_admin ? '✓' : '✗'"></span>
-                  <span class="text-slate-500">SO</span><span x-text="summ(idx)?.so_enabled ? '✓' : '✗'"></span>
-                  <span class="text-slate-500">{{t "deploy.disks"}}</span><span class="font-mono text-emerald-700" x-text="summ(idx)?.disks"></span>
-                  <span class="text-slate-500">{{t "form.grub_timeout"}}</span><span class="font-mono" x-text="(summ(idx)?.grub_timeout ?? 0)+' s'"></span>
-                  <span class="text-slate-500">ISO</span><span class="font-mono truncate" x-text="summ(idx)?.iso_file"></span>
-                </div>
-                <p x-show="roles[idx].indexOf('VSA')===0 ? summ(idx)?.appliance!=='VSA' : summ(idx)?.appliance==='VSA'"
-                   class="text-amber-600 mt-2">{{t "deploy.role_mismatch"}}</p>
-                <p x-show="ks && summ(idx)?.license_baked" x-cloak
-                   class="text-amber-600 mt-2">{{t "deploy.license_baked_warn"}}</p>
-                <p x-show="ks && summ(idx) && (summ(idx).grub_timeout||0) <= bootWait" x-cloak
-                   class="text-amber-600 mt-2">{{t "deploy.warn_grub_bootwait"}}</p>
-                <p x-show="isHA && roles[idx].startsWith('VSA') && summ(idx) && !summ(idx).ha" x-cloak
-                   class="text-amber-600 mt-2">{{t "deploy.warn_ha_disabled"}}</p>
-              </div>
-
-              <!-- Advanced: show/edit the exact GRUB boot command typed for this VM (kickstart only) -->
-              <div x-show="ks" x-cloak class="border-t border-slate-100 pt-3">
-                <label class="flex items-center gap-2 text-xs text-slate-600">
-                  <input type="checkbox" x-model="adv[idx]" @change="if(adv[idx]) revealBoot(idx)" class="rounded border-slate-300">
-                  {{t "deploy.show_bootcmd"}}
-                </label>
-                <div x-show="adv[idx]" x-cloak class="mt-2 space-y-1">
-                  <textarea :name="(ks && adv[idx]) ? 'node_'+idx+'_bootcmd' : null" x-model="bootcmd[idx]" @input="edited[idx]=true"
-                            rows="4" spellcheck="false"
-                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono bg-slate-50 focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs text-slate-400">{{t "deploy.bootcmd_hint"}}</span>
-                    <button type="button" @click="edited[idx]=false; bootcmd[idx]=defaultBoot(idx)"
-                            class="text-xs text-blue-600 hover:underline">↻ {{t "deploy.reset_bootcmd"}}</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Per-node VM sizing -->
-              <div class="border-t border-slate-100 pt-3 grid grid-cols-2 gap-2">
-                <label class="text-sm text-slate-600">{{t "deploy.vm_cpus"}}
-                  <input :name="'node_'+idx+'_cpus'" type="number" min="1" value="4"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-sm text-slate-600">{{t "deploy.vm_memory"}}
-                  <input :name="'node_'+idx+'_memory'" type="number" min="1024" step="1024" value="8192"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-sm text-slate-600">
-                  <span x-text="diskCountFor(idx)===1?'Disk (GiB)':'Disk 1 (GiB)'"></span>
-                  <span class="text-slate-400 text-xs" x-text="' ≥'+diskMin(idx)"></span>
-                  <input :name="'node_'+idx+'_disk_0'" type="number" :min="diskMin(idx)" :value="diskDefault(idx)"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-sm text-slate-600" x-show="diskCountFor(idx)>1">
-                  Disk 2 (GiB)
-                  <span class="text-slate-400 text-xs" x-text="'≥'+diskMin(idx)"></span>
-                  <input :name="'node_'+idx+'_disk_1'" type="number" :min="diskMin(idx)" :value="diskDefault(idx)"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <!-- Target VBR panel — shown only for standalone (no-VSA) topology kinds -->
-    <div x-show="isStandalone && roles.length" x-cloak class="bg-white rounded-xl shadow-sm border border-blue-200 p-6 space-y-3">
-      <h2 class="font-semibold text-slate-800">{{t "deploy.target_vbr"}}</h2>
-      <p class="text-xs text-slate-400">{{t "deploy.target_past_deploy_hint"}}</p>
-
-      <!-- Past deployment picker -->
-      <label class="text-sm text-slate-600">{{t "deploy.target_past_deploy"}}
-        <select name="target_deploy_id" x-model="targetDeployID"
-                class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          <option value="">{{t "form.none_dash"}}</option>
-          {{/* Only finished deployments whose VSA has a known IP can be a usable target. */}}
-          {{range .Deployments}}{{if eq (printf "%s" .State) "done"}}{{if .Nodes}}{{if (index .Nodes 0).IP}}<option value="{{.ID}}">{{.Kind}} · {{slice .ID 0 8}} — {{(index .Nodes 0).IP}}</option>{{end}}{{end}}{{end}}{{end}}
-        </select>
-      </label>
-
-      <!-- Manual fields — greyed out when a past deployment is selected -->
-      <div :class="targetDeployID ? 'opacity-40 pointer-events-none' : ''" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.target_address"}}
-          <input name="target_address" :required="isStandalone && !targetDeployID"
-                 placeholder="192.168.1.100"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.target_port"}}
-          <input name="target_port" type="number" value="9419"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.target_user"}}
-          <input name="target_user" value="veeamadmin"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.target_password"}}
-          <div class="relative mt-1" x-data="{show:false}">
-            <input name="target_password" :type="show?'text':'password'"
-                   class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <button type="button" @click="show=!show" tabindex="-1"
-                    class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                    :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-              <span x-text="show ? '🙈' : '👁'"></span>
+  <div class="flex flex-wrap items-end gap-2" x-data="{ presetOpen:false }">
+    <button type="button" class="ad-btn ad-btn-secondary" @click="presetOpen=!presetOpen">
+      <span class="mi">folder_open</span>{{t "deploy.load_template"}}
+    </button>
+    <!-- Deploy templates — save / load / delete a named (non-secret) form snapshot -->
+    <div x-show="presetOpen" x-cloak class="ad-card" style="padding:12px 14px;">
+      <div class="flex flex-wrap items-end gap-3">
+        <div>
+          <label class="ad-flabel">{{t "deploy.load_template"}}</label>
+          <div class="flex gap-1">
+            <select id="deploy_preset_select" class="ad-select" style="height:34px;width:auto;min-width:160px;"
+                    onchange="if(this.value){location.href='/deploy?preset='+encodeURIComponent(this.value);}">
+              <option value="">{{t "form.select_dash"}}</option>
+              {{range .DeployPresets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+            <button type="button" title="{{t "form.delete_preset"}}" class="ad-del" style="width:34px;height:34px;" onclick="deployDeleteTemplate()">
+              <span class="mi">delete</span>
             </button>
           </div>
-        </label>
-        <label class="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
-          <input type="checkbox" name="target_insecure" x-model="targetInsecure" class="rounded border-slate-300" checked>
-          {{t "deploy.target_insecure"}}
-        </label>
-      </div>
-      <div class="flex items-center gap-3 pt-1">
-        <button type="button" @click="testConnection('vbr')" :disabled="testConn.busy"
-                class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
-          <span x-text="testConn.busy ? {{tjs "deploy.testing"}} : {{tjs "deploy.test_connection"}}"></span>
-        </button>
-        <span x-show="testConn.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="testConn.msg"></span></span>
-        <span x-show="testConn.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="testConn.msg"></span></span>
-      </div>
-    </div>
-
-    <!-- Remote kickstart unavailable on this provider (Nutanix AHV / XCP-ng) -->
-    <div x-show="roles.length && !ksCapable" x-cloak class="bg-slate-50 border border-slate-200 text-slate-600 text-xs rounded-lg px-4 py-3">
-      {{t "deploy.ks_unsupported_note"}}
-    </div>
-
-    <!-- Remote kickstart (boot the ORIGINAL ISO + inject inst.ks= via GRUB) -->
-    <div x-show="roles.length && ksCapable" x-cloak class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
-      <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-        <input type="checkbox" name="remote_ks" x-model="ks" class="rounded border-slate-300">
-        {{t "deploy.kickstart"}}
-      </label>
-      <p class="text-xs text-slate-400">{{t "deploy.kickstart_hint"}}</p>
-      <div x-show="ks" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <label x-show="hasVSA" class="text-sm text-slate-600">{{t "deploy.base_iso_vsa"}}
-          <select name="vsa_base_iso"
-                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <option value="">{{t "form.select_iso"}}</option>
-            {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
-          </select>
-        </label>
-        <label x-show="hasVIA" class="text-sm text-slate-600">{{t "deploy.base_iso_via"}}
-          <select name="via_base_iso"
-                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <option value="">{{t "form.select_iso"}}</option>
-            {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
-          </select>
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.ks_base_url"}}
-          <input name="ks_base_url" x-model="ksbase"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          <span class="text-xs text-slate-400">{{t "deploy.ks_base_url_hint"}}</span>
-        </label>
-        <label class="text-sm text-slate-600">{{t "deploy.boot_wait"}}
-          <input name="boot_wait" type="number" min="3" value="10" x-model.number="bootWait"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          <span class="text-xs text-slate-400">{{t "deploy.boot_wait_hint"}}</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- Destination -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
-      <h2 class="font-semibold text-slate-800">{{t "deploy.destination"}}</h2>
-
-      <label class="text-sm text-slate-600">{{t "deploy.provider"}}
-        <select name="provider" x-model="provider" @change="if(!ksCapable) ks=false"
-                class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          <option value="proxmox">Proxmox VE</option>
-          <option value="vsphere">VMware vSphere / vCenter (experimental)</option>
-          <option value="hyperv">Microsoft Hyper-V</option>
-          <option value="nutanix">Nutanix AHV (experimental)</option>
-          <option value="xcpng">XCP-ng (experimental)</option>
-          <option value="workstation">{{t "deploy.provider_workstation"}}</option>
-        </select>
-      </label>
-
-      <!-- Proxmox -->
-      <div x-show="provider==='proxmox'" x-cloak class="space-y-3">
-        <!-- Connection fields (always plain inputs) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_url"}}
-            <input name="pve_url" :required="provider==='proxmox'" value="https://192.168.1.10:8006/api2/json"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.pve_user"}}
-            <input name="pve_user" value="root@pam"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.pve_password"}}
-            <div class="relative mt-1" x-data="{show:false}">
-              <input name="pve_password" :type="show?'text':'password'"
-                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <button type="button" @click="show=!show" tabindex="-1"
-                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                <span x-text="show ? '🙈' : '👁'"></span>
-              </button>
-            </div>
-          </label>
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.pve_token_id"}}
-            <input name="pve_token_id" placeholder="root@pam!mytoken"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
         </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="pve_insecure" checked class="rounded border-slate-300">
-          {{t "deploy.pve_insecure"}}
-        </label>
-
-        <!-- Connect & load button -->
-        <div class="flex items-center gap-3 pt-1">
-          <button type="button" @click="connectLoad('proxmox')" :disabled="disco.busy"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
-            <span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
-          </button>
-          <span x-show="disco.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="disco.msg"></span></span>
-          <span x-show="disco.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="disco.msg"></span></span>
-        </div>
-
-        <!-- Resource fields: discoverable via Connect, always fall back to manual text input -->
-        <!--
-          Reusable select-or-manual control contract (copy for vSphere/Hyper-V/Workstation):
-          - FIELD: the form field name (e.g. "pve_node")
-          - res[FIELD]: holds the current string value; submitted via a hidden input
-          - manual[FIELD]: true when the user explicitly chose manual entry
-          - disco.resources[FIELD]: array of {value, label} options from the server
-          - The select is shown when options exist AND manual[FIELD] is not set
-          - The text input is shown when no options exist OR manual[FIELD] is true
-          - One hidden input <input type="hidden" :name="FIELD" :value="res[FIELD]">
-            is the ONLY submitted element, so buildHypervisor + deployFormSnapshot
-            keep working with the same field names unchanged.
-        -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-          <!-- pve_node -->
-          <label class="text-sm text-slate-600">{{t "deploy.pve_node"}}
-            <input type="hidden" name="pve_node" :value="res.pve_node">
-            <template x-if="disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node">
-              <select x-model="res.pve_node" @change="if(res.pve_node==='__manual__'){manual.pve_node=true;res.pve_node='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.pve_node" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node)">
-              <div>
-                <input x-model="res.pve_node" :required="provider==='proxmox'" placeholder="proxmox"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.pve_node && disco.resources.pve_node.length" x-cloak
-                   href="#" @click.prevent="manual.pve_node=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- pve_storage -->
-          <label class="text-sm text-slate-600">{{t "deploy.pve_storage"}}
-            <input type="hidden" name="pve_storage" :value="res.pve_storage">
-            <template x-if="disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage">
-              <select x-model="res.pve_storage" @change="if(res.pve_storage==='__manual__'){manual.pve_storage=true;res.pve_storage='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.pve_storage" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage)">
-              <div>
-                <input x-model="res.pve_storage" placeholder="local-lvm"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.pve_storage && disco.resources.pve_storage.length" x-cloak
-                   href="#" @click.prevent="manual.pve_storage=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- pve_iso_storage -->
-          <label class="text-sm text-slate-600">{{t "deploy.pve_iso_storage"}}
-            <input type="hidden" name="pve_iso_storage" :value="res.pve_iso_storage">
-            <template x-if="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage">
-              <select x-model="res.pve_iso_storage" @change="if(res.pve_iso_storage==='__manual__'){manual.pve_iso_storage=true;res.pve_iso_storage='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_none"}}</option>
-                <template x-for="opt in disco.resources.pve_iso_storage" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage)">
-              <div>
-                <input x-model="res.pve_iso_storage" placeholder="local"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length" x-cloak
-                   href="#" @click.prevent="manual.pve_iso_storage=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- vm_bridge -->
-          <label class="text-sm text-slate-600">{{t "deploy.vm_bridge"}}
-            <input type="hidden" name="vm_bridge" :value="res.vm_bridge">
-            <template x-if="disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge">
-              <select x-model="res.vm_bridge" @change="if(res.vm_bridge==='__manual__'){manual.vm_bridge=true;res.vm_bridge='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.vm_bridge" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge)">
-              <div>
-                <input x-model="res.vm_bridge" placeholder="vmbr0"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vm_bridge && disco.resources.vm_bridge.length" x-cloak
-                   href="#" @click.prevent="manual.vm_bridge=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-        </div>
-      </div>
-
-      <!-- vSphere / vCenter -->
-      <div x-show="provider==='vsphere'" x-cloak class="space-y-3">
-        <!-- Connection fields (always plain inputs) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.vs_url"}}
-            <input name="vs_url" :required="provider==='vsphere'" placeholder="https://vc.lab.local/sdk"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
-            <input name="vs_user" placeholder="administrator@vsphere.local"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <div class="relative mt-1" x-data="{show:false}">
-              <input name="vs_password" :type="show?'text':'password'"
-                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <button type="button" @click="show=!show" tabindex="-1"
-                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                <span x-text="show ? '🙈' : '👁'"></span>
-              </button>
-            </div>
-          </label>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="vs_insecure" checked class="rounded border-slate-300">
-          {{t "deploy.f_insecure"}}
-        </label>
-
-        <!-- Connect & load button -->
-        <div class="flex items-center gap-3 pt-1">
-          <button type="button" @click="connectLoad('vsphere')" :disabled="disco.busy"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
-            <span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
-          </button>
-          <span x-show="disco.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="disco.msg"></span></span>
-          <span x-show="disco.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="disco.msg"></span></span>
-        </div>
-
-        <!-- Discoverable resource fields -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-          <!-- vs_datacenter: cascades a re-fetch when changed -->
-          <label class="text-sm text-slate-600">{{t "deploy.vs_datacenter"}}
-            <input type="hidden" name="vs_datacenter" :value="res.vs_datacenter">
-            <template x-if="disco.resources.vs_datacenter && disco.resources.vs_datacenter.length && !manual.vs_datacenter">
-              <select x-model="res.vs_datacenter"
-                      @change="async function(){if(res.vs_datacenter==='__manual__'){manual.vs_datacenter=true;res.vs_datacenter='';}else if(res.vs_datacenter){await $nextTick();await connectLoad('vsphere');}}.call(this)"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_none"}}</option>
-                <template x-for="opt in disco.resources.vs_datacenter" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vs_datacenter && disco.resources.vs_datacenter.length && !manual.vs_datacenter)">
-              <div>
-                <input x-model="res.vs_datacenter"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vs_datacenter && disco.resources.vs_datacenter.length" x-cloak
-                   href="#" @click.prevent="manual.vs_datacenter=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- vs_cluster -->
-          <label class="text-sm text-slate-600">{{t "deploy.vs_cluster"}}
-            <input type="hidden" name="vs_cluster" :value="res.vs_cluster">
-            <template x-if="disco.resources.vs_cluster && disco.resources.vs_cluster.length && !manual.vs_cluster">
-              <select x-model="res.vs_cluster" @change="if(res.vs_cluster==='__manual__'){manual.vs_cluster=true;res.vs_cluster='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.vs_cluster" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vs_cluster && disco.resources.vs_cluster.length && !manual.vs_cluster)">
-              <div>
-                <input x-model="res.vs_cluster"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vs_cluster && disco.resources.vs_cluster.length" x-cloak
-                   href="#" @click.prevent="manual.vs_cluster=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- vs_resource_pool -->
-          <label class="text-sm text-slate-600">{{t "deploy.vs_resource_pool"}}
-            <input type="hidden" name="vs_resource_pool" :value="res.vs_resource_pool">
-            <template x-if="disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length && !manual.vs_resource_pool">
-              <select x-model="res.vs_resource_pool" @change="if(res.vs_resource_pool==='__manual__'){manual.vs_resource_pool=true;res.vs_resource_pool='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_none"}}</option>
-                <template x-for="opt in disco.resources.vs_resource_pool" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length && !manual.vs_resource_pool)">
-              <div>
-                <input x-model="res.vs_resource_pool"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length" x-cloak
-                   href="#" @click.prevent="manual.vs_resource_pool=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- vs_datastore -->
-          <label class="text-sm text-slate-600">{{t "deploy.vs_datastore"}}
-            <input type="hidden" name="vs_datastore" :value="res.vs_datastore">
-            <template x-if="disco.resources.vs_datastore && disco.resources.vs_datastore.length && !manual.vs_datastore">
-              <select x-model="res.vs_datastore" @change="if(res.vs_datastore==='__manual__'){manual.vs_datastore=true;res.vs_datastore='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.vs_datastore" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vs_datastore && disco.resources.vs_datastore.length && !manual.vs_datastore)">
-              <div>
-                <input x-model="res.vs_datastore"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vs_datastore && disco.resources.vs_datastore.length" x-cloak
-                   href="#" @click.prevent="manual.vs_datastore=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- vs_network -->
-          <label class="text-sm text-slate-600">{{t "deploy.vs_network"}}
-            <input type="hidden" name="vs_network" :value="res.vs_network">
-            <template x-if="disco.resources.vs_network && disco.resources.vs_network.length && !manual.vs_network">
-              <select x-model="res.vs_network" @change="if(res.vs_network==='__manual__'){manual.vs_network=true;res.vs_network='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.vs_network" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vs_network && disco.resources.vs_network.length && !manual.vs_network)">
-              <div>
-                <input x-model="res.vs_network" placeholder="VM Network"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vs_network && disco.resources.vs_network.length" x-cloak
-                   href="#" @click.prevent="manual.vs_network=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- vs_folder -->
-          <label class="text-sm text-slate-600">{{t "deploy.vs_folder"}}
-            <input type="hidden" name="vs_folder" :value="res.vs_folder">
-            <template x-if="disco.resources.vs_folder && disco.resources.vs_folder.length && !manual.vs_folder">
-              <select x-model="res.vs_folder" @change="if(res.vs_folder==='__manual__'){manual.vs_folder=true;res.vs_folder='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_none"}}</option>
-                <template x-for="opt in disco.resources.vs_folder" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.vs_folder && disco.resources.vs_folder.length && !manual.vs_folder)">
-              <div>
-                <input x-model="res.vs_folder"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.vs_folder && disco.resources.vs_folder.length" x-cloak
-                   href="#" @click.prevent="manual.vs_folder=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-        </div>
-      </div>
-
-      <!-- Hyper-V (WinRM) -->
-      <div x-show="provider==='hyperv'" x-cloak class="space-y-3">
-        <!-- Connection fields (always plain inputs) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="text-sm text-slate-600">{{t "deploy.hv_host"}}
-            <input name="hv_host" :required="provider==='hyperv'" placeholder="hyperv01.lab.local"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.hv_port"}}
-            <input name="hv_port" type="number" placeholder="5985"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
-            <input name="hv_user" placeholder="administrator"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <div class="relative mt-1" x-data="{show:false}">
-              <input name="hv_password" :type="show?'text':'password'"
-                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <button type="button" @click="show=!show" tabindex="-1"
-                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                <span x-text="show ? '🙈' : '👁'"></span>
-              </button>
-            </div>
-          </label>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="hv_https" class="rounded border-slate-300">
-          {{t "deploy.hv_https"}}
-        </label>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="hv_insecure" checked class="rounded border-slate-300">
-          {{t "deploy.f_insecure"}}
-        </label>
-
-        <!-- Connect & load button -->
-        <div class="flex items-center gap-3 pt-1">
-          <button type="button" @click="connectLoad('hyperv')" :disabled="disco.busy"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
-            <span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
-          </button>
-          <span x-show="disco.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="disco.msg"></span></span>
-          <span x-show="disco.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="disco.msg"></span></span>
-        </div>
-
-        <!-- Discoverable resource fields -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-          <!-- hv_switch -->
-          <label class="text-sm text-slate-600">{{t "deploy.hv_switch"}}
-            <input type="hidden" name="hv_switch" :value="res.hv_switch">
-            <template x-if="disco.resources.hv_switch && disco.resources.hv_switch.length && !manual.hv_switch">
-              <select x-model="res.hv_switch" @change="if(res.hv_switch==='__manual__'){manual.hv_switch=true;res.hv_switch='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.hv_switch" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.hv_switch && disco.resources.hv_switch.length && !manual.hv_switch)">
-              <div>
-                <input x-model="res.hv_switch" placeholder="External"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.hv_switch && disco.resources.hv_switch.length" x-cloak
-                   href="#" @click.prevent="manual.hv_switch=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- hv_vm_path -->
-          <label class="text-sm text-slate-600">{{t "deploy.hv_vm_path"}}
-            <input type="hidden" name="hv_vm_path" :value="res.hv_vm_path">
-            <template x-if="disco.resources.hv_vm_path && disco.resources.hv_vm_path.length && !manual.hv_vm_path">
-              <select x-model="res.hv_vm_path" @change="if(res.hv_vm_path==='__manual__'){manual.hv_vm_path=true;res.hv_vm_path='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_none"}}</option>
-                <template x-for="opt in disco.resources.hv_vm_path" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.hv_vm_path && disco.resources.hv_vm_path.length && !manual.hv_vm_path)">
-              <div>
-                <input x-model="res.hv_vm_path" placeholder="C:\\ProgramData\\autodeploy"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.hv_vm_path && disco.resources.hv_vm_path.length" x-cloak
-                   href="#" @click.prevent="manual.hv_vm_path=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- hv_iso_path: not discoverable — plain text input -->
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.hv_iso_path"}}
-            <input name="hv_iso_path" placeholder="C:\\ISOs"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-
-        </div>
-      </div>
-
-      <!-- Nutanix AHV -->
-      <div x-show="provider==='nutanix'" x-cloak class="space-y-3">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="text-sm text-slate-600">{{t "deploy.nx_endpoint"}}
-            <input name="nx_endpoint" :required="provider==='nutanix'" placeholder="10.0.0.10"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.nx_port"}}
-            <input name="nx_port" type="number" value="9440"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
-            <input name="nx_user" placeholder="admin"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <div class="relative mt-1" x-data="{show:false}">
-              <input name="nx_password" :type="show?'text':'password'"
-                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <button type="button" @click="show=!show" tabindex="-1"
-                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                <span x-text="show ? '🙈' : '👁'"></span>
-              </button>
-            </div>
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.nx_cluster"}}
-            <input name="nx_cluster"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.nx_storage"}}
-            <input name="nx_storage"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.nx_subnet"}}
-            <input name="nx_subnet"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="nx_insecure" checked class="rounded border-slate-300">
-          {{t "deploy.f_insecure"}}
-        </label>
-      </div>
-
-      <!-- XCP-ng -->
-      <div x-show="provider==='xcpng'" x-cloak class="space-y-3">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.xen_host"}}
-            <input name="xen_host" :required="provider==='xcpng'" placeholder="https://xcp.lab.local"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_user"}}
-            <input name="xen_user" value="root"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.f_password"}}
-            <div class="relative mt-1" x-data="{show:false}">
-              <input name="xen_password" :type="show?'text':'password'"
-                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <button type="button" @click="show=!show" tabindex="-1"
-                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                <span x-text="show ? '🙈' : '👁'"></span>
-              </button>
-            </div>
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.xen_sr"}}
-            <input name="xen_sr"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.xen_iso_sr"}}
-            <input name="xen_iso_sr"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.xen_network"}}
-            <input name="xen_network"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="xen_insecure" checked class="rounded border-slate-300">
-          {{t "deploy.f_insecure"}}
-        </label>
-      </div>
-
-      <!-- VMware Workstation (WinRM + vmrun) -->
-      <div x-show="provider==='workstation'" x-cloak class="space-y-3">
-        <!-- Connection fields (always plain inputs) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label class="text-sm text-slate-600">{{t "deploy.ws_host"}}
-            <input name="ws_host" :required="provider==='workstation'" placeholder="ws01.lab.local"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.ws_port"}}
-            <input name="ws_port" type="number" placeholder="5985"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.ws_user"}}
-            <input name="ws_user" placeholder="administrator"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-          <label class="text-sm text-slate-600">{{t "deploy.ws_password"}}
-            <div class="relative mt-1" x-data="{show:false}">
-              <input name="ws_password" :type="show?'text':'password'"
-                     class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              <button type="button" @click="show=!show" tabindex="-1"
-                      class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                      :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                <span x-text="show ? '🙈' : '👁'"></span>
-              </button>
-            </div>
-          </label>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="ws_https" class="rounded border-slate-300">
-          {{t "deploy.ws_https"}}
-        </label>
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="ws_insecure" checked class="rounded border-slate-300">
-          {{t "deploy.ws_insecure"}}
-        </label>
-
-        <!-- Connect & load button -->
-        <div class="flex items-center gap-3 pt-1">
-          <button type="button" @click="connectLoad('workstation')" :disabled="disco.busy"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50">
-            <span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
-          </button>
-          <span x-show="disco.state==='ok'" x-cloak class="text-sm text-emerald-600">&#10003; <span x-text="disco.msg"></span></span>
-          <span x-show="disco.state==='err'" x-cloak class="text-sm text-red-600 break-all">&#10007; <span x-text="disco.msg"></span></span>
-        </div>
-
-        <!-- Discoverable + manual resource fields -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-          <!-- ws_install_dir: discoverable -->
-          <label class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.ws_install_dir"}}
-            <input type="hidden" name="ws_install_dir" :value="res.ws_install_dir">
-            <template x-if="disco.resources.ws_install_dir && disco.resources.ws_install_dir.length && !manual.ws_install_dir">
-              <select x-model="res.ws_install_dir" @change="if(res.ws_install_dir==='__manual__'){manual.ws_install_dir=true;res.ws_install_dir='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_none"}}</option>
-                <template x-for="opt in disco.resources.ws_install_dir" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.ws_install_dir && disco.resources.ws_install_dir.length && !manual.ws_install_dir)">
-              <div>
-                <input x-model="res.ws_install_dir" placeholder="C:\Program Files\VMware\VMware Workstation"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.ws_install_dir && disco.resources.ws_install_dir.length" x-cloak
-                   href="#" @click.prevent="manual.ws_install_dir=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- ws_vm_dir: not discoverable — plain text input -->
-          <label class="text-sm text-slate-600">{{t "deploy.ws_vm_dir"}}
-            <input name="ws_vm_dir" :required="provider==='workstation'" placeholder="C:\\VMs"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-
-          <!-- ws_iso_dir: not discoverable — plain text input -->
-          <label class="text-sm text-slate-600">{{t "deploy.ws_iso_dir"}}
-            <input name="ws_iso_dir" placeholder="C:\\ISOs"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-
-          <!-- ws_vnet: discoverable -->
-          <label class="text-sm text-slate-600">{{t "deploy.ws_vnet"}}
-            <input type="hidden" name="ws_vnet" :value="res.ws_vnet">
-            <template x-if="disco.resources.ws_vnet && disco.resources.ws_vnet.length && !manual.ws_vnet">
-              <select x-model="res.ws_vnet" @change="if(res.ws_vnet==='__manual__'){manual.ws_vnet=true;res.ws_vnet='';}"
-                      class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <option value="">{{t "deploy.opt_select"}}</option>
-                <template x-for="opt in disco.resources.ws_vnet" :key="opt.value">
-                  <option :value="opt.value" x-text="opt.label||opt.value"></option>
-                </template>
-                <option value="__manual__">{{t "deploy.enter_manually"}}</option>
-              </select>
-            </template>
-            <template x-if="!(disco.resources.ws_vnet && disco.resources.ws_vnet.length && !manual.ws_vnet)">
-              <div>
-                <input x-model="res.ws_vnet" :required="provider==='workstation'" placeholder="vmnet0"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                <a x-show="disco.resources.ws_vnet && disco.resources.ws_vnet.length" x-cloak
-                   href="#" @click.prevent="manual.ws_vnet=false"
-                   class="text-xs text-blue-600 hover:underline">{{t "deploy.choose_from_list"}}</a>
-              </div>
-            </template>
-          </label>
-
-          <!-- ws_vnc_host: not discoverable — plain text input -->
-          <label class="text-sm text-slate-600">{{t "deploy.ws_vnc_host"}}
-            <input name="ws_vnc_host" placeholder="ws01.lab.local"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-
-          <!-- ws_vnc_port_base: not discoverable — plain text input -->
-          <label class="text-sm text-slate-600">{{t "deploy.ws_vnc_port_base"}}
-            <input name="ws_vnc_port_base" type="number" placeholder="5910"
-                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          </label>
-
-        </div>
-      </div>
-    </div>
-
-    <!-- Wiring (register the topology into the VSA via Veeam REST) -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
-      <label class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-        <input type="checkbox" name="wire" x-model="wire" class="rounded border-slate-300">
-        {{t "deploy.wire"}}
-      </label>
-      <p class="text-xs text-slate-400">{{t "deploy.wire_hint"}}</p>
-      <div x-show="wire" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <label class="text-sm text-slate-600">{{t "deploy.wire_timeout"}}
-          <input name="wire_timeout" type="number" min="5" value="45"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label x-show="isHA && !isStandalone" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_dns"}}
-          <input name="cluster_dns" placeholder="vbr-cluster.domain.local"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-        </label>
-        <label x-show="isHA && !isStandalone" x-cloak class="text-sm text-slate-600">{{t "deploy.cluster_endpoint"}}
-          <input name="cluster_endpoint" :required="wire && isHA && !isStandalone" placeholder="192.168.1.200"
-                 class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-          <span class="text-xs text-slate-400">{{t "deploy.cluster_endpoint_hint"}}</span>
-        </label>
-        <!-- License install over REST: only meaningful with remote kickstart and non-standalone topologies,
-             where the .lic cannot be baked into the booted ISO. -->
-        <label x-show="ks && !isStandalone" x-cloak class="sm:col-span-2 text-sm text-slate-600">{{t "deploy.wire_license"}}
-          <select name="wire_license" x-model="licenseFile"
-                  class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            <option value="">{{t "form.none_dash"}}</option>
-            {{range .LicenseFiles}}<option value="{{.}}">{{.}}</option>{{end}}
-          </select>
-          <span class="text-xs text-slate-400">{{t "deploy.wire_license_hint"}}</span>
-        </label>
-        <div class="sm:col-span-2 border-t border-slate-100 pt-2" x-show="!isStandalone" x-cloak>
-          <label class="flex items-center gap-2 text-xs text-slate-600">
-            <input type="checkbox" x-model="wireAdv" class="rounded border-slate-300">
-            {{t "deploy.wire_advanced"}}
-          </label>
-
-          <!-- Advanced wiring options (applied on the primary VSA via REST) -->
-          <div x-show="wireAdv" x-cloak class="mt-3 space-y-4">
-
-            <!-- node_exporter -->
-            <div class="space-y-2">
-              <label class="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" name="wire_node_exporter" x-model="wireNodeExp" class="rounded border-slate-300">
-                {{t "deploy.wire_node_exporter"}}
-              </label>
-              <div x-show="wireNodeExp" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
-                <label class="flex items-center gap-2 text-xs text-slate-600 sm:col-span-2">
-                  <input type="checkbox" name="wire_node_exporter_tls" class="rounded border-slate-300">
-                  {{t "deploy.wire_ne_tls"}}
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_ne_user"}}
-                  <input name="wire_node_exporter_user" autocomplete="off"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_ne_pass"}}
-                  <div class="relative mt-1" x-data="{show:false}">
-                    <input name="wire_node_exporter_pass" :type="show?'text':'password'" autocomplete="new-password"
-                           class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                    <button type="button" @click="show=!show" tabindex="-1"
-                            class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                            :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                      <span x-text="show ? '🙈' : '👁'"></span>
-                    </button>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <!-- syslog -->
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
-              <label class="text-sm text-slate-600 sm:col-span-2">{{t "deploy.wire_syslog"}}
-                <input name="wire_syslog_server" placeholder="syslog.lab.local"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              </label>
-              <label class="text-sm text-slate-600">{{t "deploy.wire_syslog_port"}}
-                <input name="wire_syslog_port" type="number" value="514"
-                       class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-              </label>
-              <label class="text-sm text-slate-600">{{t "deploy.wire_syslog_proto"}}
-                <select name="wire_syslog_protocol"
-                        class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                  <option>Udp</option><option>Tcp</option><option>Tls</option>
-                </select>
-              </label>
-            </div>
-
-            <!-- S3 / object-storage repository -->
-            <div class="space-y-2">
-              <label class="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" name="wire_s3" x-model="wireS3" class="rounded border-slate-300">
-                {{t "deploy.wire_s3"}}
-              </label>
-              <div x-show="wireS3" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
-                <label class="flex items-center gap-2 text-xs text-slate-600 sm:col-span-2">
-                  <input type="checkbox" name="wire_s3_compatible" x-model="wireS3Compat" class="rounded border-slate-300">
-                  {{t "deploy.wire_s3_compatible"}}
-                </label>
-                <label x-show="wireS3Compat" x-cloak class="text-xs text-slate-600 sm:col-span-2">{{t "deploy.wire_s3_endpoint"}}
-                  <input name="wire_s3_endpoint" placeholder="https://s3.lab.local"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_region"}}
-                  <input name="wire_s3_region" placeholder="us-east-1"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_name"}}
-                  <input name="wire_s3_name" placeholder="Object Storage"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_bucket"}}
-                  <input name="wire_s3_bucket"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_folder"}}
-                  <input name="wire_s3_folder" placeholder="backups"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_access"}}
-                  <input name="wire_s3_access_key" autocomplete="off"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_secret"}}
-                  <div class="relative mt-1" x-data="{show:false}">
-                    <input name="wire_s3_secret_key" :type="show?'text':'password'" autocomplete="new-password"
-                           class="w-full border border-slate-300 rounded-lg px-3 py-2 pr-9 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                    <button type="button" @click="show=!show" tabindex="-1"
-                            class="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-400 hover:text-slate-600"
-                            :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
-                      <span x-text="show ? '🙈' : '👁'"></span>
-                    </button>
-                  </div>
-                </label>
-                <label class="text-xs text-slate-600">{{t "deploy.wire_s3_immutable"}}
-                  <input name="wire_s3_immutable_days" type="number" min="0" value="0"
-                         class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                </label>
-                <label class="text-xs text-slate-600 sm:col-span-2">{{t "deploy.wire_s3_mount"}}
-                  <select name="wire_s3_mount_node" x-model="s3MountNode"
-                          class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                    <option value="">{{t "deploy.wire_s3_mount_none"}}</option>
-                    <template x-for="c in s3MountCandidates" :key="c.idx">
-                      <option :value="c.value" x-text="c.label"></option>
-                    </template>
-                  </select>
-                </label>
-                <label class="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
-                  <input type="checkbox" name="wire_s3_overwrite" x-model="wireS3Overwrite" class="rounded border-slate-300">
-                  {{t "deploy.wire_s3_overwrite"}}
-                </label>
-                <span x-show="wireS3Overwrite" x-cloak class="text-xs text-amber-600 sm:col-span-2">{{t "deploy.wire_s3_overwrite_hint"}}</span>
-              </div>
-            </div>
-
-            <pre class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 whitespace-pre overflow-x-auto"
-                 x-text="wirePreview()"></pre>
+        <div>
+          <label class="ad-flabel">{{t "deploy.save_template"}}</label>
+          <div class="flex gap-1">
+            <input id="deploy_preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}" value="{{.PresetName}}" class="ad-input" style="height:34px;width:auto;min-width:160px;">
+            <button type="button" class="ad-btn ad-btn-dark" style="height:34px;" onclick="deploySaveTemplate()">{{t "form.save"}}</button>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- Total node count (catalog + added VIA nodes) for the server. -->
-    <input type="hidden" name="node_count" :value="roles.length">
-
-    <!-- Static-IP conflict: two nodes can't share the same fixed IP. -->
-    <div x-show="ipConflict.length" x-cloak class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
-      <span x-text="'{{t "deploy.ip_conflict"}} ' + ipConflict.join(', ')"></span>
-    </div>
-
-    <!-- Power on + launch -->
-    <div class="space-y-1">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <label class="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" name="power_on"
-                 :checked="effectivePowerOn"
-                 :disabled="wire || ks"
-                 @change="powerOn = $event.target.checked"
-                 class="rounded border-slate-300">
-          {{t "deploy.power_on"}}
-        </label>
-        <button type="submit"
-                :disabled="ipConflict.length > 0"
-                class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-          {{t "deploy.launch"}}
-        </button>
-      </div>
-      <!-- Hidden input ensures power_on is submitted when the visible checkbox is disabled (wire/ks) -->
-      <template x-if="wire || ks">
-        <input type="hidden" name="power_on" value="on">
-      </template>
-      <p x-show="wire || ks" x-cloak class="text-xs text-blue-600">{{t "deploy.power_on_required"}}</p>
-    </div>
-  </form>
-
-  <!-- Recent deployments -->
-  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-    <h2 class="font-semibold text-slate-800 mb-3">{{t "deploy.recent"}}</h2>
-    {{if .Deployments}}
-    <ul class="divide-y divide-slate-100 text-sm">
-      {{range .Deployments}}
-      <li class="py-2 flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline font-mono">{{.Kind}} · {{slice .ID 0 8}}</a>
-          <span class="block text-xs text-slate-400 tabular-nums">{{fmtTime .CreatedAt}}{{if not .FinishedAt.IsZero}} · {{fmtDur .CreatedAt .FinishedAt}}{{end}}</span>
-        </div>
-        <span class="shrink-0 text-xs px-2 py-0.5 rounded-full
-          {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-700{{end}}
-          {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-700{{end}}
-          {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-700{{end}}
-          {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-600{{end}}
-          {{if eq (printf "%s" .State) "canceled"}}bg-slate-200 text-slate-700{{end}}">{{.State}}</span>
-      </li>
-      {{end}}
-    </ul>
-    {{else}}
-    <p class="text-sm text-slate-400">{{t "deploy.none"}}</p>
-    {{end}}
   </div>
-
 </div>
+
+<div class="ad-warn" style="margin-bottom:18px;">
+  <span class="mi">warning</span>{{t "deploy.warning"}}
+</div>
+
+{{if not .Outputs}}
+<div class="ad-info" style="margin-bottom:18px;">
+  <span class="mi">info</span><span>{{t "deploy.no_outputs"}} <a href="/wizard" class="ad-btn-link" style="display:inline;">{{t "nav.wizard"}}</a></span>
+</div>
+{{end}}
+
+<script>
+  const DEPLOY_CATALOG = {
+    {{range .Kinds}}"{{.Kind}}": [{{range .Roles}}{{jsonStr .}},{{end}}],{{end}}
+  };
+  const DEPLOY_STANDALONE = {
+    {{range .Kinds}}"{{.Kind}}": {{if .Standalone}}true{{else}}false{{end}},{{end}}
+  };
+  const OUTPUTS = {{.OutputsJSON}};
+  const OUTPUTS_BY_ID = Object.fromEntries(OUTPUTS.map(o => [o.job_id, o]));
+  const DEPLOY_PREFILL = {{.PrefillJSON}};
+</script>
+
+<form id="deploy-form" method="POST" action="/deploy"
+      x-init="
+        $watch('wire', function(v){ if(v) powerOn=true; });
+        $watch('ks',   function(v){ if(v) powerOn=true; });
+        if (DEPLOY_PREFILL) {
+          const p = DEPLOY_PREFILL;
+          if (p.kind && DEPLOY_CATALOG[p.kind]) kind = p.kind;
+          if (p.provider) provider = p.provider;
+          ks   = !!p.remote_ks;
+          wire = !!p.wire;
+          if (p.power_on) powerOn = true;
+          if (p.text && p.text.ks_base_url) ksbase = p.text.ks_base_url;
+          if (Array.isArray(p.node_outputs)) {
+            const b = (DEPLOY_CATALOG[kind]||[]).length;
+            for (let i=b; i<p.node_outputs.length; i++){
+              const role = p.text && p.text['node_'+i+'_role'];
+              if (role) extra.push(role);
+            }
+            p.node_outputs.forEach(function(v,i){ if(v) sel[i]=v; });
+          }
+          if (Array.isArray(p.node_boots)) {
+            p.node_boots.forEach(function(v,i){ if(v){ adv[i]=true; edited[i]=true; bootcmd[i]=v; } });
+          }
+          wireNodeExp = !!(p.checks && p.checks.wire_node_exporter);
+          wireS3       = !!(p.checks && p.checks.wire_s3);
+          wireS3Compat = !!(p.checks && p.checks.wire_s3_compatible);
+          wireS3Overwrite = !!(p.checks && p.checks.wire_s3_overwrite);
+          targetInsecure = !!(p.checks && p.checks.target_insecure);
+          if (p.text && p.text.wire_license) licenseFile = p.text.wire_license;
+          if (p.text && p.text.wire_s3_mount_node) s3MountNode = p.text.wire_s3_mount_node;
+          if (p.text && p.text.target_deploy_id) targetDeployID = p.text.target_deploy_id;
+          wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
+          // Seed res[] for all discoverable fields so the hidden inputs submit
+          // the correct prefilled values even before Connect is pressed.
+          const discoFields=[
+            'pve_node','pve_storage','pve_iso_storage','vm_bridge',
+            'vs_datacenter','vs_cluster','vs_resource_pool','vs_datastore','vs_network','vs_folder',
+            'hv_switch','hv_vm_path',
+            'ws_install_dir','ws_vnet',
+          ];
+          discoFields.forEach(function(k){ if(p.text && p.text[k]) res[k]=p.text[k]; });
+          $nextTick(function(){
+            if (p.text) Object.entries(p.text).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.value=v; });
+            if (p.checks) Object.entries(p.checks).forEach(function([k,v]){ const el=document.getElementsByName(k)[0]; if(el) el.checked=!!v; });
+          });
+        } else {
+          const k=new URLSearchParams(location.search).get('kind');
+          if(k && DEPLOY_CATALOG[k]) kind=k;
+        }
+      "
+      x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
+                targetDeployID:'', targetInsecure:true,
+                testConn:{busy:false,state:'',msg:''},
+                res:{pve_node:'',pve_storage:'',pve_iso_storage:'',vm_bridge:'',vs_datacenter:'',vs_cluster:'',vs_resource_pool:'',vs_datastore:'',vs_network:'',vs_folder:'',hv_switch:'',hv_vm_path:'',ws_install_dir:'',ws_vnet:''},
+                manual:{},
+                disco:{busy:false,state:'',msg:'',resources:{}},
+                async connectLoad(provider){
+                  this.disco={busy:true,state:'',msg:'',resources:this.disco.resources};
+                  try{
+                    const fd=new FormData(document.getElementById('deploy-form'));
+                    fd.set('provider',provider);
+                    const r=await fetch('/deploy/hypervisor/discover',{method:'POST',body:fd});
+                    const d=await r.json();
+                    const got=d.resources||{};
+                    this.disco={busy:false,state:d.ok?'ok':'err',msg:d.message||'',resources:got};
+                    if(!d.ok) return;
+                    // Reconcile: if the current value for a field is non-empty but
+                    // is no longer in the returned options, reset to '' so the
+                    // placeholder shows instead of submitting a stale default.
+                    Object.keys(got).forEach(function(f){
+                      const opts=got[f]||[];
+                      if(!opts.length || this.manual[f]) return;
+                      const v=this.res[f];
+                      if(v && !opts.some(function(o){return o.value===v;}.bind(this))){
+                        this.res[f]='';
+                      }
+                    }.bind(this));
+                  }catch(e){this.disco={busy:false,state:'err',msg:String(e),resources:{}};}
+                },
+                gLabels:{vsa:'{{t "deploy.group_vsa"}}',proxy:'{{t "deploy.group_proxy"}}',hr:'{{t "deploy.group_hr"}}'},
+                get ksCapable(){ return ['proxmox','vsphere','hyperv','workstation'].includes(this.provider); },
+                get s3MountCandidates(){ return this.displayOrder.map((idx,pos)=>({idx,pos})).filter(o => (this.roles[o.idx]||'').includes('Proxy') && this.summ(o.idx) && this.summ(o.idx).hostname).map(o => ({ idx:o.idx, value:this.summ(o.idx).hostname, label:(o.pos+1)+'. '+this.roles[o.idx]+' — '+this.summ(o.idx).hostname })); },
+                extra: [],
+                baseLen(){ return (DEPLOY_CATALOG[this.kind] || []).length; },
+                get roles(){ return [...(DEPLOY_CATALOG[this.kind] || []), ...this.extra]; },
+                get isStandalone(){ return !!(this.kind && DEPLOY_STANDALONE[this.kind]); },
+                async testConnection(kind){
+                  this.testConn={busy:true,state:'',msg:''};
+                  try{
+                    const fd=new FormData(document.getElementById('deploy-form'));
+                    fd.set('kind',kind);
+                    const r=await fetch('/deploy/test-connection',{method:'POST',body:fd});
+                    const d=await r.json();
+                    this.testConn={busy:false,state:d.ok?'ok':'err',msg:d.message||''};
+                  }catch(e){this.testConn={busy:false,state:'err',msg:String(e)};}
+                },
+                groupRank(role){ if(!role) return 1; if(role.startsWith('VSA')) return 0; if(role.includes('HR')) return 2; return 1; },
+                groupLabel(role){ const r=this.groupRank(role); return r===0?this.gLabels.vsa:r===2?this.gLabels.hr:this.gLabels.proxy; },
+                roleKind(role){ if(!role) return 'proxy'; if(role.startsWith('VSA')) return 'vsa'; if(role.includes('HR')) return 'hr'; return 'proxy'; },
+                roleIcon(role){ const k=this.roleKind(role); return k==='vsa'?'dns':k==='hr'?'shield':'swap_horiz'; },
+                roleDot(role){ const k=this.roleKind(role); return k==='vsa'?'#06702A':k==='hr'?'#6B46C1':'#0779A5'; },
+                get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
+                addVIA(role){ this.extra.push(role); },
+                removeNode(idx){ const b=this.baseLen(); if(idx<b) return; this.extra.splice(idx-b,1); const n=this.roles.length; ['sel','bootcmd','adv','edited'].forEach(m=>{ for(let k=idx;k<n;k++){ this[m][k]=this[m][k+1]; } delete this[m][n]; }); },
+                get ipConflict(){ const seen={}, dups={}; this.roles.forEach((r,i)=>{ const o=this.summ(i); if(!o||!o.network||o.network==='DHCP') return; if(seen[o.network]) dups[o.network]=true; else seen[o.network]=true; }); return Object.keys(dups); },
+                get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
+                get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
+                get isHA(){ return this.kind.startsWith('vsa-ha'); },
+                get effectivePowerOn(){ return this.powerOn || this.wire || this.ks; },
+                summ(i){ return OUTPUTS_BY_ID[this.sel[i]] || null; },
+                diskCountFor(i){ const o=this.summ(i); return o&&o.single_disk?1:2; },
+                diskMin(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
+                diskDefault(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
+                ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/media/output/'+this.sel[i]+'/'+o.cfg_file+'/content'; },
+                ipArg(i){ const o=this.summ(i);
+                  if(!o || !o.network || o.network==='DHCP') return 'ip=dhcp';
+                  return 'ip='+o.network+'::'+(o.gateway||'')+':'+(o.netmask||'')+':'+(o.hostname||'')+'::none'; },
+                defaultBoot(i){ const vsa=(this.roles[i]||'').indexOf('VSA')===0;
+                  const o=this.summ(i);
+                  const sd=!vsa && o && o.single_disk;
+                  const lx='linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL='+(vsa?'VeeamSA fips=1':'VeeamJeOS')+' inst.ks='+this.ksUrl(i)+(sd?' inst.vsingledisk':'')+' '+this.ipArg(i)+' quiet inst.assumeyes';
+                  return lx+'\ninitrdefi /images/pxeboot/initrd.img\nboot'; },
+                revealBoot(i){ if(!this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
+                refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
+                wirePreview(){
+                  const vsaIdxs=this.roles.map((r,i)=>r.startsWith('VSA')?i:-1).filter(i=>i>=0);
+                  const vsaIP=vsaIdxs.length>0?(this.summ(vsaIdxs[0])?.network||'<VSA-IP>'):'<VSA-IP>';
+                  const ep='https://'+vsaIP+':9419';
+                  const L=[];
+                  L.push('POST '+ep+'/api/oauth2/token');
+                  L.push('  body: { grant_type:password, username:veeamadmin, password:*** }');
+                  L.push('');
+                  if(this.licenseFile){
+                    L.push('# Install license (VSA boots unlicensed under remote kickstart)');
+                    L.push('GET  '+ep+'/api/v1/license  # skip if already Valid');
+                    L.push('POST '+ep+'/api/v1/license/install');
+                    L.push('  body: { license: <base64 of '+this.licenseFile+'> }');
+                    L.push('');
+                  }
+                  this.roles.forEach(function(role,i){
+                    if(role.startsWith('VSA')) return;
+                    const ip=this.summ(i)?.network||'<node-IP>';
+                    L.push('# '+role+' ('+ip+') — wait for port 6160/443/22');
+                    L.push('GET  '+ep+'/api/v1/backupInfrastructure/managedServers');
+                    L.push('POST '+ep+'/api/v1/backupInfrastructure/managedServers  # if not already registered');
+                    L.push('  body: { name:'+ip+', type:LinuxHost, pairingCode:000000 }');
+                    if(role.includes('HR')){
+                      L.push('GET  '+ep+'/api/v1/backupInfrastructure/repositories');
+                      L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories  # type=LinuxHardened, if absent');
+                      L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/var/lib/veeam/backups, immutabilityDays:7 }');
+                    } else if(role.includes('Proxy')){
+                      L.push('POST '+ep+'/api/v1/backupInfrastructure/vsphereProxies');
+                      L.push('  body: { hostId:<id>, maxTasksCount:4 }');
+                    }
+                    L.push('');
+                  }.bind(this));
+                  if(vsaIdxs.length>=2){
+                    const secIP=this.summ(vsaIdxs[1])?.network||'<secondary-IP>';
+                    const hasHR=this.roles.some(r=>r.includes('HR'));
+                    if(hasHR){
+                      L.push('# Redirect config backup before removing default repo');
+                      L.push('PUT  '+ep+'/api/v1/configBackup/target');
+                      L.push('  body: { repositoryId:<hardened-repo-id> }');
+                      L.push('DELETE '+ep+'/api/v1/backupInfrastructure/repositories/<default-repo-id>');
+                      L.push('');
+                    }
+                    L.push('# HA cluster');
+                    L.push('POST '+ep+'/api/v1/credentials');
+                    L.push('  body: { username:veeamadmin, password:*** }');
+                    L.push('POST '+ep+'/api/v1/connectionCertificate?host='+secIP);
+                    L.push('POST '+ep+'/api/v1/highAvailabilityCluster');
+                    L.push('  body: { primaryNodeIpAddress:'+vsaIP+', secondaryNodeIpAddress:'+secIP+', clusterDnsName:<dns>, clusterEndpoint:<vip>, certificate:{…} }');
+                  }
+                  // Advanced options, applied on the primary VSA.
+                  if(this.wireNodeExp){
+                    L.push('');
+                    L.push('# node_exporter (Prometheus metrics)');
+                    L.push('PUT  '+ep+'/api/v1/generalOptions/nodeExporterSettings');
+                    L.push('  body: { metricsSharingEnabled:true, tlsEnabled:<tls>, auth:{ type:None|UsernamePassword } }');
+                  }
+                  {
+                    const sl=(document.getElementsByName('wire_syslog_server')[0]||{}).value;
+                    if(sl){
+                      L.push('');
+                      L.push('# syslog event forwarding');
+                      L.push('PUT  '+ep+'/api/v1/generalOptions/eventForwarding');
+                      L.push('  body: { syslogServer:{ serverName:'+sl+', port:<port>, transportProtocol:<proto> } }');
+                    }
+                  }
+                  if(this.wireS3){
+                    const t=this.wireS3Compat?'S3Compatible':'AmazonS3';
+                    const bucket=(document.getElementsByName('wire_s3_bucket')[0]||{}).value||'<bucket>';
+                    L.push('');
+                    L.push('# object-storage repository ('+t+')');
+                    L.push('POST '+ep+'/api/v1/cloudCredentials');
+                    L.push('  body: { type:Amazon, accessKey:***, secretKey:*** }');
+                    L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories');
+                    L.push('  body: { type:'+t+', bucket:{ bucketName:'+bucket+', folderName:<folder> } }');
+                  }
+                  return L.join('\n');
+                } }">
+
+  <div class="ad-2col">
+    <!-- main column -->
+    <div class="flex flex-col gap-[18px]">
+
+      <!-- Topology & nodes -->
+      <div class="ad-card">
+        <div class="ad-card-head">
+          <span class="ad-card-ico"><span class="mi">account_tree</span></span>
+          <span class="ad-card-title">{{t "deploy.card_topology"}}</span>
+          <span x-show="roles.length" x-cloak style="margin-left:auto;font-size:12px;color:var(--muted);" x-text="roles.length + ' ' + {{tjs "deploy.nodes"}}"></span>
+        </div>
+        <div class="ad-card-body">
+          <label class="block" style="margin-bottom:16px;">
+            <span class="ad-flabel">{{t "deploy.topology"}}</span>
+            <select name="kind" x-model="kind" @change="sel={}; extra=[]; bootcmd={}; adv={}; edited={}; targetDeployID=''" required class="ad-select mono">
+              <option value="">{{t "deploy.select_topology"}}</option>
+              <optgroup label="{{t "deploy.optgroup_new"}}">
+                {{range .Kinds}}{{if not .Standalone}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}{{end}}
+              </optgroup>
+              <optgroup label="{{t "deploy.optgroup_existing"}}">
+                {{range .Kinds}}{{if .Standalone}}<option value="{{.Kind}}">{{.Label}}</option>{{end}}{{end}}
+              </optgroup>
+            </select>
+          </label>
+
+          <div x-show="roles.length" x-cloak>
+            <template x-for="(idx, pos) in displayOrder" :key="idx">
+              <div>
+                <!-- Group delimiter label: shown when this is the first card of its group -->
+                <div x-show="pos===0 || groupRank(roles[displayOrder[pos-1]]) !== groupRank(roles[idx])"
+                     class="ad-grouplabel" style="margin:10px 0 7px;padding-top:6px;"
+                     x-text="groupLabel(roles[idx])"></div>
+
+                <!-- Node card -->
+                <div style="border:1px solid var(--bd2);border-radius:9px;padding:13px 14px;margin-bottom:10px;">
+                  <input type="hidden" :name="'node_'+idx+'_role'" :value="roles[idx]">
+                  <div class="flex items-center gap-[10px]" style="margin-bottom:11px;">
+                    <span class="ad-role" :class="'ad-role-'+roleKind(roles[idx])">
+                      <span class="mi" x-text="roleIcon(roles[idx])"></span><span x-text="roles[idx]"></span>
+                    </span>
+                    <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);" x-text="{{tjs "deploy.node_label"}}+' '+(pos+1)"></span>
+                    <span style="margin-left:auto;display:flex;gap:6px;">
+                      <button type="button" x-show="!roles[idx].startsWith('VSA')" @click="addVIA(roles[idx])"
+                              title="{{t "deploy.add_via"}}"
+                              style="width:26px;height:26px;border-radius:6px;border:none;background:var(--vg-50);color:var(--vg-deep);cursor:pointer;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">
+                        <span class="mi" style="font-size:16px;">add</span>
+                      </button>
+                      <button type="button" x-show="idx >= baseLen()" @click="removeNode(idx)"
+                              title="{{t "deploy.remove_node"}}"
+                              style="width:26px;height:26px;border-radius:6px;border:none;background:#FCEEEC;color:#8C2A1F;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">
+                        <span class="mi" style="font-size:16px;">close</span>
+                      </button>
+                    </span>
+                  </div>
+
+                  <select :name="'node_'+idx+'_output'" x-model="sel[idx]" required @change="refreshBoot(idx)" class="ad-select mono" style="margin-bottom:11px;">
+                    <option value="">{{t "deploy.select_output"}}</option>
+                    {{range .Outputs}}<option value="{{.JobID}}">{{.Name}}</option>{{end}}
+                  </select>
+
+                  <!-- Summary of the chosen output -->
+                  <div x-show="summ(idx)" x-cloak>
+                    <div class="ad-sunken" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:10px 12px;font-size:12px;margin-bottom:11px;">
+                      <div>
+                        <div style="color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">{{t "form.hostname"}}</div>
+                        <div style="font-family:var(--font-mono);font-weight:600;" x-text="summ(idx)?.hostname || '—'"></div>
+                      </div>
+                      <div>
+                        <div style="color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">{{t "form.network"}}</div>
+                        <div style="font-family:var(--font-mono);font-weight:600;" x-text="summ(idx)?.network || '—'"></div>
+                      </div>
+                      <div>
+                        <div style="color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">{{t "deploy.disks"}}</div>
+                        <div style="font-family:var(--font-mono);color:var(--vg-deep);font-weight:600;" x-text="summ(idx)?.disks"></div>
+                      </div>
+                      <div>
+                        <div style="color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">{{t "form.grub_timeout"}}</div>
+                        <div style="font-family:var(--font-mono);font-weight:600;" x-text="(summ(idx)?.grub_timeout ?? 0)+' s'"></div>
+                      </div>
+                    </div>
+                    <p x-show="roles[idx].indexOf('VSA')===0 ? summ(idx)?.appliance!=='VSA' : summ(idx)?.appliance==='VSA'"
+                       style="color:#8A5A00;font-size:12px;margin-bottom:8px;">{{t "deploy.role_mismatch"}}</p>
+                    <p x-show="ks && summ(idx)?.license_baked" x-cloak
+                       style="color:#8A5A00;font-size:12px;margin-bottom:8px;">{{t "deploy.license_baked_warn"}}</p>
+                    <p x-show="ks && summ(idx) && (summ(idx).grub_timeout||0) <= bootWait" x-cloak
+                       style="color:#8A5A00;font-size:12px;margin-bottom:8px;">{{t "deploy.warn_grub_bootwait"}}</p>
+                    <p x-show="isHA && roles[idx].startsWith('VSA') && summ(idx) && !summ(idx).ha" x-cloak
+                       style="color:#8A5A00;font-size:12px;margin-bottom:8px;">{{t "deploy.warn_ha_disabled"}}</p>
+                  </div>
+
+                  <!-- Advanced: show/edit the exact GRUB boot command typed for this VM (kickstart only) -->
+                  <div x-show="ks" x-cloak style="border-top:1px solid var(--line);padding-top:11px;margin-bottom:11px;">
+                    <label class="ad-checkrow" style="font-size:12px;color:var(--body);">
+                      <input type="checkbox" x-model="adv[idx]" @change="if(adv[idx]) revealBoot(idx)" class="ad-check">
+                      {{t "deploy.show_bootcmd"}}
+                    </label>
+                    <div x-show="adv[idx]" x-cloak class="mt-2 space-y-1">
+                      <textarea :name="(ks && adv[idx]) ? 'node_'+idx+'_bootcmd' : null" x-model="bootcmd[idx]" @input="edited[idx]=true"
+                                rows="4" spellcheck="false"
+                                style="width:100%;border:1px solid var(--bd2);border-radius:6px;padding:8px 10px;font-size:12px;font-family:var(--font-mono);background:var(--sunken);color:var(--ink);outline:none;"></textarea>
+                      <div class="flex items-center justify-between">
+                        <span style="font-size:11px;color:var(--faint);">{{t "deploy.bootcmd_hint"}}</span>
+                        <button type="button" @click="edited[idx]=false; bootcmd[idx]=defaultBoot(idx)" class="ad-btn-link" style="font-size:11px;">↻ {{t "deploy.reset_bootcmd"}}</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Per-node VM sizing -->
+                  <div style="border-top:1px solid var(--line);padding-top:11px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+                    <label style="font-size:11.5px;color:var(--muted);">{{t "deploy.vm_cpus"}}
+                      <input :name="'node_'+idx+'_cpus'" type="number" min="1" value="4" class="ad-input mono" style="height:34px;margin-top:3px;">
+                    </label>
+                    <label style="font-size:11.5px;color:var(--muted);">{{t "deploy.vm_memory"}}
+                      <input :name="'node_'+idx+'_memory'" type="number" min="1024" step="1024" value="8192" class="ad-input mono" style="height:34px;margin-top:3px;">
+                    </label>
+                    <label style="font-size:11.5px;color:var(--muted);">
+                      <span x-text="diskCountFor(idx)===1?'Disk (GiB)':'Disk 1 (GiB)'"></span>
+                      <span style="color:var(--faint);font-size:11px;" x-text="' ≥'+diskMin(idx)"></span>
+                      <input :name="'node_'+idx+'_disk_0'" type="number" :min="diskMin(idx)" :value="diskDefault(idx)" class="ad-input mono" style="height:34px;margin-top:3px;">
+                    </label>
+                    <label style="font-size:11.5px;color:var(--muted);" x-show="diskCountFor(idx)>1">
+                      Disk 2 (GiB)
+                      <span style="color:var(--faint);font-size:11px;" x-text="'≥'+diskMin(idx)"></span>
+                      <input :name="'node_'+idx+'_disk_1'" type="number" :min="diskMin(idx)" :value="diskDefault(idx)" class="ad-input mono" style="height:34px;margin-top:3px;">
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Target VBR panel — shown only for standalone (no-VSA) topology kinds -->
+      <div x-show="isStandalone && roles.length" x-cloak class="ad-card">
+        <div class="ad-card-head">
+          <span class="ad-card-ico" style="background:#E4F2FB;color:#0779A5;"><span class="mi">hub</span></span>
+          <span class="ad-card-title">{{t "deploy.target_vbr"}}</span>
+        </div>
+        <div class="ad-card-body space-y-3">
+          <p style="font-size:12px;color:var(--faint);">{{t "deploy.target_past_deploy_hint"}}</p>
+
+          <!-- Past deployment picker -->
+          <label class="block"><span class="ad-flabel">{{t "deploy.target_past_deploy"}}</span>
+            <select name="target_deploy_id" x-model="targetDeployID" class="ad-select mono">
+              <option value="">{{t "form.none_dash"}}</option>
+              {{/* Only finished deployments whose VSA has a known IP can be a usable target. */}}
+              {{range .Deployments}}{{if eq (printf "%s" .State) "done"}}{{if .Nodes}}{{if (index .Nodes 0).IP}}<option value="{{.ID}}">{{.Kind}} · {{short8 .ID}} — {{(index .Nodes 0).IP}}</option>{{end}}{{end}}{{end}}{{end}}
+            </select>
+          </label>
+
+          <!-- Manual fields — greyed out when a past deployment is selected -->
+          <div :class="targetDeployID ? 'opacity-40 pointer-events-none' : ''" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.target_address"}}</span>
+              <input name="target_address" :required="isStandalone && !targetDeployID" placeholder="192.168.1.100" class="ad-input mono">
+            </label>
+            <label class="block"><span class="ad-flabel">{{t "deploy.target_port"}}</span>
+              <input name="target_port" type="number" value="9419" class="ad-input mono">
+            </label>
+            <label class="block"><span class="ad-flabel">{{t "deploy.target_user"}}</span>
+              <input name="target_user" value="veeamadmin" class="ad-input mono">
+            </label>
+            <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.target_password"}}</span>
+              <div class="relative" x-data="{show:false}">
+                <input name="target_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                <button type="button" @click="show=!show" tabindex="-1"
+                        class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                        :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                  <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                </button>
+              </div>
+            </label>
+            <label class="ad-checkrow sm:col-span-2">
+              <input type="checkbox" name="target_insecure" x-model="targetInsecure" class="ad-check" checked>
+              {{t "deploy.target_insecure"}}
+            </label>
+          </div>
+          <div class="flex items-center gap-3 pt-1">
+            <button type="button" @click="testConnection('vbr')" :disabled="testConn.busy" class="ad-btn ad-btn-indigo">
+              <span x-text="testConn.busy ? {{tjs "deploy.testing"}} : {{tjs "deploy.test_connection"}}"></span>
+            </button>
+            <span x-show="testConn.state==='ok'" x-cloak style="font-size:13px;color:var(--vg-deep);">&#10003; <span x-text="testConn.msg"></span></span>
+            <span x-show="testConn.state==='err'" x-cloak style="font-size:13px;color:#8C2A1F;word-break:break-all;">&#10007; <span x-text="testConn.msg"></span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Destination -->
+      <div class="ad-card">
+        <div class="ad-card-head">
+          <span class="ad-card-ico"><span class="mi">dns</span></span>
+          <span class="ad-card-title">{{t "deploy.destination"}}</span>
+        </div>
+        <div class="ad-card-body space-y-3">
+
+          <label class="block"><span class="ad-flabel">{{t "deploy.provider"}}</span>
+            <select name="provider" x-model="provider" @change="if(!ksCapable) ks=false" class="ad-select">
+              <option value="proxmox">Proxmox VE</option>
+              <option value="vsphere">VMware vSphere / vCenter (experimental)</option>
+              <option value="hyperv">Microsoft Hyper-V</option>
+              <option value="nutanix">Nutanix AHV (experimental)</option>
+              <option value="xcpng">XCP-ng (experimental)</option>
+              <option value="workstation">{{t "deploy.provider_workstation"}}</option>
+            </select>
+          </label>
+
+          <!-- Proxmox -->
+          <div x-show="provider==='proxmox'" x-cloak class="space-y-3">
+            <!-- Connection fields (always plain inputs) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.pve_url"}}</span>
+                <input name="pve_url" :required="provider==='proxmox'" value="https://192.168.1.10:8006/api2/json" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.pve_user"}}</span>
+                <input name="pve_user" value="root@pam" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.pve_password"}}</span>
+                <div class="relative" x-data="{show:false}">
+                  <input name="pve_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                  <button type="button" @click="show=!show" tabindex="-1"
+                          class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                          :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                    <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                  </button>
+                </div>
+              </label>
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.pve_token_id"}}</span>
+                <input name="pve_token_id" placeholder="root@pam!mytoken" class="ad-input mono">
+              </label>
+            </div>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="pve_insecure" checked class="ad-check">
+              {{t "deploy.pve_insecure"}}
+            </label>
+
+            <!-- Connect & load button -->
+            <div class="flex flex-wrap items-center gap-3 pt-1">
+              <button type="button" @click="connectLoad('proxmox')" :disabled="disco.busy" class="ad-btn ad-btn-green">
+                <span class="mi">cable</span><span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
+              </button>
+              <span x-show="disco.state==='ok'" x-cloak style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--vg-deep);font-weight:600;"><span class="mi" style="font-size:16px;">check_circle</span><span x-text="disco.msg"></span></span>
+              <span x-show="disco.state==='err'" x-cloak style="font-size:12.5px;color:#8C2A1F;word-break:break-all;">&#10007; <span x-text="disco.msg"></span></span>
+            </div>
+
+            <!-- Resource fields: discoverable via Connect, always fall back to manual text input -->
+            <!--
+              Reusable select-or-manual control contract (copy for vSphere/Hyper-V/Workstation):
+              - FIELD: the form field name (e.g. "pve_node")
+              - res[FIELD]: holds the current string value; submitted via a hidden input
+              - manual[FIELD]: true when the user explicitly chose manual entry
+              - disco.resources[FIELD]: array of {value, label} options from the server
+              - The select is shown when options exist AND manual[FIELD] is not set
+              - The text input is shown when no options exist OR manual[FIELD] is true
+              - One hidden input <input type="hidden" :name="FIELD" :value="res[FIELD]">
+                is the ONLY submitted element, so buildHypervisor + deployFormSnapshot
+                keep working with the same field names unchanged.
+            -->
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3" style="padding-top:14px;border-top:1px dashed var(--line);">
+
+              <!-- pve_node -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.pve_node"}}</span>
+                <input type="hidden" name="pve_node" :value="res.pve_node">
+                <template x-if="disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node">
+                  <select x-model="res.pve_node" @change="if(res.pve_node==='__manual__'){manual.pve_node=true;res.pve_node='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.pve_node" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.pve_node && disco.resources.pve_node.length && !manual.pve_node)">
+                  <div>
+                    <input x-model="res.pve_node" :required="provider==='proxmox'" placeholder="proxmox" class="ad-input mono">
+                    <a x-show="disco.resources.pve_node && disco.resources.pve_node.length" x-cloak
+                       href="#" @click.prevent="manual.pve_node=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- pve_storage -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.pve_storage"}}</span>
+                <input type="hidden" name="pve_storage" :value="res.pve_storage">
+                <template x-if="disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage">
+                  <select x-model="res.pve_storage" @change="if(res.pve_storage==='__manual__'){manual.pve_storage=true;res.pve_storage='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.pve_storage" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.pve_storage && disco.resources.pve_storage.length && !manual.pve_storage)">
+                  <div>
+                    <input x-model="res.pve_storage" placeholder="local-lvm" class="ad-input mono">
+                    <a x-show="disco.resources.pve_storage && disco.resources.pve_storage.length" x-cloak
+                       href="#" @click.prevent="manual.pve_storage=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- pve_iso_storage -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.pve_iso_storage"}}</span>
+                <input type="hidden" name="pve_iso_storage" :value="res.pve_iso_storage">
+                <template x-if="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage">
+                  <select x-model="res.pve_iso_storage" @change="if(res.pve_iso_storage==='__manual__'){manual.pve_iso_storage=true;res.pve_iso_storage='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_none"}}</option>
+                    <template x-for="opt in disco.resources.pve_iso_storage" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length && !manual.pve_iso_storage)">
+                  <div>
+                    <input x-model="res.pve_iso_storage" placeholder="local" class="ad-input mono">
+                    <a x-show="disco.resources.pve_iso_storage && disco.resources.pve_iso_storage.length" x-cloak
+                       href="#" @click.prevent="manual.pve_iso_storage=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- vm_bridge -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vm_bridge"}}</span>
+                <input type="hidden" name="vm_bridge" :value="res.vm_bridge">
+                <template x-if="disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge">
+                  <select x-model="res.vm_bridge" @change="if(res.vm_bridge==='__manual__'){manual.vm_bridge=true;res.vm_bridge='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.vm_bridge" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vm_bridge && disco.resources.vm_bridge.length && !manual.vm_bridge)">
+                  <div>
+                    <input x-model="res.vm_bridge" placeholder="vmbr0" class="ad-input mono">
+                    <a x-show="disco.resources.vm_bridge && disco.resources.vm_bridge.length" x-cloak
+                       href="#" @click.prevent="manual.vm_bridge=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+            </div>
+          </div>
+
+          <!-- vSphere / vCenter -->
+          <div x-show="provider==='vsphere'" x-cloak class="space-y-3">
+            <!-- Connection fields (always plain inputs) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.vs_url"}}</span>
+                <input name="vs_url" :required="provider==='vsphere'" placeholder="https://vc.lab.local/sdk" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_user"}}</span>
+                <input name="vs_user" placeholder="administrator@vsphere.local" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_password"}}</span>
+                <div class="relative" x-data="{show:false}">
+                  <input name="vs_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                  <button type="button" @click="show=!show" tabindex="-1"
+                          class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                          :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                    <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                  </button>
+                </div>
+              </label>
+            </div>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="vs_insecure" checked class="ad-check">
+              {{t "deploy.f_insecure"}}
+            </label>
+
+            <!-- Connect & load button -->
+            <div class="flex flex-wrap items-center gap-3 pt-1">
+              <button type="button" @click="connectLoad('vsphere')" :disabled="disco.busy" class="ad-btn ad-btn-green">
+                <span class="mi">cable</span><span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
+              </button>
+              <span x-show="disco.state==='ok'" x-cloak style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--vg-deep);font-weight:600;"><span class="mi" style="font-size:16px;">check_circle</span><span x-text="disco.msg"></span></span>
+              <span x-show="disco.state==='err'" x-cloak style="font-size:12.5px;color:#8C2A1F;word-break:break-all;">&#10007; <span x-text="disco.msg"></span></span>
+            </div>
+
+            <!-- Discoverable resource fields -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" style="padding-top:14px;border-top:1px dashed var(--line);">
+
+              <!-- vs_datacenter: cascades a re-fetch when changed -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_datacenter"}}</span>
+                <input type="hidden" name="vs_datacenter" :value="res.vs_datacenter">
+                <template x-if="disco.resources.vs_datacenter && disco.resources.vs_datacenter.length && !manual.vs_datacenter">
+                  <select x-model="res.vs_datacenter"
+                          @change="async function(){if(res.vs_datacenter==='__manual__'){manual.vs_datacenter=true;res.vs_datacenter='';}else if(res.vs_datacenter){await $nextTick();await connectLoad('vsphere');}}.call(this)"
+                          class="ad-select mono">
+                    <option value="">{{t "deploy.opt_none"}}</option>
+                    <template x-for="opt in disco.resources.vs_datacenter" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_datacenter && disco.resources.vs_datacenter.length && !manual.vs_datacenter)">
+                  <div>
+                    <input x-model="res.vs_datacenter" class="ad-input mono">
+                    <a x-show="disco.resources.vs_datacenter && disco.resources.vs_datacenter.length" x-cloak
+                       href="#" @click.prevent="manual.vs_datacenter=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- vs_cluster -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_cluster"}}</span>
+                <input type="hidden" name="vs_cluster" :value="res.vs_cluster">
+                <template x-if="disco.resources.vs_cluster && disco.resources.vs_cluster.length && !manual.vs_cluster">
+                  <select x-model="res.vs_cluster" @change="if(res.vs_cluster==='__manual__'){manual.vs_cluster=true;res.vs_cluster='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.vs_cluster" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_cluster && disco.resources.vs_cluster.length && !manual.vs_cluster)">
+                  <div>
+                    <input x-model="res.vs_cluster" class="ad-input mono">
+                    <a x-show="disco.resources.vs_cluster && disco.resources.vs_cluster.length" x-cloak
+                       href="#" @click.prevent="manual.vs_cluster=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- vs_resource_pool -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_resource_pool"}}</span>
+                <input type="hidden" name="vs_resource_pool" :value="res.vs_resource_pool">
+                <template x-if="disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length && !manual.vs_resource_pool">
+                  <select x-model="res.vs_resource_pool" @change="if(res.vs_resource_pool==='__manual__'){manual.vs_resource_pool=true;res.vs_resource_pool='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_none"}}</option>
+                    <template x-for="opt in disco.resources.vs_resource_pool" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length && !manual.vs_resource_pool)">
+                  <div>
+                    <input x-model="res.vs_resource_pool" class="ad-input mono">
+                    <a x-show="disco.resources.vs_resource_pool && disco.resources.vs_resource_pool.length" x-cloak
+                       href="#" @click.prevent="manual.vs_resource_pool=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- vs_datastore -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_datastore"}}</span>
+                <input type="hidden" name="vs_datastore" :value="res.vs_datastore">
+                <template x-if="disco.resources.vs_datastore && disco.resources.vs_datastore.length && !manual.vs_datastore">
+                  <select x-model="res.vs_datastore" @change="if(res.vs_datastore==='__manual__'){manual.vs_datastore=true;res.vs_datastore='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.vs_datastore" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_datastore && disco.resources.vs_datastore.length && !manual.vs_datastore)">
+                  <div>
+                    <input x-model="res.vs_datastore" class="ad-input mono">
+                    <a x-show="disco.resources.vs_datastore && disco.resources.vs_datastore.length" x-cloak
+                       href="#" @click.prevent="manual.vs_datastore=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- vs_network -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_network"}}</span>
+                <input type="hidden" name="vs_network" :value="res.vs_network">
+                <template x-if="disco.resources.vs_network && disco.resources.vs_network.length && !manual.vs_network">
+                  <select x-model="res.vs_network" @change="if(res.vs_network==='__manual__'){manual.vs_network=true;res.vs_network='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.vs_network" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_network && disco.resources.vs_network.length && !manual.vs_network)">
+                  <div>
+                    <input x-model="res.vs_network" placeholder="VM Network" class="ad-input mono">
+                    <a x-show="disco.resources.vs_network && disco.resources.vs_network.length" x-cloak
+                       href="#" @click.prevent="manual.vs_network=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- vs_folder -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_folder"}}</span>
+                <input type="hidden" name="vs_folder" :value="res.vs_folder">
+                <template x-if="disco.resources.vs_folder && disco.resources.vs_folder.length && !manual.vs_folder">
+                  <select x-model="res.vs_folder" @change="if(res.vs_folder==='__manual__'){manual.vs_folder=true;res.vs_folder='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_none"}}</option>
+                    <template x-for="opt in disco.resources.vs_folder" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_folder && disco.resources.vs_folder.length && !manual.vs_folder)">
+                  <div>
+                    <input x-model="res.vs_folder" class="ad-input mono">
+                    <a x-show="disco.resources.vs_folder && disco.resources.vs_folder.length" x-cloak
+                       href="#" @click.prevent="manual.vs_folder=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+            </div>
+          </div>
+
+          <!-- Hyper-V (WinRM) -->
+          <div x-show="provider==='hyperv'" x-cloak class="space-y-3">
+            <!-- Connection fields (always plain inputs) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="block"><span class="ad-flabel">{{t "deploy.hv_host"}}</span>
+                <input name="hv_host" :required="provider==='hyperv'" placeholder="hyperv01.lab.local" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.hv_port"}}</span>
+                <input name="hv_port" type="number" placeholder="5985" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_user"}}</span>
+                <input name="hv_user" placeholder="administrator" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_password"}}</span>
+                <div class="relative" x-data="{show:false}">
+                  <input name="hv_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                  <button type="button" @click="show=!show" tabindex="-1"
+                          class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                          :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                    <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                  </button>
+                </div>
+              </label>
+            </div>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="hv_https" class="ad-check">
+              {{t "deploy.hv_https"}}
+            </label>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="hv_insecure" checked class="ad-check">
+              {{t "deploy.f_insecure"}}
+            </label>
+
+            <!-- Connect & load button -->
+            <div class="flex flex-wrap items-center gap-3 pt-1">
+              <button type="button" @click="connectLoad('hyperv')" :disabled="disco.busy" class="ad-btn ad-btn-green">
+                <span class="mi">cable</span><span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
+              </button>
+              <span x-show="disco.state==='ok'" x-cloak style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--vg-deep);font-weight:600;"><span class="mi" style="font-size:16px;">check_circle</span><span x-text="disco.msg"></span></span>
+              <span x-show="disco.state==='err'" x-cloak style="font-size:12.5px;color:#8C2A1F;word-break:break-all;">&#10007; <span x-text="disco.msg"></span></span>
+            </div>
+
+            <!-- Discoverable resource fields -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" style="padding-top:14px;border-top:1px dashed var(--line);">
+
+              <!-- hv_switch -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.hv_switch"}}</span>
+                <input type="hidden" name="hv_switch" :value="res.hv_switch">
+                <template x-if="disco.resources.hv_switch && disco.resources.hv_switch.length && !manual.hv_switch">
+                  <select x-model="res.hv_switch" @change="if(res.hv_switch==='__manual__'){manual.hv_switch=true;res.hv_switch='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.hv_switch" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.hv_switch && disco.resources.hv_switch.length && !manual.hv_switch)">
+                  <div>
+                    <input x-model="res.hv_switch" placeholder="External" class="ad-input mono">
+                    <a x-show="disco.resources.hv_switch && disco.resources.hv_switch.length" x-cloak
+                       href="#" @click.prevent="manual.hv_switch=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- hv_vm_path -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.hv_vm_path"}}</span>
+                <input type="hidden" name="hv_vm_path" :value="res.hv_vm_path">
+                <template x-if="disco.resources.hv_vm_path && disco.resources.hv_vm_path.length && !manual.hv_vm_path">
+                  <select x-model="res.hv_vm_path" @change="if(res.hv_vm_path==='__manual__'){manual.hv_vm_path=true;res.hv_vm_path='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_none"}}</option>
+                    <template x-for="opt in disco.resources.hv_vm_path" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.hv_vm_path && disco.resources.hv_vm_path.length && !manual.hv_vm_path)">
+                  <div>
+                    <input x-model="res.hv_vm_path" placeholder="C:\\ProgramData\\autodeploy" class="ad-input mono">
+                    <a x-show="disco.resources.hv_vm_path && disco.resources.hv_vm_path.length" x-cloak
+                       href="#" @click.prevent="manual.hv_vm_path=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- hv_iso_path: not discoverable — plain text input -->
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.hv_iso_path"}}</span>
+                <input name="hv_iso_path" placeholder="C:\\ISOs" class="ad-input mono">
+              </label>
+
+            </div>
+          </div>
+
+          <!-- Nutanix AHV -->
+          <div x-show="provider==='nutanix'" x-cloak class="space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="block"><span class="ad-flabel">{{t "deploy.nx_endpoint"}}</span>
+                <input name="nx_endpoint" :required="provider==='nutanix'" placeholder="10.0.0.10" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.nx_port"}}</span>
+                <input name="nx_port" type="number" value="9440" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_user"}}</span>
+                <input name="nx_user" placeholder="admin" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_password"}}</span>
+                <div class="relative" x-data="{show:false}">
+                  <input name="nx_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                  <button type="button" @click="show=!show" tabindex="-1"
+                          class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                          :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                    <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                  </button>
+                </div>
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.nx_cluster"}}</span>
+                <input name="nx_cluster" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.nx_storage"}}</span>
+                <input name="nx_storage" class="ad-input mono">
+              </label>
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.nx_subnet"}}</span>
+                <input name="nx_subnet" class="ad-input mono">
+              </label>
+            </div>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="nx_insecure" checked class="ad-check">
+              {{t "deploy.f_insecure"}}
+            </label>
+          </div>
+
+          <!-- XCP-ng -->
+          <div x-show="provider==='xcpng'" x-cloak class="space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.xen_host"}}</span>
+                <input name="xen_host" :required="provider==='xcpng'" placeholder="https://xcp.lab.local" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_user"}}</span>
+                <input name="xen_user" value="root" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.f_password"}}</span>
+                <div class="relative" x-data="{show:false}">
+                  <input name="xen_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                  <button type="button" @click="show=!show" tabindex="-1"
+                          class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                          :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                    <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                  </button>
+                </div>
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.xen_sr"}}</span>
+                <input name="xen_sr" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.xen_iso_sr"}}</span>
+                <input name="xen_iso_sr" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.xen_network"}}</span>
+                <input name="xen_network" class="ad-input mono">
+              </label>
+            </div>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="xen_insecure" checked class="ad-check">
+              {{t "deploy.f_insecure"}}
+            </label>
+          </div>
+
+          <!-- VMware Workstation (WinRM + vmrun) -->
+          <div x-show="provider==='workstation'" x-cloak class="space-y-3">
+            <!-- Connection fields (always plain inputs) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_host"}}</span>
+                <input name="ws_host" :required="provider==='workstation'" placeholder="ws01.lab.local" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_port"}}</span>
+                <input name="ws_port" type="number" placeholder="5985" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_user"}}</span>
+                <input name="ws_user" placeholder="administrator" class="ad-input mono">
+              </label>
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_password"}}</span>
+                <div class="relative" x-data="{show:false}">
+                  <input name="ws_password" :type="show?'text':'password'" class="ad-input mono" style="padding-right:36px;">
+                  <button type="button" @click="show=!show" tabindex="-1"
+                          class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                          :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                    <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                  </button>
+                </div>
+              </label>
+            </div>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="ws_https" class="ad-check">
+              {{t "deploy.ws_https"}}
+            </label>
+            <label class="ad-checkrow" style="font-size:12.5px;color:var(--body);">
+              <input type="checkbox" name="ws_insecure" checked class="ad-check">
+              {{t "deploy.ws_insecure"}}
+            </label>
+
+            <!-- Connect & load button -->
+            <div class="flex flex-wrap items-center gap-3 pt-1">
+              <button type="button" @click="connectLoad('workstation')" :disabled="disco.busy" class="ad-btn ad-btn-green">
+                <span class="mi">cable</span><span x-text="disco.busy ? {{tjs "deploy.connecting"}} : {{tjs "deploy.connect_load"}}"></span>
+              </button>
+              <span x-show="disco.state==='ok'" x-cloak style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--vg-deep);font-weight:600;"><span class="mi" style="font-size:16px;">check_circle</span><span x-text="disco.msg"></span></span>
+              <span x-show="disco.state==='err'" x-cloak style="font-size:12.5px;color:#8C2A1F;word-break:break-all;">&#10007; <span x-text="disco.msg"></span></span>
+            </div>
+
+            <!-- Discoverable + manual resource fields -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" style="padding-top:14px;border-top:1px dashed var(--line);">
+
+              <!-- ws_install_dir: discoverable -->
+              <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.ws_install_dir"}}</span>
+                <input type="hidden" name="ws_install_dir" :value="res.ws_install_dir">
+                <template x-if="disco.resources.ws_install_dir && disco.resources.ws_install_dir.length && !manual.ws_install_dir">
+                  <select x-model="res.ws_install_dir" @change="if(res.ws_install_dir==='__manual__'){manual.ws_install_dir=true;res.ws_install_dir='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_none"}}</option>
+                    <template x-for="opt in disco.resources.ws_install_dir" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.ws_install_dir && disco.resources.ws_install_dir.length && !manual.ws_install_dir)">
+                  <div>
+                    <input x-model="res.ws_install_dir" placeholder="C:\Program Files\VMware\VMware Workstation" class="ad-input mono">
+                    <a x-show="disco.resources.ws_install_dir && disco.resources.ws_install_dir.length" x-cloak
+                       href="#" @click.prevent="manual.ws_install_dir=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- ws_vm_dir: not discoverable — plain text input -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_vm_dir"}}</span>
+                <input name="ws_vm_dir" :required="provider==='workstation'" placeholder="C:\\VMs" class="ad-input mono">
+              </label>
+
+              <!-- ws_iso_dir: not discoverable — plain text input -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_iso_dir"}}</span>
+                <input name="ws_iso_dir" placeholder="C:\\ISOs" class="ad-input mono">
+              </label>
+
+              <!-- ws_vnet: discoverable -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_vnet"}}</span>
+                <input type="hidden" name="ws_vnet" :value="res.ws_vnet">
+                <template x-if="disco.resources.ws_vnet && disco.resources.ws_vnet.length && !manual.ws_vnet">
+                  <select x-model="res.ws_vnet" @change="if(res.ws_vnet==='__manual__'){manual.ws_vnet=true;res.ws_vnet='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.opt_select"}}</option>
+                    <template x-for="opt in disco.resources.ws_vnet" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.ws_vnet && disco.resources.ws_vnet.length && !manual.ws_vnet)">
+                  <div>
+                    <input x-model="res.ws_vnet" :required="provider==='workstation'" placeholder="vmnet0" class="ad-input mono">
+                    <a x-show="disco.resources.ws_vnet && disco.resources.ws_vnet.length" x-cloak
+                       href="#" @click.prevent="manual.ws_vnet=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+              </label>
+
+              <!-- ws_vnc_host: not discoverable — plain text input -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_vnc_host"}}</span>
+                <input name="ws_vnc_host" placeholder="ws01.lab.local" class="ad-input mono">
+              </label>
+
+              <!-- ws_vnc_port_base: not discoverable — plain text input -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.ws_vnc_port_base"}}</span>
+                <input name="ws_vnc_port_base" type="number" placeholder="5910" class="ad-input mono">
+              </label>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Boot & post-boot wiring -->
+      <div class="ad-card">
+        <div class="ad-card-head">
+          <span class="ad-card-ico"><span class="mi">bolt</span></span>
+          <span class="ad-card-title">{{t "deploy.card_boot_wiring"}}</span>
+        </div>
+        <div class="ad-card-body flex flex-col gap-[14px]">
+
+          <!-- Remote kickstart unavailable on this provider (Nutanix AHV / XCP-ng) -->
+          <div x-show="roles.length && !ksCapable" x-cloak style="background:var(--sunken);border:1px solid var(--bd2);color:var(--body);font-size:12px;border-radius:8px;padding:11px 14px;">
+            {{t "deploy.ks_unsupported_note"}}
+          </div>
+
+          <!-- Remote kickstart (boot the ORIGINAL ISO + inject inst.ks= via GRUB) -->
+          <template x-if="!roles.length || ksCapable">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:1px solid var(--bd2);border-radius:8px;">
+              <input type="checkbox" name="remote_ks" x-model="ks" class="ad-check" style="margin-top:2px;">
+              <span>
+                <span style="font-size:13.5px;font-weight:600;color:var(--ink);">{{t "deploy.kickstart"}}</span>
+                <span style="display:block;font-size:11.5px;color:var(--faint);margin-top:1px;">{{t "deploy.kickstart_hint"}}</span>
+              </span>
+            </label>
+          </template>
+          <div x-show="ks && ksCapable" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3" style="padding-left:6px;">
+            <label x-show="hasVSA" class="block"><span class="ad-flabel">{{t "deploy.base_iso_vsa"}}</span>
+              <select name="vsa_base_iso" class="ad-select mono">
+                <option value="">{{t "form.select_iso"}}</option>
+                {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
+              </select>
+            </label>
+            <label x-show="hasVIA" class="block"><span class="ad-flabel">{{t "deploy.base_iso_via"}}</span>
+              <select name="via_base_iso" class="ad-select mono">
+                <option value="">{{t "form.select_iso"}}</option>
+                {{range .WorkspaceISOs}}<option value="{{.}}">{{.}}</option>{{end}}
+              </select>
+            </label>
+            <label class="block"><span class="ad-flabel">{{t "deploy.ks_base_url"}}</span>
+              <input name="ks_base_url" x-model="ksbase" class="ad-input mono">
+              <span style="font-size:11px;color:var(--faint);">{{t "deploy.ks_base_url_hint"}}</span>
+            </label>
+            <label class="block"><span class="ad-flabel">{{t "deploy.boot_wait"}}</span>
+              <input name="boot_wait" type="number" min="3" value="10" x-model.number="bootWait" class="ad-input">
+              <span style="font-size:11px;color:var(--faint);">{{t "deploy.boot_wait_hint"}}</span>
+            </label>
+          </div>
+
+          <!-- Wiring (register the topology into the VSA via Veeam REST) -->
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 14px;border:1px solid var(--vg-100);background:var(--vg-50);border-radius:8px;">
+            <input type="checkbox" name="wire" x-model="wire" class="ad-check" style="margin-top:2px;">
+            <span>
+              <span style="font-size:13.5px;font-weight:600;color:var(--vg-deep);">{{t "deploy.wire"}}</span>
+              <span style="display:block;font-size:11.5px;color:#3F6E1F;margin-top:1px;">{{t "deploy.wire_hint"}}</span>
+            </span>
+          </label>
+          <div x-show="wire" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3" style="padding-left:6px;">
+            <label class="block"><span class="ad-flabel">{{t "deploy.wire_timeout"}}</span>
+              <input name="wire_timeout" type="number" min="5" value="45" class="ad-input mono">
+            </label>
+            <label x-show="isHA && !isStandalone" x-cloak class="block"><span class="ad-flabel">{{t "deploy.cluster_dns"}}</span>
+              <input name="cluster_dns" placeholder="vbr-cluster.domain.local" class="ad-input mono">
+            </label>
+            <label x-show="isHA && !isStandalone" x-cloak class="block"><span class="ad-flabel">{{t "deploy.cluster_endpoint"}}</span>
+              <input name="cluster_endpoint" :required="wire && isHA && !isStandalone" placeholder="192.168.1.200" class="ad-input mono">
+              <span style="font-size:11px;color:var(--faint);">{{t "deploy.cluster_endpoint_hint"}}</span>
+            </label>
+            <!-- License install over REST: only meaningful with remote kickstart and non-standalone topologies,
+                 where the .lic cannot be baked into the booted ISO. -->
+            <label x-show="ks && !isStandalone" x-cloak class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.wire_license"}}</span>
+              <select name="wire_license" x-model="licenseFile" class="ad-select mono">
+                <option value="">{{t "form.none_dash"}}</option>
+                {{range .LicenseFiles}}<option value="{{.}}">{{.}}</option>{{end}}
+              </select>
+              <span style="font-size:11px;color:var(--faint);">{{t "deploy.wire_license_hint"}}</span>
+            </label>
+            <div class="sm:col-span-2" x-show="!isStandalone" x-cloak>
+              <div class="ad-divider">
+                <span class="ad-grouplabel">{{t "deploy.adv_wiring_divider"}}</span>
+                <span class="rule"></span>
+              </div>
+              <label class="ad-checkrow" style="font-size:12px;color:var(--body);margin-bottom:10px;">
+                <input type="checkbox" x-model="wireAdv" class="ad-check">
+                {{t "deploy.wire_advanced"}}
+              </label>
+
+              <!-- Advanced wiring options (applied on the primary VSA via REST) -->
+              <div x-show="wireAdv" x-cloak class="flex flex-col gap-2">
+
+                <!-- node_exporter -->
+                <div style="border:1px solid var(--bd2);border-radius:8px;overflow:hidden;" :style="wireNodeExp ? 'border-color:var(--vg-100);' : ''">
+                  <label style="display:flex;align-items:center;gap:9px;cursor:pointer;padding:10px 12px;">
+                    <input type="checkbox" name="wire_node_exporter" x-model="wireNodeExp" class="ad-check" style="flex-shrink:0;">
+                    <span style="font-size:12.5px;font-weight:600;color:var(--ink);flex:1;">{{t "deploy.wire_node_exporter"}}</span>
+                    <span class="mi" style="font-size:18px;color:var(--faint);" x-text="wireNodeExp ? 'expand_less' : 'expand_more'"></span>
+                  </label>
+                  <div x-show="wireNodeExp" x-cloak style="padding:12px;border-top:1px solid var(--vg-100);background:var(--vg-tint);" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label class="ad-checkrow sm:col-span-2" style="font-size:12px;color:var(--body);">
+                      <input type="checkbox" name="wire_node_exporter_tls" class="ad-check">
+                      {{t "deploy.wire_ne_tls"}}
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_ne_user"}}</span>
+                      <input name="wire_node_exporter_user" autocomplete="off" class="ad-input">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_ne_pass"}}</span>
+                      <div class="relative" x-data="{show:false}">
+                        <input name="wire_node_exporter_pass" :type="show?'text':'password'" autocomplete="new-password" class="ad-input mono" style="padding-right:36px;">
+                        <button type="button" @click="show=!show" tabindex="-1"
+                                class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                                :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                          <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- syslog -->
+                <div style="border:1px solid var(--bd2);border-radius:8px;padding:12px;" class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.wire_syslog"}}</span>
+                    <input name="wire_syslog_server" placeholder="syslog.lab.local" class="ad-input mono">
+                  </label>
+                  <label class="block"><span class="ad-flabel">{{t "deploy.wire_syslog_port"}}</span>
+                    <input name="wire_syslog_port" type="number" value="514" class="ad-input">
+                  </label>
+                  <label class="block"><span class="ad-flabel">{{t "deploy.wire_syslog_proto"}}</span>
+                    <select name="wire_syslog_protocol" class="ad-select">
+                      <option>Udp</option><option>Tcp</option><option>Tls</option>
+                    </select>
+                  </label>
+                </div>
+
+                <!-- S3 / object-storage repository -->
+                <div style="border:1px solid var(--bd2);border-radius:8px;overflow:hidden;" :style="wireS3 ? 'border-color:var(--vg-100);' : ''">
+                  <label style="display:flex;align-items:center;gap:9px;cursor:pointer;padding:10px 12px;">
+                    <input type="checkbox" name="wire_s3" x-model="wireS3" class="ad-check" style="flex-shrink:0;">
+                    <span style="font-size:12.5px;font-weight:600;color:var(--ink);flex:1;">{{t "deploy.wire_s3"}}</span>
+                    <span class="mi" style="font-size:18px;color:var(--faint);" x-text="wireS3 ? 'expand_less' : 'expand_more'"></span>
+                  </label>
+                  <div x-show="wireS3" x-cloak style="padding:12px;border-top:1px solid var(--vg-100);background:var(--vg-tint);" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label class="ad-checkrow sm:col-span-2" style="font-size:12px;color:var(--body);">
+                      <input type="checkbox" name="wire_s3_compatible" x-model="wireS3Compat" class="ad-check">
+                      {{t "deploy.wire_s3_compatible"}}
+                    </label>
+                    <label x-show="wireS3Compat" x-cloak class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.wire_s3_endpoint"}}</span>
+                      <input name="wire_s3_endpoint" placeholder="https://s3.lab.local" class="ad-input mono">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_region"}}</span>
+                      <input name="wire_s3_region" placeholder="us-east-1" class="ad-input mono">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_name"}}</span>
+                      <input name="wire_s3_name" placeholder="Object Storage" class="ad-input">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_bucket"}}</span>
+                      <input name="wire_s3_bucket" class="ad-input mono">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_folder"}}</span>
+                      <input name="wire_s3_folder" placeholder="backups" class="ad-input mono">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_access"}}</span>
+                      <input name="wire_s3_access_key" autocomplete="off" class="ad-input mono">
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_secret"}}</span>
+                      <div class="relative" x-data="{show:false}">
+                        <input name="wire_s3_secret_key" :type="show?'text':'password'" autocomplete="new-password" class="ad-input mono" style="padding-right:36px;">
+                        <button type="button" @click="show=!show" tabindex="-1"
+                                class="absolute inset-y-0 right-0 flex items-center pr-2" style="color:var(--faint);background:none;border:none;cursor:pointer;"
+                                :aria-label="show ? {{tjs "form.hide_password"}} : {{tjs "form.show_password"}}">
+                          <span class="mi" style="font-size:18px;" x-text="show ? 'visibility_off' : 'visibility'"></span>
+                        </button>
+                      </div>
+                    </label>
+                    <label class="block"><span class="ad-flabel">{{t "deploy.wire_s3_immutable"}}</span>
+                      <input name="wire_s3_immutable_days" type="number" min="0" value="0" class="ad-input">
+                    </label>
+                    <label class="sm:col-span-2 block"><span class="ad-flabel">{{t "deploy.wire_s3_mount"}}</span>
+                      <select name="wire_s3_mount_node" x-model="s3MountNode" class="ad-select">
+                        <option value="">{{t "deploy.wire_s3_mount_none"}}</option>
+                        <template x-for="c in s3MountCandidates" :key="c.idx">
+                          <option :value="c.value" x-text="c.label"></option>
+                        </template>
+                      </select>
+                    </label>
+                    <label class="ad-checkrow sm:col-span-2" style="font-size:12.5px;color:var(--body);">
+                      <input type="checkbox" name="wire_s3_overwrite" x-model="wireS3Overwrite" class="ad-check">
+                      {{t "deploy.wire_s3_overwrite"}}
+                    </label>
+                    <span x-show="wireS3Overwrite" x-cloak class="sm:col-span-2" style="font-size:11px;color:#8A5A00;">{{t "deploy.wire_s3_overwrite_hint"}}</span>
+                  </div>
+                </div>
+
+                <pre style="background:var(--sunken);border:1px solid var(--bd2);border-radius:8px;padding:12px;font-size:11px;font-family:var(--font-mono);color:var(--body);white-space:pre;overflow-x:auto;" x-text="wirePreview()"></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Power on -->
+          <label class="ad-checkrow" style="padding-top:4px;">
+            <input type="checkbox" name="power_on"
+                   :checked="effectivePowerOn"
+                   :disabled="wire || ks"
+                   @change="powerOn = $event.target.checked"
+                   class="ad-check">
+            {{t "deploy.power_on"}}
+          </label>
+          <!-- Hidden input ensures power_on is submitted when the visible checkbox is disabled (wire/ks) -->
+          <template x-if="wire || ks">
+            <input type="hidden" name="power_on" value="on">
+          </template>
+          <p x-show="wire || ks" x-cloak style="font-size:11.5px;color:var(--vg-deep);">{{t "deploy.power_on_required"}}</p>
+        </div>
+      </div>
+
+      <!-- Recent deployments -->
+      <div class="ad-card">
+        <div class="ad-card-head">
+          <span class="ad-card-ico"><span class="mi">history</span></span>
+          <span class="ad-card-title">{{t "deploy.recent"}}</span>
+        </div>
+        <div class="ad-card-body">
+          {{if .Deployments}}
+          <table class="ad-table" style="margin:-18px;width:calc(100% + 36px);">
+            <tbody>
+              {{range .Deployments}}
+              <tr>
+                <td>
+                  <a href="/deploy/{{.ID}}" class="idcell" style="text-decoration:none;">{{.Kind}} · {{short8 .ID}}</a>
+                  <span class="block" style="font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;">{{fmtTime .CreatedAt}}{{if not .FinishedAt.IsZero}} · {{fmtDur .CreatedAt .FinishedAt}}{{end}}</span>
+                </td>
+                <td style="text-align:right;">
+                  <span class="ad-chip {{chipClass .State}}"><span class="dot"></span>{{.State}}</span>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <p style="font-size:13px;color:var(--faint);">{{t "deploy.none"}}</p>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
+    <!-- right rail: deployment plan + launch -->
+    <div class="ad-rail">
+      <!-- Total node count (catalog + added VIA nodes) for the server. -->
+      <input type="hidden" name="node_count" :value="roles.length" form="deploy-form">
+
+      <div class="ad-card">
+        <div class="ad-card-head" style="padding:12px 16px;">
+          <span class="mi" style="font-size:16px;color:var(--vg-deep);">checklist</span>
+          <span class="ad-card-title" style="font-size:13px;">{{t "deploy.plan_title"}}</span>
+        </div>
+        <div style="padding:14px 16px;">
+          <div class="ad-grouplabel" style="font-size:11px;letter-spacing:.05em;margin-bottom:8px;">{{t "deploy.plan_nodes_ip"}}</div>
+          <template x-if="!roles.length">
+            <div style="font-size:12px;color:var(--faint);padding:4px 0 8px;">{{t "deploy.select_topology"}}</div>
+          </template>
+          <template x-for="idx in displayOrder" :key="idx">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12.5px;border-bottom:1px solid var(--line);">
+              <span style="width:7px;height:7px;border-radius:999px;flex-shrink:0;" :style="'background:'+roleDot(roles[idx])"></span>
+              <span style="font-family:var(--font-mono);color:var(--ink);" x-text="(summ(idx)?.hostname) || roles[idx]"></span>
+              <span style="margin-left:auto;font-family:var(--font-mono);color:var(--muted);" x-text="(summ(idx)?.network) || '—'"></span>
+            </div>
+          </template>
+          <div style="display:flex;justify-content:space-between;padding:9px 0 3px;font-size:12.5px;"><span style="color:var(--muted);">{{t "deploy.plan_provider"}}</span><span style="font-weight:600;" x-text="document.querySelector('[name=provider] option:checked')?.textContent || provider"></span></div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;"><span style="color:var(--muted);">{{t "deploy.plan_boot_mode"}}</span><span style="font-weight:600;" x-text="ks ? {{tjs "deploy.boot_mode_ks"}} : {{tjs "deploy.boot_mode_iso"}}"></span></div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;"><span style="color:var(--muted);">{{t "deploy.plan_rest_wiring"}}</span><span style="font-weight:600;" :style="wire ? 'color:var(--vg-deep);' : 'color:var(--muted);'" x-text="wire ? {{tjs "deploy.on"}} : {{tjs "deploy.off"}}"></span></div>
+        </div>
+        <!-- Pre-flight footer: green when OK, amber when duplicate IPs detected -->
+        <div x-show="!ipConflict.length" x-cloak style="padding:10px 16px;background:var(--vg-tint);border-top:1px solid var(--vg-100);display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--vg-deep);">
+          <span class="mi" style="font-size:15px;">verified</span>{{t "deploy.preflight_ok"}}
+        </div>
+        <div x-show="ipConflict.length" x-cloak style="padding:10px 16px;background:#FCEEEC;border-top:1px solid #F3D6D1;display:flex;align-items:flex-start;gap:8px;font-size:11.5px;color:#8C2A1F;">
+          <span class="mi" style="font-size:15px;">error</span><span x-text="'{{t "deploy.ip_conflict"}} ' + ipConflict.join(', ')"></span>
+        </div>
+      </div>
+
+      <button type="submit" :disabled="ipConflict.length > 0"
+              class="ad-btn ad-btn-primary ad-btn-lg ad-btn-hero ad-btn-block">
+        <span class="mi" style="font-size:21px;">rocket_launch</span>{{t "deploy.launch"}}
+      </button>
+      <div style="font-size:11.5px;color:var(--faint);text-align:center;line-height:1.5;">{{t "deploy.plan_footnote"}}</div>
+    </div>
+  </div>
+</form>
 {{end}}

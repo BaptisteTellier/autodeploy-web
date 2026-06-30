@@ -20,17 +20,10 @@ import (
 
 // --- Index --------------------------------------------------------------
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// First-time visitors (no ui_mode cookie) and wizard-mode visitors are
-	// redirected to the wizard, unless they arrived via ?preset= or ?import=
-	// (which means they completed the wizard or want a specific preset).
-	if m := modeFromRequest(r); m != modeExpert &&
-		r.URL.Query().Get("preset") == "" &&
-		r.URL.Query().Get("import") == "" {
-		http.Redirect(w, r, "/wizard", http.StatusFound)
-		return
-	}
-
+// handleNewJob renders the expert build form at /new. The redesigned shell puts
+// the dashboard on "/", so the dense form lives on its own route (reachable via
+// the sidebar "New ISO job" item and /mode/expert).
+func (s *Server) handleNewJob(w http.ResponseWriter, r *http.Request) {
 	// Preload form with defaults; the user can switch presets via the
 	// dropdown without a full reload (HTMX swap).
 	presetName := r.URL.Query().Get("preset")
@@ -960,6 +953,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 		var ns string
 		switch {
 		case p == "/" || p == "":
+			ns = "dashboard"
+		case p == "/new":
 			ns = "newjob"
 		case p == "/wizard":
 			ns = "wizard"

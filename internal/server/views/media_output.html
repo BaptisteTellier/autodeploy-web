@@ -2,8 +2,7 @@
 
 {{define "content"}}
 <style>[x-cloak]{display:none}</style>
-<div class="space-y-6"
-     x-data="{
+<div x-data="{
        sel: {},
        get count() { return Object.keys(this.sel).length; },
        toggle(id) {
@@ -27,63 +26,69 @@
        }
      }">
 
-  <div class="flex flex-wrap items-center gap-3">
-    <h1 class="text-2xl font-bold">{{t "out.title"}}</h1>
+  <!-- page header -->
+  <div class="ad-head">
+    <div>
+      <div class="ad-eyebrow">{{t "shell.group.library"}}</div>
+      <div class="ad-h1" style="margin-top:3px;">{{t "shell.nav.output"}}</div>
+      <div class="ad-subt">{{t "out.subtitle_pre"}} <code>/data/output</code>.</div>
+    </div>
     <button x-show="count>0" x-cloak
             @click="deleteSel()"
-            class="ml-auto bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium">
-      🗑️ {{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
+            class="ad-btn ad-btn-red">
+      <span class="mi">delete</span>{{t "common.delete"}} <span x-text="count"></span> {{t "common.selected"}}
     </button>
   </div>
-  <p class="text-sm text-slate-500">
-    {{t "out.subtitle_pre"}} <code>/data/output</code>.
-  </p>
 
-  <div class="bg-white rounded shadow overflow-hidden">
+  <div class="ad-card">
+    <div class="ad-card-head">
+      <span class="ad-card-ico"><span class="mi">inventory_2</span></span>
+      <span class="ad-card-title">{{t "out.card_title"}}</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--sunken);padding:2px 9px;border-radius:999px;">{{len .Jobs}}</span>
+    </div>
     {{if not .Jobs}}
-    <p class="text-slate-500 p-8 text-center text-sm">
+    <div style="padding:34px 18px;text-align:center;font-size:13px;color:var(--faint);">
       {{t "out.none_pre"}}
-      <a href="/" class="text-blue-600 hover:underline">{{t "out.none_link"}}</a>{{t "out.none_post"}}
-    </p>
+      <a href="/new" class="ad-btn-link">{{t "out.none_link"}}</a>{{t "out.none_post"}}
+    </div>
     {{else}}
-    <table class="w-full text-sm sortable">
-      <thead class="bg-slate-50 text-left text-slate-500 uppercase text-xs tracking-wide">
-        <tr>
-          <th class="px-3 py-3 w-8" data-nosort>
-            <input type="checkbox" class="rounded"
-                   :checked="allChecked" @change="toggleAll()">
-          </th>
-          <th class="px-4 py-3">{{t "th.job"}}</th>
-          <th class="px-4 py-3">{{t "th.date"}}</th>
-          <th class="px-4 py-3">{{t "th.files"}}</th>
-          <th class="px-4 py-3">{{t "th.total_size"}}</th>
-          <th class="px-4 py-3 text-right" data-nosort>{{t "common.actions"}}</th>
-        </tr>
-      </thead>
+    <table class="ad-table sortable">
+      <thead><tr>
+        <th data-nosort style="width:40px;">
+          <input type="checkbox" class="ad-check"
+                 :checked="allChecked" @change="toggleAll()">
+        </th>
+        <th>{{t "th.job"}}</th>
+        <th>{{t "th.date"}}</th>
+        <th>{{t "th.files"}}</th>
+        <th>{{t "th.total_size"}}</th>
+        <th data-nosort style="text-align:right;">{{t "common.actions"}}</th>
+      </tr></thead>
       <tbody>
       {{range .Jobs}}
-      <tr class="border-t hover:bg-slate-50" :class="sel[{{jsonStr .JobID}}] ? 'bg-blue-50' : ''">
-        <td class="px-3 py-3">
-          <input type="checkbox" class="rounded"
+      <tr :class="sel[{{jsonStr .JobID}}] ? 'on' : ''"
+          :style="sel[{{jsonStr .JobID}}] ? 'background:var(--vg-tint)' : ''">
+        <td>
+          <input type="checkbox" class="ad-check"
                  :checked="!!sel[{{jsonStr .JobID}}]"
                  @change="toggle({{jsonStr .JobID}})">
         </td>
-        <td class="px-4 py-3">
+        <td>
           <a href="/media/output/{{.JobID}}"
-             class="font-semibold text-blue-700 hover:underline">{{.FriendlyName}}</a>
-          <div class="text-xs text-slate-400 font-mono mt-0.5">{{slice .JobID 0 8}}…</div>
+             style="font-weight:700;color:var(--vg-deep);text-decoration:none;">{{.FriendlyName}}</a>
+          <div class="idcell" style="margin-top:2px;color:var(--faint);">{{short8 .JobID}}…</div>
         </td>
-        <td class="px-4 py-3 text-slate-500 text-xs whitespace-nowrap" data-sort-value="{{.ModTime.Unix}}">
+        <td class="mono" style="font-size:11.5px;color:var(--muted);white-space:nowrap;" data-sort-value="{{.ModTime.Unix}}">
           {{.ModTime.Format "2006-01-02 15:04"}}
         </td>
-        <td class="px-4 py-3 text-slate-600" data-sort-value="{{.FileCount}}">{{.FileCount}} {{t "common.files_word"}}</td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap" data-sort-value="{{.TotalSize}}">{{humanSize .TotalSize}}</td>
-        <td class="px-4 py-3 text-right space-x-3 whitespace-nowrap">
-          <a href="/media/output/{{.JobID}}" class="text-blue-600 hover:underline text-xs">{{t "out.open"}}</a>
-          <a href="/jobs/{{.JobID}}" class="text-slate-500 hover:underline text-xs">{{t "out.job"}}</a>
-          <button class="text-red-500 hover:underline text-xs"
+        <td style="color:var(--body);" data-sort-value="{{.FileCount}}">{{.FileCount}} {{t "common.files_word"}}</td>
+        <td style="color:var(--body);white-space:nowrap;" data-sort-value="{{.TotalSize}}">{{humanSize .TotalSize}}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <a href="/media/output/{{.JobID}}" class="ad-iconbtn" title="{{t "out.open_label"}}" style="display:inline-flex;color:var(--vg-deep);"><span class="mi">folder_open</span></a>
+          <a href="/jobs/{{.JobID}}" class="ad-iconbtn" title="{{t "out.job_label"}}" style="display:inline-flex;color:var(--body);"><span class="mi">search</span></a>
+          <button type="button" class="ad-del" style="display:inline-flex;vertical-align:middle;" title="{{t "common.delete"}}"
                   @click="if(confirm({{tjs "out.confirm_delete_one"}})) fetch('/media/output/'+{{jsonStr .JobID}},{method:'DELETE'}).then(()=>location.reload())">
-            🗑️
+            <span class="mi">delete</span>
           </button>
         </td>
       </tr>

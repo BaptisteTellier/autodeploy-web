@@ -1,63 +1,49 @@
 {{define "views/job.html"}}{{template "layout.html" .}}{{end}}
 
 {{define "content"}}
-<div class="space-y-4">
+<div style="max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px;">
 
-<div class="bg-white rounded shadow p-4 flex flex-wrap gap-4 items-center">
+  <!-- header summary -->
   <div>
-    <div class="text-xs uppercase text-slate-500">{{t "job.job"}}</div>
-    <div class="font-mono text-sm">{{.Job.ID}}</div>
+    <a href="/jobs" class="ad-btn-link"><span class="mi" style="font-size:16px;">arrow_back</span>{{t "job.all_jobs"}}</a>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap;">
+      <span style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--ink);">{{.Job.Hostname}}</span>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">{{short8 .Job.ID}}</span>
+      <span id="job-state" class="ad-chip ad-chip-lg {{chipClass .Job.State}}"><span class="dot"></span>{{.Job.State}}</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:7px;font-size:12px;color:var(--faint);font-family:var(--font-mono);">
+      <span>{{t "th.appliance"}} <span style="color:var(--body);">{{.Job.Appliance}}</span></span>
+      <span>{{t "job.source"}} <span style="color:var(--body);">{{.Job.SourceISO}}</span></span>
+      <span>{{t "job.output"}} <span style="color:var(--body);">{{.Job.OutputISO}}</span></span>
+    </div>
   </div>
-  <div>
-    <div class="text-xs uppercase text-slate-500">{{t "th.appliance"}}</div>
-    <div>{{.Job.Appliance}}</div>
-  </div>
-  <div>
-    <div class="text-xs uppercase text-slate-500">{{t "th.hostname"}}</div>
-    <div>{{.Job.Hostname}}</div>
-  </div>
-  <div>
-    <div class="text-xs uppercase text-slate-500">{{t "job.source"}}</div>
-    <div class="text-sm">{{.Job.SourceISO}}</div>
-  </div>
-  <div>
-    <div class="text-xs uppercase text-slate-500">{{t "job.output"}}</div>
-    <div class="text-sm">{{.Job.OutputISO}}</div>
-  </div>
-  <div class="ml-auto">
-    <div class="text-xs uppercase text-slate-500">{{t "th.state"}}</div>
-    <div id="job-state" class="px-3 py-1 rounded text-sm inline-block
-      {{if eq (printf "%s" .Job.State) "done"}}bg-emerald-100 text-emerald-800{{end}}
-      {{if eq (printf "%s" .Job.State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
-      {{if eq (printf "%s" .Job.State) "failed"}}bg-red-100 text-red-800{{end}}
-      {{if eq (printf "%s" .Job.State) "pending"}}bg-slate-100 text-slate-800{{end}}
-    ">{{.Job.State}}</div>
-  </div>
-</div>
 
-<div class="bg-white rounded shadow p-4 flex flex-wrap gap-2">
-  <a id="output-btn"
-     href="/media/output/{{.Job.ID}}"
-     class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-semibold
-            {{if ne (printf "%s" .Job.State) "done"}}opacity-40 pointer-events-none{{end}}">
-     {{t "job.view_outputs"}}
-  </a>
-  <a href="/?import={{.Job.ID}}" class="bg-slate-200 px-4 py-2 rounded text-sm">{{t "job.import_config"}}</a>
-  <a href="/jobs" class="bg-slate-200 px-4 py-2 rounded text-sm">{{t "job.all_jobs"}}</a>
-  {{if .Job.ErrorMessage}}
-  <span class="text-red-700 text-sm self-center">⚠️ {{.Job.ErrorMessage}}</span>
-  {{end}}
-</div>
-
-<div class="bg-slate-900 rounded shadow p-3 overflow-hidden">
-  <div class="flex items-center justify-between mb-2">
-    <span class="text-slate-400 text-xs uppercase">{{t "job.live_log"}}</span>
-    <label class="text-slate-400 text-xs flex items-center gap-1">
-      <input type="checkbox" id="autoscroll" checked> {{t "job.autoscroll"}}
-    </label>
+  <!-- actions -->
+  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+    <a id="output-btn"
+       href="/media/output/{{.Job.ID}}"
+       class="ad-btn ad-btn-primary {{if ne (printf "%s" .Job.State) "done"}}opacity-40 pointer-events-none{{end}}">
+       <span class="mi">folder_open</span>{{t "job.view_outputs"}}
+    </a>
+    <a href="/new?import={{.Job.ID}}" class="ad-btn ad-btn-secondary"><span class="mi">download</span>{{t "job.import_config"}}</a>
+    <a href="/jobs" class="ad-btn ad-btn-secondary"><span class="mi">list</span>{{t "job.all_jobs"}}</a>
+    {{if .Job.ErrorMessage}}
+    <span style="color:#8C2A1F;font-size:13px;display:inline-flex;align-items:center;gap:5px;"><span class="mi" style="font-size:17px;">warning</span>{{.Job.ErrorMessage}}</span>
+    {{end}}
   </div>
-  <pre id="log" class="text-green-300 text-xs font-mono max-h-[60vh] overflow-auto whitespace-pre-wrap">{{range .Lines}}{{.}}
+
+  <!-- live log -->
+  <div class="ad-log">
+    <div class="ad-log-head">
+      <span class="ad-log-title"><span class="dot"></span>{{t "job.live_log"}}</span>
+      <label class="ad-log-auto">
+        <input type="checkbox" id="autoscroll" checked style="width:13px;height:13px;accent-color:var(--vg);"> {{t "job.autoscroll"}}
+      </label>
+    </div>
+    <pre id="log">{{range .Lines}}{{.}}
 {{end}}</pre>
+  </div>
+
 </div>
 
 <script>
@@ -79,12 +65,9 @@
   const es = new EventSource("/jobs/{{.Job.ID}}/stream");
   es.addEventListener('log', e => append(e.data));
   es.addEventListener('state', e => {
-    stateEl.textContent = e.data;
-    stateEl.className = 'px-3 py-1 rounded text-sm inline-block ' +
-      ({done:'bg-emerald-100 text-emerald-800',
-        failed:'bg-red-100 text-red-800',
-        running:'bg-blue-100 text-blue-800',
-        pending:'bg-slate-100 text-slate-800'}[e.data] || 'bg-slate-100');
+    stateEl.className = 'ad-chip ad-chip-lg ' + window.chipClass(e.data);
+    stateEl.innerHTML = '<span class="dot"></span>';
+    stateEl.append(e.data);
     if (e.data === 'done') {
       outputBtn.classList.remove('opacity-40', 'pointer-events-none');
     }
@@ -93,6 +76,4 @@
   es.onerror = () => { /* heartbeat will retry automatically */ };
 })();
 </script>
-
-</div>
 {{end}}

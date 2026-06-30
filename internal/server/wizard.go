@@ -64,7 +64,7 @@ func (s *Server) handleSetMode(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	dest := "/"
+	dest := "/new"
 	if mode == modeWizard {
 		dest = "/wizard"
 		if ref := r.Referer(); ref != "" {

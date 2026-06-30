@@ -1,0 +1,216 @@
+{{define "content"}}
+<div x-data="{mode:(localStorage.getItem('dashMode')||'launch'), set(m){this.mode=m;localStorage.setItem('dashMode',m);}}">
+
+  <!-- page header -->
+  <div class="ad-head">
+    <div>
+      <div class="ad-eyebrow">autodeploy-web</div>
+      <div class="ad-h1 lg" style="margin-top:3px;" x-show="mode==='launch'">{{t "dash.heading_launch"}}</div>
+      <div class="ad-h1 lg" style="margin-top:3px;" x-show="mode==='ops'" x-cloak>{{t "dash.heading_ops"}}</div>
+      <div class="ad-subt" style="margin-top:5px;" x-show="mode==='launch'">{{t "dash.sub_launch"}}</div>
+      <div class="ad-subt" style="margin-top:5px;" x-show="mode==='ops'" x-cloak>{{t "dash.sub_ops"}}</div>
+    </div>
+    <div class="ad-seg">
+      <button :class="{'on': mode==='launch'}" @click="set('launch')"><span class="mi">grid_view</span>{{t "dash.toggle_launch"}}</button>
+      <button :class="{'on': mode==='ops'}" @click="set('ops')"><span class="mi">monitoring</span>{{t "dash.toggle_console"}}</button>
+    </div>
+  </div>
+
+  <!-- ===================== LAUNCHPAD ===================== -->
+  <div x-show="mode==='launch'">
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-bottom:24px;">
+
+      <div class="ad-card" style="border-radius:10px;padding:22px;display:flex;flex-direction:column;transition:box-shadow 160ms,transform 160ms;" onmouseover="this.style.boxShadow='0 10px 28px rgba(28,32,41,.12)';this.style.transform='translateY(-3px)'" onmouseout="this.style.boxShadow='';this.style.transform=''">
+        <div style="width:52px;height:52px;border-radius:12px;background:var(--vg-50);color:var(--vg-deep);display:flex;align-items:center;justify-content:center;margin-bottom:16px;"><span class="mi" style="font-size:27px;">album</span></div>
+        <div style="font-family:var(--font-display);font-size:19px;font-weight:500;color:var(--ink);">{{t "dash.card_iso_title"}}</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:7px;flex:1;">{{t "dash.card_iso_desc"}}</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:18px;">
+          <a href="/wizard" class="ad-btn ad-btn-primary"><span class="mi">auto_awesome</span>{{t "dash.card_iso_cta"}}</a>
+          <a href="/new" class="ad-btn-link">{{t "dash.card_iso_link"}}<span class="mi" style="font-size:16px;">arrow_forward</span></a>
+        </div>
+      </div>
+
+      <div class="ad-card" style="border-radius:10px;padding:22px;display:flex;flex-direction:column;transition:box-shadow 160ms,transform 160ms;" onmouseover="this.style.boxShadow='0 10px 28px rgba(28,32,41,.12)';this.style.transform='translateY(-3px)'" onmouseout="this.style.boxShadow='';this.style.transform=''">
+        <div style="width:52px;height:52px;border-radius:12px;background:var(--vg-50);color:var(--vg-deep);display:flex;align-items:center;justify-content:center;margin-bottom:16px;"><span class="mi" style="font-size:27px;">rocket_launch</span></div>
+        <div style="font-family:var(--font-display);font-size:19px;font-weight:500;color:var(--ink);">{{t "dash.card_deploy_title"}}</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:7px;flex:1;">{{t "dash.card_deploy_desc"}}</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:18px;">
+          <a href="/deploy" class="ad-btn ad-btn-primary"><span class="mi">lan</span>{{t "dash.card_deploy_cta"}}</a>
+        </div>
+      </div>
+
+      <div class="ad-card" style="border-radius:10px;padding:22px;display:flex;flex-direction:column;transition:box-shadow 160ms,transform 160ms;" onmouseover="this.style.boxShadow='0 10px 28px rgba(28,32,41,.12)';this.style.transform='translateY(-3px)'" onmouseout="this.style.boxShadow='';this.style.transform=''">
+        <div style="width:52px;height:52px;border-radius:12px;background:var(--vg-50);color:var(--vg-deep);display:flex;align-items:center;justify-content:center;margin-bottom:16px;"><span class="mi" style="font-size:27px;">terminal</span></div>
+        <div style="font-family:var(--font-display);font-size:19px;font-weight:500;color:var(--ink);">{{t "dash.card_craft_title"}}</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:7px;flex:1;">{{t "dash.card_craft_desc"}}</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:18px;">
+          <a href="/craft-api" class="ad-btn ad-btn-secondary"><span class="mi">code</span>{{t "dash.card_craft_cta"}}</a>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- recent split -->
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;">
+      <div class="ad-card">
+        <div class="ad-card-head" style="justify-content:space-between;">
+          <span class="ad-card-title">{{t "dash.recent_iso"}}</span>
+          <a href="/jobs" class="ad-btn-link">{{t "dash.view_all"}}</a>
+        </div>
+        {{if .RecentJobs}}
+          {{range .RecentJobs}}
+          <a href="/jobs/{{.ID}}" style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--line);text-decoration:none;" onmouseover="this.style.background='var(--vg-tint)'" onmouseout="this.style.background=''">
+            <span style="font-family:var(--font-mono);font-size:12px;color:var(--vg-deep);width:62px;flex-shrink:0;">{{short8 .ID}}</span>
+            <span class="ad-tag" style="flex-shrink:0;">{{.Appliance}}</span>
+            <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.Hostname}}</span>
+            <span class="ad-chip {{chipClass .State}}" style="flex-shrink:0;"><span class="dot"></span>{{.State}}</span>
+            <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);flex-shrink:0;">{{shortTime .FinishedAt}}</span>
+          </a>
+          {{end}}
+        {{else}}
+          <div style="padding:22px 18px;font-size:13px;color:var(--faint);">{{t "dash.no_iso"}}</div>
+        {{end}}
+      </div>
+
+      <div class="ad-card">
+        <div class="ad-card-head" style="justify-content:space-between;">
+          <span class="ad-card-title">{{t "dash.recent_dep"}}</span>
+          <a href="/jobs" class="ad-btn-link">{{t "dash.view_all"}}</a>
+        </div>
+        {{if .RecentDeps}}
+          {{range .RecentDeps}}
+          <div onclick="location.href='/deploy/{{.ID}}'" style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--line);cursor:pointer;" onmouseover="this.style.background='var(--vg-tint)'" onmouseout="this.style.background=''">
+            <span style="font-family:var(--font-mono);font-size:12px;color:var(--vg-deep);width:62px;flex-shrink:0;">{{short8 .ID}}</span>
+            <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.Kind}}</span>
+            <span style="font-size:11.5px;color:var(--muted);flex-shrink:0;">{{.Form.Provider}}</span>
+            <span class="ad-chip {{chipClass .State}}" style="flex-shrink:0;"><span class="dot"></span>{{.State}}</span>
+          </div>
+          {{end}}
+        {{else}}
+          <div style="padding:22px 18px;font-size:13px;color:var(--faint);">{{t "dash.no_dep"}}</div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CONSOLE ===================== -->
+  <div x-show="mode==='ops'" x-cloak>
+    <!-- KPI tiles -->
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:18px;">
+      <div class="ad-kpi">
+        <div class="ad-kpi-top"><span class="ad-kpi-label">{{t "dash.kpi_isos"}}</span><span class="ad-kpi-ico" style="background:var(--vg-50);color:var(--vg-deep);"><span class="mi">album</span></span></div>
+        <div class="ad-kpi-val">{{.KPIIsos}}</div>
+        <div class="ad-kpi-meta" style="color:#3F6E1F;">{{.KPIIsosMeta}}</div>
+      </div>
+      <div class="ad-kpi">
+        <div class="ad-kpi-top"><span class="ad-kpi-label">{{t "dash.kpi_deploys"}}</span><span class="ad-kpi-ico" style="background:#E4F2FB;color:#0779A5;"><span class="mi">rocket_launch</span></span></div>
+        <div class="ad-kpi-val">{{.KPIDeploys}}</div>
+        <div class="ad-kpi-meta" style="color:#0779A5;">{{.KPIRunning}} {{t "dash.running_now"}}</div>
+      </div>
+      <div class="ad-kpi">
+        <div class="ad-kpi-top"><span class="ad-kpi-label">{{t "dash.kpi_success"}}</span><span class="ad-kpi-ico" style="background:#E8F1DC;color:#4E7B2A;"><span class="mi">check_circle</span></span></div>
+        <div class="ad-kpi-val">{{.KPISuccess}}%</div>
+        <div class="ad-kpi-meta" style="color:var(--muted);">{{.KPISuccessMeta}}</div>
+      </div>
+      <div class="ad-kpi">
+        <div class="ad-kpi-top"><span class="ad-kpi-label">{{t "dash.kpi_sources"}}</span><span class="ad-kpi-ico" style="background:#EEF1F4;color:var(--body);"><span class="mi">folder_open</span></span></div>
+        <div class="ad-kpi-val">{{.KPISources}}</div>
+        <div class="ad-kpi-meta" style="color:var(--muted);">{{humanSize .KPISourceSz}} {{t "dash.staged"}}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:18px;">
+      <div style="display:flex;flex-direction:column;gap:18px;">
+        <!-- recent ISO jobs table -->
+        <div class="ad-card">
+          <div class="ad-card-head" style="justify-content:space-between;">
+            <span class="ad-card-title">{{t "dash.recent_iso_jobs"}}</span>
+            <a href="/jobs" class="ad-btn-link">{{t "dash.view_all"}}</a>
+          </div>
+          <table class="ad-table">
+            <thead><tr>
+              <th>{{t "dash.col_id"}}</th><th>{{t "dash.col_appliance"}}</th><th>{{t "dash.col_hostname"}}</th><th>{{t "dash.col_state"}}</th><th>{{t "dash.col_finished"}}</th>
+            </tr></thead>
+            <tbody>
+              {{range .RecentJobs}}
+              <tr style="cursor:pointer;" onclick="location.href='/jobs/{{.ID}}'">
+                <td class="idcell">{{short8 .ID}}</td>
+                <td>{{.Appliance}}</td>
+                <td class="mono" style="font-size:12.5px;">{{.Hostname}}</td>
+                <td><span class="ad-chip {{chipClass .State}}"><span class="dot"></span>{{.State}}</span></td>
+                <td class="mono" style="font-size:11.5px;color:var(--faint);">{{shortTime .FinishedAt}}</td>
+              </tr>
+              {{else}}
+              <tr><td colspan="5" style="color:var(--faint);">{{t "dash.no_iso"}}</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+        <!-- recent deployments table -->
+        <div class="ad-card">
+          <div class="ad-card-head" style="justify-content:space-between;">
+            <span class="ad-card-title">{{t "dash.recent_dep"}}</span>
+            <a href="/jobs" class="ad-btn-link">{{t "dash.view_all"}}</a>
+          </div>
+          <table class="ad-table">
+            <thead><tr>
+              <th>{{t "dash.col_id"}}</th><th>{{t "dash.col_topology"}}</th><th>{{t "dash.col_provider"}}</th><th>{{t "dash.col_nodes"}}</th><th>{{t "dash.col_state"}}</th>
+            </tr></thead>
+            <tbody>
+              {{range .RecentDeps}}
+              <tr style="cursor:pointer;" onclick="location.href='/deploy/{{.ID}}'">
+                <td class="idcell">{{short8 .ID}}</td>
+                <td class="mono" style="font-size:12.5px;">{{.Kind}}</td>
+                <td style="font-size:12.5px;color:var(--muted);">{{.Form.Provider}}</td>
+                <td style="font-variant-numeric:tabular-nums;">{{len .Nodes}}</td>
+                <td><span class="ad-chip {{chipClass .State}}"><span class="dot"></span>{{.State}}</span></td>
+              </tr>
+              {{else}}
+              <tr><td colspan="5" style="color:var(--faint);">{{t "dash.no_dep"}}</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- right rail -->
+      <div style="display:flex;flex-direction:column;gap:18px;">
+        <div class="ad-card">
+          <div class="ad-card-head"><span class="ad-card-title">{{t "dash.quick_start"}}</span></div>
+          <a href="/new" style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);text-decoration:none;" onmouseover="this.style.background='var(--vg-tint)'" onmouseout="this.style.background=''">
+            <span style="width:34px;height:34px;border-radius:8px;background:var(--vg-50);color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:19px;">album</span></span>
+            <div style="flex:1;"><div style="font-weight:600;font-size:13px;color:var(--ink);">{{t "dash.qs_newjob_title"}}</div><div style="font-size:11.5px;color:var(--faint);">{{t "dash.qs_newjob_sub"}}</div></div>
+            <span class="mi" style="font-size:18px;color:var(--faint);">chevron_right</span>
+          </a>
+          <a href="/deploy" style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);text-decoration:none;" onmouseover="this.style.background='var(--vg-tint)'" onmouseout="this.style.background=''">
+            <span style="width:34px;height:34px;border-radius:8px;background:var(--vg-50);color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:19px;">rocket_launch</span></span>
+            <div style="flex:1;"><div style="font-weight:600;font-size:13px;color:var(--ink);">{{t "dash.qs_deploy_title"}}</div><div style="font-size:11.5px;color:var(--faint);">{{t "dash.qs_deploy_sub"}}</div></div>
+            <span class="mi" style="font-size:18px;color:var(--faint);">chevron_right</span>
+          </a>
+          <a href="/craft-api" style="display:flex;align-items:center;gap:12px;padding:12px 18px;text-decoration:none;" onmouseover="this.style.background='var(--vg-tint)'" onmouseout="this.style.background=''">
+            <span style="width:34px;height:34px;border-radius:8px;background:var(--vg-50);color:var(--vg-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;"><span class="mi" style="font-size:19px;">terminal</span></span>
+            <div style="flex:1;"><div style="font-weight:600;font-size:13px;color:var(--ink);">{{t "dash.qs_craft_title"}}</div><div style="font-size:11.5px;color:var(--faint);">{{t "dash.qs_craft_sub"}}</div></div>
+            <span class="mi" style="font-size:18px;color:var(--faint);">chevron_right</span>
+          </a>
+        </div>
+
+        <div class="ad-card">
+          <div class="ad-card-head" style="justify-content:space-between;"><span class="ad-card-title">{{t "dash.source_isos"}}</span><a href="/media/workspace" class="ad-btn-link">{{t "dash.workspace_link"}}</a></div>
+          {{if .SourceISOs}}
+            {{range .SourceISOs}}
+            <div style="display:flex;align-items:center;gap:11px;padding:12px 18px;border-bottom:1px solid var(--line);">
+              <span class="mi" style="font-size:20px;color:var(--faint);flex-shrink:0;">album</span>
+              <div style="flex:1;min-width:0;"><div style="font-family:var(--font-mono);font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.Name}}</div></div>
+              <span style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0;">{{humanSize .Size}}</span>
+            </div>
+            {{end}}
+          {{else}}
+            <div style="padding:18px;font-size:13px;color:var(--faint);">{{t "dash.no_sources"}}</div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{{end}}

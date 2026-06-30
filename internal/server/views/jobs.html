@@ -15,92 +15,112 @@ async function deleteDeployment(id) {
   else { alert('Delete failed: ' + (await res.text())); }
 }
 </script>
-<div class="space-y-4">
-<div class="bg-white rounded shadow p-4">
-  <h2 class="text-lg font-semibold border-b pb-2 mb-3">{{t "jobs.all"}}</h2>
-  {{if .Jobs}}
-  <table class="w-full text-sm sortable">
-    <thead><tr class="text-left text-slate-500">
-      <th>{{t "th.id"}}</th><th>{{t "th.appliance"}}</th><th>{{t "th.hostname"}}</th><th>{{t "th.state"}}</th><th>{{t "th.started"}}</th><th>{{t "th.finished"}}</th><th>{{t "th.exit"}}</th><th data-nosort></th>
-    </tr></thead>
-    <tbody>
-    {{range .Jobs}}
-    <tr class="border-t hover:bg-slate-50">
-      <td class="font-mono text-xs"><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline">{{slice .ID 0 8}}</a></td>
-      <td>{{.Appliance}}</td>
-      <td>{{.Hostname}}</td>
-      <td>
-        <span class="px-2 py-0.5 rounded text-xs
-          {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-800{{end}}
-          {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
-          {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-800{{end}}
-          {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
-        ">{{.State}}</span>
-      </td>
-      <td class="text-xs" data-sort-value="{{if not .StartedAt.IsZero}}{{.StartedAt.Unix}}{{else}}0{{end}}">{{if not .StartedAt.IsZero}}{{.StartedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
-      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
-      <td class="text-xs font-mono">{{.ExitCode}}</td>
-      <td class="text-right">
-        <a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
-        {{if eq (printf "%s" .State) "done"}}
-          <a href="/media/output/{{.ID}}" class="text-emerald-600 hover:underline text-xs ml-2">{{t "jobs.output"}}</a>
-        {{end}}
-        {{$st := printf "%s" .State}}
-        {{if or (eq $st "done") (eq $st "failed") (eq $st "canceled")}}
-          <button onclick="deleteJob('{{.ID}}')" class="text-red-500 hover:text-red-700 text-xs ml-2" title="{{t "jobs.delete"}}">🗑</button>
-        {{end}}
-      </td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <p class="text-slate-500 text-sm">{{t "jobs.none"}} <a href="/" class="text-blue-600 hover:underline">{{t "jobs.create_one"}}</a>.</p>
-  {{end}}
-</div>
 
-<!-- Deployments (multi-VM topology deployments) -->
-<div class="bg-white rounded shadow p-4">
-  <h2 class="text-lg font-semibold border-b pb-2 mb-3 flex items-center gap-2">{{t "jobs.deployments"}}
-    <a href="/deploy" class="ml-auto text-blue-600 hover:underline text-xs font-normal">{{t "deploy.title"}} →</a>
-  </h2>
-  {{if .Deployments}}
-  <table class="w-full text-sm sortable">
-    <thead><tr class="text-left text-slate-500">
-      <th>{{t "th.id"}}</th><th>{{t "deploy.topology"}}</th><th>{{t "deploy.provider"}}</th><th>{{t "deploy.nodes"}}</th><th>{{t "th.state"}}</th><th>{{t "th.created"}}</th><th>{{t "th.finished"}}</th><th data-nosort></th>
-    </tr></thead>
-    <tbody>
-    {{range .Deployments}}
-    <tr class="border-t hover:bg-slate-50">
-      <td class="font-mono text-xs"><a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline">{{slice .ID 0 8}}</a></td>
-      <td class="font-mono">{{.Kind}}{{if .RetriedFrom}}<a href="/deploy/{{.RetriedFrom}}" class="ml-1 text-xs text-slate-400 hover:underline" title="{{t "deploy.retry_of"}} {{slice .RetriedFrom 0 8}}">↻ {{t "deploy.retry_of"}} {{slice .RetriedFrom 0 8}}</a>{{end}}</td>
-      <td class="font-mono text-xs">{{if .Form.Provider}}{{.Form.Provider}}{{else}}—{{end}}</td>
-      <td>{{len .Nodes}}</td>
-      <td>
-        <span class="px-2 py-0.5 rounded text-xs
-          {{if eq (printf "%s" .State) "done"}}bg-emerald-100 text-emerald-800{{end}}
-          {{if eq (printf "%s" .State) "running"}}bg-blue-100 text-blue-800 animate-pulse{{end}}
-          {{if eq (printf "%s" .State) "failed"}}bg-red-100 text-red-800{{end}}
-          {{if eq (printf "%s" .State) "pending"}}bg-slate-100 text-slate-800{{end}}
-          {{if or (eq (printf "%s" .State) "canceled") (eq (printf "%s" .State) "removed")}}bg-slate-200 text-slate-700{{end}}
-        ">{{.State}}</span>
-      </td>
-      <td class="text-xs" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{if not .CreatedAt.IsZero}}{{.CreatedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
-      <td class="text-xs" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{if not .FinishedAt.IsZero}}{{.FinishedAt.Format "2006-01-02 15:04:05"}}{{end}}</td>
-      <td class="text-right">
-        <a href="/deploy/{{.ID}}" class="text-blue-600 hover:underline text-xs">{{t "jobs.open_job"}}</a>
-        {{$dst := printf "%s" .State}}
-        {{if or (eq $dst "done") (eq $dst "failed") (eq $dst "canceled") (eq $dst "removed")}}
-          <button onclick="deleteDeployment('{{.ID}}')" class="text-red-500 hover:text-red-700 text-xs ml-2" title="{{t "jobs.delete"}}">🗑</button>
-        {{end}}
-      </td>
-    </tr>
+<div style="display:flex;flex-direction:column;gap:20px;">
+
+  <!-- ===================== ISO creation ===================== -->
+  <div class="ad-card">
+    <div class="ad-card-head">
+      <span class="ad-card-ico"><span class="mi">album</span></span>
+      <span class="ad-card-title">{{t "jobs.all"}}</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--sunken);padding:2px 9px;border-radius:999px;">{{len .Jobs}} {{t "jobs.builds_count"}}</span>
+      <a href="/new" class="ad-btn ad-btn-primary" style="margin-left:auto;height:32px;padding:0 12px;font-size:12.5px;"><span class="mi" style="font-size:16px;">add</span>{{t "jobs.new_job"}}</a>
+    </div>
+
+    {{if .Jobs}}
+    <div class="ad-sunken" style="display:flex;align-items:center;gap:8px;">
+      <span class="mi" style="font-size:14px;color:var(--faint);">swap_vert</span>
+      <span style="font-size:11.5px;color:var(--muted);">{{t "jobs.sort_hint"}}</span>
+    </div>
+    <table class="ad-table sortable">
+      <thead><tr>
+        <th>{{t "th.id"}}</th>
+        <th>{{t "th.appliance"}}</th>
+        <th>{{t "th.hostname"}}</th>
+        <th>{{t "th.state"}}</th>
+        <th>{{t "th.started"}}</th>
+        <th>{{t "th.finished"}}</th>
+        <th>{{t "th.exit"}}</th>
+        <th data-nosort style="text-align:right;">{{t "th.actions"}}</th>
+      </tr></thead>
+      <tbody>
+      {{range .Jobs}}
+      <tr style="cursor:pointer;" onclick="location.href='/jobs/{{.ID}}'">
+        <td class="idcell">{{short8 .ID}}</td>
+        <td><span class="ad-tag">{{.Appliance}}</span></td>
+        <td class="mono" style="font-size:12.5px;">{{.Hostname}}</td>
+        <td><span class="ad-chip {{chipClass .State}}"><span class="dot"></span>{{.State}}</span></td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);" data-sort-value="{{if not .StartedAt.IsZero}}{{.StartedAt.Unix}}{{else}}0{{end}}">{{shortTime .StartedAt}}</td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{shortTime .FinishedAt}}</td>
+        <td class="mono" style="font-size:12px;color:var(--body);">{{.ExitCode}}</td>
+        <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
+          <a href="/jobs/{{.ID}}" style="font-size:12px;color:var(--vg-deep);font-weight:600;text-decoration:none;margin-right:12px;">{{t "jobs.open"}}</a>
+          {{if eq (printf "%s" .State) "done"}}
+            <a href="/media/output/{{.ID}}" style="font-size:12px;color:var(--vg-deep);font-weight:600;text-decoration:none;margin-right:12px;">{{t "jobs.output_short"}}</a>
+          {{end}}
+          {{$st := printf "%s" .State}}
+          {{if or (eq $st "done") (eq $st "failed") (eq $st "canceled")}}
+            <span class="mi ad-del" onclick="deleteJob('{{.ID}}')" title="{{t "jobs.delete"}}" style="font-size:16px;vertical-align:middle;cursor:pointer;">delete</span>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div style="padding:22px 18px;font-size:13px;color:var(--faint);">{{t "jobs.none"}} <a href="/new" class="ad-btn-link">{{t "jobs.create_one"}}</a>.</div>
     {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <p class="text-slate-500 text-sm">{{t "deploy.none"}} <a href="/deploy" class="text-blue-600 hover:underline">{{t "deploy.launch"}}</a>.</p>
-  {{end}}
-</div>
+  </div>
+
+  <!-- ===================== Deployments ===================== -->
+  <div class="ad-card">
+    <div class="ad-card-head">
+      <span class="ad-card-ico"><span class="mi">rocket_launch</span></span>
+      <span class="ad-card-title">{{t "jobs.deployments"}}</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--sunken);padding:2px 9px;border-radius:999px;">{{len .Deployments}} {{t "jobs.runs_count"}}</span>
+      <a href="/deploy" class="ad-btn ad-btn-primary" style="margin-left:auto;height:32px;padding:0 12px;font-size:12.5px;"><span class="mi" style="font-size:16px;">add</span>{{t "jobs.deploy"}}</a>
+    </div>
+
+    {{if .Deployments}}
+    <table class="ad-table sortable">
+      <thead><tr>
+        <th>{{t "th.id"}}</th>
+        <th>{{t "deploy.topology"}}</th>
+        <th>{{t "deploy.provider"}}</th>
+        <th>{{t "deploy.nodes"}}</th>
+        <th>{{t "th.state"}}</th>
+        <th>{{t "th.created"}}</th>
+        <th>{{t "th.finished"}}</th>
+        <th data-nosort style="text-align:right;">{{t "th.actions"}}</th>
+      </tr></thead>
+      <tbody>
+      {{range .Deployments}}
+      <tr style="cursor:pointer;" onclick="location.href='/deploy/{{.ID}}'">
+        <td class="idcell">{{short8 .ID}}</td>
+        <td class="mono" style="font-size:12.5px;">{{.Kind}}{{if .RetriedFrom}}<a href="/deploy/{{.RetriedFrom}}" onclick="event.stopPropagation();" style="margin-left:6px;font-size:11px;color:var(--faint);text-decoration:none;" title="{{t "deploy.retry_of"}} {{short8 .RetriedFrom}}">↻ {{t "deploy.retry_of"}} {{short8 .RetriedFrom}}</a>{{end}}</td>
+        <td style="font-size:12.5px;color:var(--muted);">{{if .Form.Provider}}{{.Form.Provider}}{{else}}—{{end}}</td>
+        <td style="font-variant-numeric:tabular-nums;">{{len .Nodes}}</td>
+        <td><span class="ad-chip {{chipClass .State}}"><span class="dot"></span>{{.State}}</span></td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{shortTime .CreatedAt}}</td>
+        <td class="mono" style="font-size:11.5px;color:var(--muted);" data-sort-value="{{if not .FinishedAt.IsZero}}{{.FinishedAt.Unix}}{{else}}0{{end}}">{{shortTime .FinishedAt}}</td>
+        <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
+          <a href="/deploy/{{.ID}}" style="font-size:12px;color:var(--vg-deep);font-weight:600;text-decoration:none;margin-right:12px;">{{t "jobs.open"}}</a>
+          {{$dst := printf "%s" .State}}
+          {{if or (eq $dst "done") (eq $dst "failed") (eq $dst "canceled") (eq $dst "removed")}}
+            <form method="POST" action="/deploy/{{.ID}}/retry" style="display:inline;margin-right:10px;">
+              <button type="submit" class="mi" title="{{t "deploy.retry"}}" style="font-size:16px;color:var(--muted);vertical-align:middle;cursor:pointer;background:none;border:none;padding:0;">replay</button>
+            </form>
+            <span class="mi ad-del" onclick="deleteDeployment('{{.ID}}')" title="{{t "jobs.delete"}}" style="font-size:16px;vertical-align:middle;cursor:pointer;">delete</span>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div style="padding:22px 18px;font-size:13px;color:var(--faint);">{{t "deploy.none"}} <a href="/deploy" class="ad-btn-link">{{t "deploy.launch"}}</a>.</div>
+    {{end}}
+  </div>
+
 </div>
 {{end}}

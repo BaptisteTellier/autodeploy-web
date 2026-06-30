@@ -98,6 +98,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /deploy/presets/{name}", s.handleDeleteDeployPreset)
 
 	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /new", s.handleNewJob)
 
 	mux.HandleFunc("POST /jobs", s.handleCreateJob)
 	mux.HandleFunc("GET /jobs", s.handleListJobs)
