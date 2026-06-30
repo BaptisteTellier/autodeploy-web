@@ -94,8 +94,8 @@
         </div>
         <!-- dashed divider then build-behaviour -->
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);">
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="InPlace" {{if .Config.InPlace}}checked{{end}}> {{t "form.inplace"}} {{helpTip "wiz.help.InPlace"}}</label>
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="CreateBackup"> {{t "form.create_backup"}} {{helpTip "wiz.help.CreateBackup"}}</label>
+          <label class="ad-checkrow" style="display:none;"><input type="checkbox" class="ad-check" name="InPlace" {{if .Config.InPlace}}checked{{end}}> {{t "form.inplace"}} {{helpTip "wiz.help.InPlace"}}</label>
+          <label class="ad-checkrow" style="display:none;"><input type="checkbox" class="ad-check" name="CreateBackup"> {{t "form.create_backup"}} {{helpTip "wiz.help.CreateBackup"}}</label>
           <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="CleanupCFGFiles"> {{t "form.cleanup_cfg"}} {{helpTip "wiz.help.CleanupCFGFiles"}}</label>
           <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="CFGOnly" {{if .Config.CFGOnly}}checked{{end}}> {{t "form.cfg_only"}}</label>
           <label class="ad-checkrow" style="gap:8px;">
@@ -231,32 +231,44 @@
         <span class="ad-pill-vsa" style="margin-left:auto;">{{t "form.vsa_only_pill"}}</span>
       </div>
       <div class="ad-card-body" style="display:flex;flex-direction:column;gap:14px;">
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> {{t "form.allow_external"}}</label>
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> {{t "form.ha_mode"}}</label>
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> {{t "form.node_exporter"}}</label>
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> {{t "form.license_vbr_tune"}}</label>
+        <!-- each toggle paired with the field it controls -->
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;">
+          <!-- External managers + its timeout -->
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="ExternalManagersInstallationEnabled" {{if .Config.ExternalManagersInstallationEnabled}}checked{{end}}> {{t "form.allow_external"}}</label>
+            <label style="display:block;">
+              <span class="ad-flabel">{{t "form.external_timeout"}}</span>
+              <input type="number" name="ExternalManagersInstallationTimeout" min="60" max="86400" value="{{.Config.ExternalManagersInstallationTimeout}}" class="ad-input mono">
+            </label>
+          </div>
+          <!-- High availability + its timeout -->
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="HighAvailabilityEnabled" {{if .Config.HighAvailabilityEnabled}}checked{{end}}> {{t "form.ha_mode"}}</label>
+            <label style="display:block;">
+              <span class="ad-flabel">{{t "form.ha_timeout"}}</span>
+              <input type="number" name="HighAvailabilityTimeout" min="60" max="86400" value="{{.Config.HighAvailabilityTimeout}}" class="ad-input mono">
+            </label>
+          </div>
+          <!-- node_exporter + its TLS toggle -->
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="NodeExporter" x-model="cfg.NodeExporter" {{if .Config.NodeExporter}}checked{{end}}> {{t "form.node_exporter"}}</label>
+            <label class="ad-checkrow" style="padding-left:23px;"><input type="checkbox" class="ad-check" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> {{t "form.node_exporter_tls"}}</label>
+          </div>
+          <!-- LicenseVBRTune + license file -->
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="LicenseVBRTune" {{if .Config.LicenseVBRTune}}checked{{end}}> {{t "form.license_vbr_tune"}}</label>
+            <label style="display:block;">
+              <span class="ad-flabel">{{t "form.license_file"}}</span>
+              <select name="LicenseFile" class="ad-select mono">
+                <option value="">{{t "form.none_dash"}}</option>
+                {{range .LicenseFiles}}<option value="{{.}}" {{if eq . $.Config.LicenseFile}}selected{{end}}>{{.}}</option>{{end}}
+              </select>
+            </label>
+          </div>
         </div>
-        <!-- timeouts + tls + license + syslog -->
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-top:14px;border-top:1px dashed var(--line);">
-          <label style="display:block;">
-            <span class="ad-flabel">{{t "form.external_timeout"}}</span>
-            <input type="number" name="ExternalManagersInstallationTimeout" min="60" max="86400" value="{{.Config.ExternalManagersInstallationTimeout}}" class="ad-input mono">
-          </label>
-          <label style="display:block;">
-            <span class="ad-flabel">{{t "form.ha_timeout"}}</span>
-            <input type="number" name="HighAvailabilityTimeout" min="60" max="86400" value="{{.Config.HighAvailabilityTimeout}}" class="ad-input mono">
-          </label>
-          <label class="ad-checkrow"><input type="checkbox" class="ad-check" name="NodeExporterTLSEnabled" :disabled="!cfg.NodeExporter" {{if .Config.NodeExporterTLSEnabled}}checked{{end}}> {{t "form.node_exporter_tls"}}</label>
-          <div></div>
-          <label style="display:block;">
-            <span class="ad-flabel">{{t "form.license_file"}}</span>
-            <select name="LicenseFile" class="ad-select mono">
-              <option value="">{{t "form.none_dash"}}</option>
-              {{range .LicenseFiles}}<option value="{{.}}" {{if eq . $.Config.LicenseFile}}selected{{end}}>{{.}}</option>{{end}}
-            </select>
-          </label>
-          <label style="display:block;">
+        <!-- Syslog server (no controlling checkbox) -->
+        <div style="padding-top:14px;border-top:1px dashed var(--line);">
+          <label style="display:block;max-width:28rem;">
             <span class="ad-flabel">{{t "form.syslog_server"}}</span>
             <input type="text" name="SyslogServer" value="{{.Config.SyslogServer}}" class="ad-input mono">
           </label>
@@ -368,7 +380,7 @@
       </div>
     </div>
     <!-- Generate ISO -->
-    <button type="submit" class="ad-btn ad-btn-primary ad-btn-lg ad-btn-hero ad-btn-block">
+    <button type="submit" class="ad-btn ad-btn-primary ad-btn-lg ad-btn-block">
       <span class="mi" style="font-size:20px;">build</span>{{t "form.generate_iso"}}
     </button>
     <div style="font-size:11.5px;color:var(--faint);text-align:center;line-height:1.5;">{{t "form.generate_note"}}</div>

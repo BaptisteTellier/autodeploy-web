@@ -29,10 +29,10 @@
   <!-- stepper -->
   <div style="display:flex;align-items:flex-start;margin-bottom:22px;padding:0 6px;">
     <template x-for="(st, i) in wizSteps" :key="st.n">
-      <div style="display:flex;align-items:flex-start;flex:1;" :style="i===0?'flex:0 0 auto;':''">
+      <div style="display:flex;align-items:flex-start;flex:1;">
         <div x-show="i > 0" style="flex:1;height:2px;margin:14px 5px 0;border-radius:2px;"
              :style="'background:'+(st.n <= step ? 'var(--vg)' : '#DFE3E6')+';'"></div>
-        <div style="display:flex;flex-direction:column;align-items:center;"
+        <div style="display:flex;flex-direction:column;align-items:center;width:56px;flex-shrink:0;"
              :style="canJump(st.n) ? 'cursor:pointer;' : 'cursor:not-allowed;'"
              @click="goTo(st.n)">
           <div :style="bubbleStyle(st.n)">
@@ -97,7 +97,7 @@
           <div x-show="isoMode==='upload'" style="display:flex;flex-direction:column;gap:10px;">
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--sunken);border:2px dashed var(--bd2);border-radius:8px;padding:22px 16px;text-align:center;">
               <div style="flex:1;">
-                <div style="font-size:13px;font-weight:600;color:var(--body);"><span class="mi" style="font-size:18px;vertical-align:-3px;">upload_file</span> {{t "wiz.iso_upload"}}</div>
+                <div style="font-size:13px;font-weight:600;color:var(--body);"><span class="mi" style="font-size:18px;vertical-align:-3px;margin-right:4px;">upload_file</span>{{t "wiz.iso_upload"}}</div>
                 <div style="font-size:11.5px;color:var(--faint);margin-top:4px;">.iso — up to 25 GB</div>
               </div>
               <input type="file" accept=".iso" style="display:none" @change="uploadISO($event.target.files[0])">
@@ -233,7 +233,6 @@
           </div>
 
           <div x-show="cfg.VeeamSoIsEnabled" style="display:flex;flex-direction:column;gap:14px;">
-            <div class="ad-info"><span class="mi">verified_user</span>{{t "wiz.so_required_note"}}</div>
             <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
               <!-- SO Password -->
               <div>
@@ -252,18 +251,18 @@
                 {{helpTip "wiz.help.VeeamSoIsMfaEnabled"}}
               </label>
 
-              <!-- SO MFA secret (REQUIRED when SO enabled) -->
-              <div :style="cfg.VeeamSoIsMfaEnabled ? 'grid-column:span 2;' : 'grid-column:span 2;'">
-                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32"}} <span class="ad-req">{{t "wiz.required"}}</span> {{helpTip "wiz.help.VeeamSoMfaSecretKey"}}</span>
+              <!-- SO MFA secret (shown only when SO MFA is enabled) -->
+              <div x-show="cfg.VeeamSoIsMfaEnabled" style="grid-column:span 2;">
+                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32"}} {{helpTip "wiz.help.VeeamSoMfaSecretKey"}}</span>
                 <div style="display:flex;gap:8px;">
                   <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
                   <button type="button" @click="fillBase32('VeeamSoMfaSecretKey')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
                 </div>
               </div>
 
-              <!-- SO Recovery token (REQUIRED when SO enabled) -->
-              <div style="grid-column:span 2;">
-                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.recovery_token"}} <span class="ad-req">{{t "wiz.required"}}</span> {{helpTip "wiz.help.VeeamSoRecoveryToken"}}</span>
+              <!-- SO Recovery token (shown only when SO MFA is enabled) -->
+              <div x-show="cfg.VeeamSoIsMfaEnabled" style="grid-column:span 2;">
+                <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.recovery_token"}} {{helpTip "wiz.help.VeeamSoRecoveryToken"}}</span>
                 <div style="display:flex;gap:8px;">
                   <input type="text" name="VeeamSoRecoveryToken" value="{{.Config.VeeamSoRecoveryToken}}" class="ad-input mono" style="flex:1;">
                   <button type="button" @click="fillGUID('VeeamSoRecoveryToken')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
@@ -282,7 +281,8 @@
 
         <!-- Phase A: select -->
         <div x-show="advPhase==='select'">
-          <div style="display:flex;align-items:center;gap:10px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;">
+            <span class="mi" style="font-size:22px;color:var(--vg-deep);flex-shrink:0;">tune</span>
             <div class="ad-h1" style="font-size:20px;white-space:nowrap;">{{t "wiz.step5.title"}}</div>
             <span style="font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8A5A00;background:#F8E5C3;padding:2px 8px;border-radius:999px;flex-shrink:0;">{{t "wiz.optional"}}</span>
           </div>
@@ -477,12 +477,12 @@
               <span>{{t "form.cfg_only"}}</span>
               {{helpTip "wiz.help.CFGOnly"}}
             </label>
-            <label class="ad-checkrow">
+            <label class="ad-checkrow" style="display:none;">
               <input type="checkbox" name="InPlace" id="wiz-inplace" class="ad-check">
               <span>{{t "form.inplace"}}</span>
               {{helpTip "wiz.help.InPlace"}}
             </label>
-            <label class="ad-checkrow">
+            <label class="ad-checkrow" style="display:none;">
               <input type="checkbox" name="CreateBackup" id="wiz-backup" class="ad-check">
               <span>{{t "form.create_backup"}}</span>
               {{helpTip "wiz.help.CreateBackup"}}

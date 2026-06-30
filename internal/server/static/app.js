@@ -280,6 +280,11 @@ function applyConfigToForm(data) {
       el.value = (v === null || v === undefined) ? '' : String(v);
     }
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    // Password fields need an input event so Alpine's x-model / cfg reactive
+    // state (used by the summary panel) picks up the new value.
+    if (k === 'VeeamAdminPassword' || k === 'VeeamSoPassword') {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
   }
 }
 
@@ -632,12 +637,14 @@ function wizardApp(initialIsos = [], msgs = {}) {
             const soPw = get('VeeamSoPassword');
             if (soPw.length < 15) return 'Security Officer password must be at least 15 characters.';
             if (soPw === pw) return 'Security Officer password must differ from admin password.';
-            // SO MFA secret and recovery token are REQUIRED when the SO is enabled.
-            const mfaKey = get('VeeamSoMfaSecretKey');
-            if (!/^[A-Z2-7]{16,32}$/.test(mfaKey)) return 'Security Officer MFA secret is required: 16–32 Base32 chars (A–Z, 2–7).';
-            const token = get('VeeamSoRecoveryToken');
-            if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(token))
-              return 'Security Officer recovery token is required (GUID).';
+            // SO MFA secret and recovery token are required only when SO MFA is enabled.
+            if (this.cfg.VeeamSoIsMfaEnabled) {
+              const mfaKey = get('VeeamSoMfaSecretKey');
+              if (!/^[A-Z2-7]{16,32}$/.test(mfaKey)) return 'Security Officer MFA secret: 16–32 Base32 chars (A–Z, 2–7).';
+              const token = get('VeeamSoRecoveryToken');
+              if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(token))
+                return 'Security Officer recovery token is required (GUID).';
+            }
           }
           return '';
         }

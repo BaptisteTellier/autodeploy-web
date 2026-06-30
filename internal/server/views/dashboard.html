@@ -84,6 +84,7 @@
             <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.Kind}}</span>
             <span style="font-size:11.5px;color:var(--muted);flex-shrink:0;">{{.Form.Provider}}</span>
             <span class="ad-chip {{chipClass .State}}" style="flex-shrink:0;"><span class="dot"></span>{{.State}}</span>
+            <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);flex-shrink:0;">{{shortTime .FinishedAt}}</span>
           </div>
           {{end}}
         {{else}}
@@ -112,11 +113,13 @@
         <div class="ad-kpi-val">{{.KPISuccess}}%</div>
         <div class="ad-kpi-meta" style="color:var(--muted);">{{.KPISuccessMeta}}</div>
       </div>
+      <a href="/media/workspace" style="text-decoration:none;color:inherit;display:block;">
       <div class="ad-kpi">
         <div class="ad-kpi-top"><span class="ad-kpi-label">{{t "dash.kpi_sources"}}</span><span class="ad-kpi-ico" style="background:#EEF1F4;color:var(--body);"><span class="mi">folder_open</span></span></div>
         <div class="ad-kpi-val">{{.KPISources}}</div>
         <div class="ad-kpi-meta" style="color:var(--muted);">{{humanSize .KPISourceSz}} {{t "dash.staged"}}</div>
       </div>
+      </a>
     </div>
 
     <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:18px;">

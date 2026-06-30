@@ -51,11 +51,11 @@
 
     <!-- VSA REST API console toggle (on the same action row; errors clearly if the VSA isn't up) -->
     <button type="button"
-            @click="sessionOpen ? closeSession() : openSession()"
+            @click="panelOpen ? (panelOpen=false, closeSession()) : (panelOpen=true, openSession())"
             :disabled="loading"
             class="ad-btn ad-btn-indigo">
       <span class="mi">terminal</span>
-      <span x-text="sessionOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
+      <span x-text="panelOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
     </button>
 
     {{if ne (printf "%s" .Deployment.State) "removed"}}
@@ -63,8 +63,10 @@
     {{end}}
 
     <!-- Confirmation modal -->
-    <div x-show="showRemove" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showRemove=false" @keydown.escape.window="showRemove=false">
-      <div class="ad-card" style="max-width:28rem;width:100%;">
+    <div x-show="showRemove" x-cloak
+         style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);padding:16px;"
+         @click.self="showRemove=false" @keydown.escape.window="showRemove=false">
+      <div class="ad-card" style="max-width:28rem;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.4);">
         <div class="ad-card-body" style="display:flex;flex-direction:column;gap:14px;">
           <h3 style="font-family:var(--font-display);font-size:17px;font-weight:600;color:var(--ink);">{{t "deploy.remove_title"}}</h3>
           <p style="font-size:13px;color:var(--body);line-height:1.5;">{{t "deploy.remove_warning"}}</p>
@@ -138,12 +140,13 @@
 {{end}}</pre>
   </div>
 
-  <!-- VSA REST API console -->
-  <div class="ad-card">
+  <!-- VSA REST API console — hidden until the user clicks "Open REST API" -->
+  <div class="ad-card" x-show="panelOpen" x-cloak>
     <div class="ad-card-head" style="justify-content:flex-start;">
       <span class="ad-card-ico" style="background:#EEF1FF;color:#3F4FB0;"><span class="mi">terminal</span></span>
       <span class="ad-card-title">{{t "deploy.console_title"}}</span>
-      <span x-show="sessionOpen" x-cloak style="font-size:11px;color:var(--faint);margin-left:auto;">{{t "deploy.console_subtitle"}}</span>
+      <span x-show="sessionOpen" x-cloak style="font-size:11px;color:var(--faint);flex:1;text-align:right;">{{t "deploy.console_subtitle"}}</span>
+      <button type="button" @click="panelOpen=false; closeSession()" class="ad-iconbtn" title="{{t "deploy.cancel"}}"><span class="mi">close</span></button>
     </div>
     <!-- Warning -->
     <div class="ad-warn" style="border-radius:0;border-left:none;border-right:none;border-top:none;">
@@ -212,6 +215,7 @@
     }
     return {
       open: false,
+      panelOpen: false,
       sessionOpen: false,
       method: 'GET',
       path: '/api/v1/serverInfo',
