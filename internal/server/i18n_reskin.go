@@ -84,6 +84,14 @@ var reskinEN = map[string]string{
 	"wiz.adv.vcsp.desc":      "Register with a Veeam Cloud Service Provider",
 	"wiz.adv.restore.label":  "Restore config",
 	"wiz.adv.restore.desc":   "Restore a saved VBR configuration on first boot",
+
+	// global search
+	"search.type.iso_template":    "ISO template",
+	"search.type.deploy_template": "Deploy template",
+	"search.type.vm":              "Deployed VM",
+	"search.type.iso":             "Source ISO",
+	"search.type.license":         "License",
+	"search.no_results":           "No results",
 }
 
 var reskinFR = map[string]string{
@@ -149,4 +157,12 @@ var reskinFR = map[string]string{
 	"wiz.adv.vcsp.desc":      "S'enregistrer auprès d'un Veeam Cloud Service Provider",
 	"wiz.adv.restore.label":  "Restaurer la config",
 	"wiz.adv.restore.desc":   "Restaurer une configuration VBR sauvegardée au premier démarrage",
+
+	// global search
+	"search.type.iso_template":    "Modèle ISO",
+	"search.type.deploy_template": "Modèle de déploiement",
+	"search.type.vm":              "VM déployée",
+	"search.type.iso":             "ISO source",
+	"search.type.license":         "Licence",
+	"search.no_results":           "Aucun résultat",
 }

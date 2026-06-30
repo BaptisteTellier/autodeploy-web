@@ -140,7 +140,7 @@
        style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);"
        @click="viewer.open=false"
        @keydown.escape.window="viewer.open=false">
-    <div class="ad-card" style="width:92%;max-width:1024px;height:84vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.4);"
+    <div class="ad-card" style="width:92%;max-width:1024px;height:84vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.4);margin:auto;"
          @click.stop>
       <div class="ad-card-head" style="justify-content:space-between;">
         <span class="mono" style="font-size:13px;font-weight:700;color:var(--ink);" x-text="viewer.title"></span>

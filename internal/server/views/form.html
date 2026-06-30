@@ -371,7 +371,7 @@
         </div>
         <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px;" x-show="!v('UseDHCP') || v('UseDHCP')==='{{t "form.summary_no"}}'">
           <span style="color:var(--muted);flex-shrink:0;">{{t "form.static_ip"}}</span>
-          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="vd('StaticIP','—')"></span>
+          <span class="mono" style="color:var(--ink);font-weight:600;text-align:right;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto;" x-text="vd('StaticIP','—')"></span>
         </div>
         <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:12.5px;">
           <span style="color:var(--muted);flex-shrink:0;">{{t "form.cfg_only_short"}}</span>

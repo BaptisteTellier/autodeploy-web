@@ -26,8 +26,8 @@ function formApp() {
     cfg: {
       ApplianceType: document.querySelector('[name=ApplianceType]')?.value || 'VSA',
       NodeExporter: document.querySelector('[name=NodeExporter]')?.checked || false,
-      VeeamAdminPassword: '',
-      VeeamSoPassword: '',
+      VeeamAdminPassword: document.querySelector('[name="VeeamAdminPassword"]')?.value || '',
+      VeeamSoPassword: document.querySelector('[name="VeeamSoPassword"]')?.value || '',
     },
 
     genPassword() { return genCompliantPassword(); },

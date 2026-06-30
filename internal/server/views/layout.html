@@ -32,6 +32,7 @@
 
 <script src="/static/htmx.min.js" defer></script>
 <script src="/static/app.js" defer></script>
+<script src="/static/search.js" defer></script>
 <script src="/static/alpine.min.js" defer></script>
 
 <style>
@@ -240,6 +241,27 @@
   .ad-rail{position:sticky;top:0;display:flex;flex-direction:column;gap:14px;}
   .ad-2col{display:grid;grid-template-columns:minmax(0,1fr) 312px;gap:18px;align-items:start;}
   @media (max-width:900px){.ad-2col{grid-template-columns:minmax(0,1fr);}}
+
+  /* search box + dropdown */
+  .ad-search{position:relative;}
+  .ad-search-input{display:flex;align-items:center;gap:7px;height:36px;padding:0 12px;
+                   background:var(--sunken);border:1px solid #E6E9EB;border-radius:6px;width:248px;
+                   font-size:13px;color:var(--faint);cursor:text;}
+  .ad-search-input input{flex:1;border:none;background:transparent;outline:none;font-size:13px;
+                          color:var(--ink);font-family:var(--font-ui);}
+  .ad-search-input input::placeholder{color:var(--faint);}
+  .ad-search-input:focus-within{border-color:var(--vg);box-shadow:0 0 0 3px rgba(0,179,54,.15);}
+  .ad-search-input .mi{font-size:17px;flex-shrink:0;}
+  .ad-search-menu{position:absolute;top:42px;left:0;right:0;background:#fff;border:1px solid var(--bd2);
+                  border-radius:8px;box-shadow:0 10px 28px rgba(28,32,41,.18);max-height:360px;
+                  overflow:auto;z-index:70;}
+  .ad-search-row{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer;
+                 text-decoration:none;color:var(--body);}
+  .ad-search-row:hover{background:var(--vg-tint);}
+  .ad-search-row .ad-search-ico{font-size:18px;color:var(--faint);flex-shrink:0;}
+  .ad-search-row .ad-search-label{font-size:13px;font-weight:600;color:var(--ink);font-family:var(--font-mono);}
+  .ad-search-row .ad-search-sub{font-size:11.5px;color:var(--muted);margin-left:auto;white-space:nowrap;}
+  .ad-search-none{padding:10px 13px;font-size:13px;color:var(--faint);}
 </style>
 </head>
 
@@ -328,8 +350,27 @@
         <div class="ad-pagetitle">{{t (printf "shell.title.%s" .NavSection)}}</div>
       </div>
 
-      <div class="ad-search">
-        <span class="mi">search</span><span>{{t "shell.search"}}</span>
+      <div class="ad-search" x-data="searchBox()" @click.outside="close()" @keydown.escape.window="close()">
+        <div class="ad-search-input">
+          <span class="mi">search</span>
+          <input type="search" x-model="q" @input="onInput()" placeholder="{{t "shell.search"}}" autocomplete="off">
+        </div>
+        <div class="ad-search-menu" x-show="open" x-cloak>
+          <template x-if="results.length > 0">
+            <div>
+              <template x-for="r in results" :key="r.url + r.label">
+                <a class="ad-search-row" :href="r.url">
+                  <span class="mi ad-search-ico" x-text="r.icon"></span>
+                  <span class="ad-search-label" x-text="r.label"></span>
+                  <span class="ad-search-sub" x-text="r.sublabel"></span>
+                </a>
+              </template>
+            </div>
+          </template>
+          <template x-if="results.length === 0 && q.trim() !== ''">
+            <div class="ad-search-none">{{t "search.no_results"}}</div>
+          </template>
+        </div>
       </div>
 
       <div style="position:relative;" x-data="{m:false}">
