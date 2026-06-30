@@ -51,11 +51,11 @@
 
     <!-- VSA REST API console toggle (on the same action row; errors clearly if the VSA isn't up) -->
     <button type="button"
-            @click="panelOpen ? (panelOpen=false, closeSession()) : (panelOpen=true, openSession())"
+            @click="sessionOpen ? closeSession() : openSession()"
             :disabled="loading"
             class="ad-btn ad-btn-indigo">
       <span class="mi">terminal</span>
-      <span x-text="panelOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
+      <span x-text="sessionOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
     </button>
 
     {{if ne (printf "%s" .Deployment.State) "removed"}}
@@ -140,66 +140,72 @@
 {{end}}</pre>
   </div>
 
-  <!-- VSA REST API console — hidden until the user clicks "Open REST API" -->
-  <div class="ad-card" x-show="panelOpen" x-cloak>
-    <div class="ad-card-head" style="justify-content:flex-start;">
-      <span class="ad-card-ico" style="background:#EEF1FF;color:#3F4FB0;"><span class="mi">terminal</span></span>
-      <span class="ad-card-title">{{t "deploy.console_title"}}</span>
-      <span x-show="sessionOpen" x-cloak style="font-size:11px;color:var(--faint);flex:1;text-align:right;">{{t "deploy.console_subtitle"}}</span>
-      <button type="button" @click="panelOpen=false; closeSession()" class="ad-iconbtn" title="{{t "deploy.cancel"}}"><span class="mi">close</span></button>
-    </div>
-    <!-- Warning -->
-    <div class="ad-warn" style="border-radius:0;border-left:none;border-right:none;border-top:none;">
-      <span class="mi">warning</span>{{t "deploy.console_warning"}}
-    </div>
-    <!-- Request form -->
-    <div class="ad-card-body" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-      <div style="display:flex;flex-direction:column;gap:5px;">
-        <label class="ad-flabel" style="margin-bottom:0;">{{t "deploy.console_method"}}</label>
-        <select x-model="method" class="ad-select mono" style="width:auto;height:36px;">
-          <option>GET</option>
-          <option>POST</option>
-          <option>PUT</option>
-          <option>DELETE</option>
-        </select>
+  <!-- VSA REST API Console modal (stays in DOM when closed — history preserved) -->
+  <div x-show="open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+       @click.self="open=false"
+       @keydown.escape.window="open=false">
+    <div class="bg-white rounded-lg shadow-2xl w-11/12 max-w-4xl h-5/6 flex flex-col" @click.stop>
+      <!-- Modal header -->
+      <div class="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-lg">
+        <span class="font-semibold text-slate-700">{{t "deploy.console_title"}}</span>
+        <button @click="open=false" class="text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
       </div>
-      <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:12rem;">
-        <label class="ad-flabel" style="margin-bottom:0;">{{t "deploy.console_path"}}</label>
-        <input type="text" x-model="path" placeholder="/api/v1/serverInfo"
-               class="ad-input mono" style="height:36px;"
-               @keydown.enter="sendRequest()">
+      <!-- Warning -->
+      <div class="px-5 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+        {{t "deploy.console_warning"}}
       </div>
-      <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:12rem;">
-        <label class="ad-flabel" style="margin-bottom:0;">{{t "deploy.console_body"}}</label>
-        <textarea x-model="reqBody" rows="2" placeholder="{}"
-                  class="ad-input mono" style="height:auto;padding:8px 11px;"></textarea>
-      </div>
-      <button type="button" @click="sendRequest()" :disabled="loading" class="ad-btn ad-btn-indigo">{{t "deploy.console_send"}}</button>
-    </div>
-    <!-- History -->
-    <div id="console-history" style="margin:0 16px 16px;background:#0E1014;border-radius:8px;padding:12px 14px;max-height:24rem;overflow:auto;font-family:var(--font-mono);font-size:11.5px;display:flex;flex-direction:column;gap:12px;">
-      <template x-if="history.length === 0">
-        <p style="color:#7E8794;font-style:italic;">{{t "deploy.console_empty"}}</p>
-      </template>
-      <template x-for="(entry, idx) in history" :key="idx">
-        <div style="border-bottom:1px solid #20242C;padding-bottom:12px;">
-          <!-- Request line -->
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
-            <span style="font-weight:700;color:#8b9bf0;" x-text="entry.method"></span>
-            <span style="color:#C9CDD3;" x-text="entry.path"></span>
-            <span style="margin-left:auto;color:#7E8794;font-variant-numeric:tabular-nums;" x-text="entry.ts"></span>
-          </div>
-          <!-- Status badge -->
-          <div style="margin-bottom:5px;">
-            <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:4px;"
-                  :class="entry.status >= 200 && entry.status < 300 ? '' : ''"
-                  :style="entry.status >= 200 && entry.status < 300 ? 'background:#0c3b22;color:#79e0a0;' : 'background:#3b0c0c;color:#e09a9a;'"
-                  x-text="'HTTP ' + entry.status + ' · ' + {{tjs "deploy.console_status"}}"></span>
-          </div>
-          <!-- Response body -->
-          <pre style="margin:0;color:#9BE7B4;white-space:pre-wrap;word-break:break-all;max-height:16rem;overflow:auto;" x-text="entry.body"></pre>
+      <!-- Request form -->
+      <div class="px-5 py-3 border-b flex flex-wrap gap-2 items-end">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_method"}}</label>
+          <select x-model="method" class="border border-slate-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>DELETE</option>
+          </select>
         </div>
-      </template>
+        <div class="flex flex-col gap-1 flex-1 min-w-48">
+          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_path"}}</label>
+          <input type="text" x-model="path" placeholder="/api/v1/serverInfo"
+                 class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                 @keydown.enter="sendRequest()">
+        </div>
+        <div class="flex flex-col gap-1 flex-1 min-w-48">
+          <label class="text-xs text-slate-500 font-medium">{{t "deploy.console_body"}}</label>
+          <textarea x-model="reqBody" rows="2" placeholder="{}"
+                    class="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+        </div>
+        <button type="button" @click="sendRequest()" :disabled="loading"
+                class="px-3 py-1.5 rounded text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
+          {{t "deploy.console_send"}}
+        </button>
+      </div>
+      <!-- History -->
+      <div id="console-history" class="flex-1 overflow-auto p-3 bg-slate-950 space-y-3 font-mono text-xs">
+        <template x-if="history.length === 0">
+          <p class="text-slate-500 italic">{{t "deploy.console_empty"}}</p>
+        </template>
+        <template x-for="(entry, idx) in history" :key="idx">
+          <div class="border-b border-slate-800 pb-3">
+            <!-- Request line -->
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-bold text-indigo-400" x-text="entry.method"></span>
+              <span class="text-slate-300" x-text="entry.path"></span>
+              <span class="ml-auto text-slate-500 tabular-nums" x-text="entry.ts"></span>
+            </div>
+            <!-- Status badge -->
+            <div class="mb-1">
+              <span class="text-[10px] px-1.5 py-0.5 rounded font-bold"
+                    :class="entry.status >= 200 && entry.status < 300 ? 'bg-emerald-900 text-emerald-300' : 'bg-red-900 text-red-300'"
+                    x-text="'HTTP ' + entry.status + ' · ' + {{tjs "deploy.console_status"}}"></span>
+            </div>
+            <!-- Response body -->
+            <pre class="text-green-300 whitespace-pre-wrap break-all max-h-64 overflow-auto" x-text="entry.body"></pre>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -215,7 +221,6 @@
     }
     return {
       open: false,
-      panelOpen: false,
       sessionOpen: false,
       method: 'GET',
       path: '/api/v1/serverInfo',
