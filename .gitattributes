@@ -1,0 +1,5 @@
+# Treat self-hosted web fonts as binary so autocrlf never corrupts them.
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.otf binary
