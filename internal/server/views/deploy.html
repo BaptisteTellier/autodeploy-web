@@ -8,40 +8,37 @@
     <div class="ad-h1">{{t "deploy.title"}}</div>
     <div class="ad-subt">{{t "deploy.subtitle"}}</div>
   </div>
-  <div class="flex flex-wrap items-end gap-2" x-data="{ presetOpen:false }">
-    <button type="button" class="ad-btn ad-btn-secondary" @click="presetOpen=!presetOpen">
-      <span class="mi">folder_open</span>{{t "deploy.load_template"}}
-    </button>
-    <!-- Deploy templates — save / load / delete a named (non-secret) form snapshot -->
-    <div x-show="presetOpen" x-cloak class="ad-card" style="padding:12px 14px;">
-      <div class="flex flex-wrap items-end gap-3">
-        <div>
-          <label class="ad-flabel">{{t "deploy.load_template"}}</label>
-          <div class="flex gap-1">
-            <select id="deploy_preset_select" class="ad-select" style="height:34px;width:auto;min-width:160px;"
-                    onchange="if(this.value){location.href='/deploy?preset='+encodeURIComponent(this.value);}">
-              <option value="">{{t "form.select_dash"}}</option>
-              {{range .DeployPresets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
-            </select>
-            <button type="button" title="{{t "form.delete_preset"}}" class="ad-del" style="width:34px;height:34px;" onclick="deployDeleteTemplate()">
-              <span class="mi">delete</span>
-            </button>
-          </div>
-        </div>
-        <div>
-          <label class="ad-flabel">{{t "deploy.save_template"}}</label>
-          <div class="flex gap-1">
-            <input id="deploy_preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}" value="{{.PresetName}}" class="ad-input" style="height:34px;width:auto;min-width:160px;">
-            <button type="button" class="ad-btn ad-btn-dark" style="height:34px;" onclick="deploySaveTemplate()">{{t "form.save"}}</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div class="ad-warn" style="margin-bottom:18px;">
   <span class="mi">warning</span>{{t "deploy.warning"}}
+</div>
+
+<!-- Deploy templates — save / load / delete a named (non-secret) form snapshot.
+     Always visible, directly under the warning. -->
+<div class="ad-card" style="padding:12px 14px;margin-bottom:18px;">
+  <div class="flex flex-wrap items-end gap-3">
+    <div>
+      <label class="ad-flabel">{{t "deploy.load_template"}}</label>
+      <div class="flex gap-1">
+        <select id="deploy_preset_select" class="ad-select" style="height:34px;width:auto;min-width:160px;"
+                onchange="if(this.value){location.href='/deploy?preset='+encodeURIComponent(this.value);}">
+          <option value="">{{t "form.select_dash"}}</option>
+          {{range .DeployPresets}}<option value="{{.Name}}" {{if eq .Name $.PresetName}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        <button type="button" title="{{t "form.delete_preset"}}" class="ad-del" style="width:34px;height:34px;" onclick="deployDeleteTemplate()">
+          <span class="mi">delete</span>
+        </button>
+      </div>
+    </div>
+    <div>
+      <label class="ad-flabel">{{t "deploy.save_template"}}</label>
+      <div class="flex gap-1">
+        <input id="deploy_preset_name" type="text" placeholder="{{t "form.preset_name_ph"}}" value="{{.PresetName}}" class="ad-input" style="height:34px;width:auto;min-width:160px;">
+        <button type="button" class="ad-btn ad-btn-dark" style="height:34px;" onclick="deploySaveTemplate()">{{t "form.save"}}</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 {{if not .Outputs}}
@@ -175,7 +172,7 @@
                 diskCountFor(i){ const o=this.summ(i); return o&&o.single_disk?1:2; },
                 diskMin(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
                 diskDefault(i){ return (this.roles[i]||'').startsWith('VSA')?256:128; },
-                ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/media/output/'+this.sel[i]+'/'+o.cfg_file+'/content'; },
+                ksUrl(i){ const o=this.summ(i); if(!o||!o.cfg_file) return ''; return this.ksbase.replace(/\/$/,'')+'/ks/'+this.sel[i]+'/'+o.cfg_file; },
                 ipArg(i){ const o=this.summ(i);
                   if(!o || !o.network || o.network==='DHCP') return 'ip=dhcp';
                   return 'ip='+o.network+'::'+(o.gateway||'')+':'+(o.netmask||'')+':'+(o.hostname||'')+'::none'; },

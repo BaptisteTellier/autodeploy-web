@@ -158,6 +158,12 @@ credential-bearing admin console it is.
   trusted operators should have access (hence the login).
 - **The VSA REST API console** proxies arbitrary calls to a deployed appliance using
   a server-side session — a deliberate power tool, scoped to that deployment.
+- **Remote-kickstart `.cfg` is served unauthenticated** at `/ks/<output-id>/<file>.cfg`
+  — a netbooting appliance (anaconda `inst.ks=`) cannot sign in. Access control is the
+  unguessable output UUID in the URL, and only `.cfg` files are served (never the
+  config snapshot or any other artefact). Because a `.cfg` contains the credentials it
+  bakes into the appliance, treat the deployment network as trusted during boot. This
+  is the single route exempt from the login.
 - **Hypervisor / VBR TLS.** Connections to Proxmox, vSphere, Hyper-V, Workstation,
   Nutanix, XCP-ng and a target VBR verify TLS unless you tick that connection's
   *Skip TLS verification* box (default on for typical self-signed lab certs).

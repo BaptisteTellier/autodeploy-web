@@ -144,10 +144,16 @@ func funcMapForLang(lang string) template.FuncMap {
 	}
 	fm["helpTip"] = func(key string) template.HTML {
 		txt := template.HTMLEscapeString(translate(lang, key))
-		return template.HTML(`<div class="relative inline-block ml-1" x-data="{h:false}">` +
-			`<button type="button" @click="h=!h" class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-300 leading-none">?</button>` +
-			`<div x-show="h" x-cloak @click.outside="h=false" class="absolute z-10 left-0 mt-1 w-72 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">` +
-			txt + `</div></div>`) //nolint:gosec — txt is HTML-escaped above; the rest is a fixed literal
+		// The bubble is position:fixed with coordinates read from the "?" button
+		// on open, so it escapes any overflow:hidden ancestor (e.g. .ad-card) that
+		// would otherwise clip it. z-index sits above cards/modals.
+		return template.HTML(`<span style="position:relative;display:inline-flex;margin-left:4px;vertical-align:middle;" x-data="{h:false,hx:0,hy:0}">` +
+			`<button type="button" @click="h=!h; if(h){const r=$el.getBoundingClientRect(); hx=r.left; hy=r.bottom+6;}" ` +
+			`style="width:18px;height:18px;border-radius:999px;background:#E6E9EB;color:var(--muted);font-size:11px;font-weight:700;line-height:1;border:none;cursor:pointer;">?</button>` +
+			`<span x-show="h" x-cloak @click.outside="h=false" @keydown.escape.window="h=false" ` +
+			`:style="'left:'+hx+'px;top:'+hy+'px'" ` +
+			`style="position:fixed;z-index:200;width:18rem;background:var(--ink);color:#fff;font-size:12px;line-height:1.5;border-radius:8px;padding:10px 12px;box-shadow:0 10px 28px rgba(0,0,0,.28);">` +
+			txt + `</span></span>`) //nolint:gosec — txt is HTML-escaped above; the rest is a fixed literal
 	}
 	return fm
 }

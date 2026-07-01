@@ -35,7 +35,7 @@
        },
        linkModal:{open:false,url:'',name:''},
        copied:false,
-       showLink(name){ this.linkModal.url=location.origin+'/media/output/'+{{jsonStr .JobID}}+'/'+encodeURIComponent(name)+'/content'; this.linkModal.name=name; this.linkModal.open=true; this.copied=false; },
+       showLink(name){ this.linkModal.url=location.origin+'/ks/'+{{jsonStr .JobID}}+'/'+encodeURIComponent(name); this.linkModal.name=name; this.linkModal.open=true; this.copied=false; },
        async copyLink(){ try{ await navigator.clipboard.writeText(this.linkModal.url); this.copied=true; setTimeout(()=>this.copied=false,1500);}catch(e){} },
      }">
 

@@ -468,7 +468,7 @@ func (s *Server) resolveOutputNode(jobid, role string, diskSizes []int, ks ksPar
 		if baseISO == "" {
 			return deploy.NodeDeploy{}, config.Config{}, fmt.Errorf("no base ISO selected for role %s", role)
 		}
-		node.KSUrl = strings.TrimRight(ks.baseURL, "/") + "/media/output/" + jobid + "/" + cfgFile + "/content"
+		node.KSUrl = strings.TrimRight(ks.baseURL, "/") + "/ks/" + jobid + "/" + cfgFile
 		node.BaseISOPath = filepath.Join(s.deps.DataDir, "iso", filepath.Base(baseISO))
 		node.SingleDisk = c.VIASingleDisk
 		node.BootCommand = strings.TrimSpace(bootCmd) // "" => role default typed at GRUB

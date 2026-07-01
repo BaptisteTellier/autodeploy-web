@@ -175,9 +175,13 @@ func authPublic(p string) bool {
 	case "/login", "/logout", "/setup", "/healthz":
 		return true
 	}
-	// /static/* (assets) and /lang/* (language switch, so the login page's EN/FR
-	// toggle works before sign-in) need no session.
-	return strings.HasPrefix(p, "/static/") || strings.HasPrefix(p, "/lang/")
+	// /static/* (assets), /lang/* (language switch, so the login page's EN/FR
+	// toggle works before sign-in), and /ks/* (kickstart .cfg fetched by a
+	// netbooting appliance that cannot authenticate — see handleKickstart) need
+	// no session.
+	return strings.HasPrefix(p, "/static/") ||
+		strings.HasPrefix(p, "/lang/") ||
+		strings.HasPrefix(p, "/ks/")
 }
 
 // requireAuth gates every non-public route behind a valid session (when auth is

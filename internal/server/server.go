@@ -109,6 +109,10 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /search", s.handleSearch)
 
+	// Unauthenticated kickstart capability URL — a netbooting appliance can't
+	// carry a session cookie (see handleKickstart + authPublic).
+	mux.HandleFunc("GET /ks/{jobid}/{name}", s.handleKickstart)
+
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /new", s.handleNewJob)
 

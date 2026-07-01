@@ -661,6 +661,30 @@ func (s *Server) handleOutputJobDownload(w http.ResponseWriter, r *http.Request)
 	serveFileDownload(w, r, filepath.Join(s.deps.DataDir, "output", jobID, name), name)
 }
 
+// handleKickstart serves a deployment's kickstart .cfg over an UNAUTHENTICATED,
+// capability-style URL (GET /ks/{jobid}/{name}). A netbooting appliance
+// (anaconda/GRUB inst.ks=…) cannot present a session cookie, so remote-kickstart
+// requires the .cfg to be fetchable without auth. Access control is the
+// unguessable output UUID in the path; only *.cfg files are served (never the
+// job-config snapshot or any other artefact), and this route is the sole
+// exception on the auth allow-list (see authPublic).
+func (s *Server) handleKickstart(w http.ResponseWriter, r *http.Request) {
+	jobID := filepath.Base(r.PathValue("jobid"))
+	name := filepath.Base(r.PathValue("name"))
+	if name == jobConfigName || !strings.HasSuffix(strings.ToLower(name), ".cfg") {
+		http.NotFound(w, r)
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(s.deps.DataDir, "output", jobID, name))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(b)
+}
+
 // --- Shared helpers -----------------------------------------------------
 
 // serveTextContent reads up to 1 MB of a text file and sends it as plain text.
