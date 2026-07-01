@@ -240,25 +240,25 @@ Manage the files the app works with: **upload source ISOs**, license files, and 
 
 ### 📦 Output (`/media/output`)
 
-Browse and **download** every job's results — the generated ISO and all per-job config/kickstart files.
+Browse and **download** every job's results — the generated ISO and all per-job config/kickstart files. Browsing and downloads go through the authenticated `/media/output/<jobid>/<filename>/content` route (requires a session).
 
-It also doubles as a **live kickstart server** (a lightweight Packer alternative). Every text file gets a **🔗 Link** button exposing a no-auth direct URL:
+It also doubles as a **live kickstart server** (a lightweight Packer alternative). Every `.cfg` file gets a **🔗 Link** button exposing the dedicated **unauthenticated** kickstart URL — a netbooting appliance can't sign in, so this route is deliberately on the auth allow-list (it serves only `.cfg` files under the unguessable job UUID and refuses the credential-bearing config snapshot):
 
 ```
-http://<server>/media/output/<jobid>/<filename>.cfg/content
+http://<server>/ks/<jobid>/<filename>.cfg
 ```
 
 …which you append to an Anaconda boot to install over the network:
 
 ```
-# Modern Anaconda (RHEL 8+):  inst.ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
-# Older Anaconda:             ks=http://<server>/media/output/<jobid>/vbr-ks.cfg/content
+# Modern Anaconda (RHEL 8+):  inst.ks=http://<server>/ks/<jobid>/vbr-ks.cfg
+# Older Anaconda:             ks=http://<server>/ks/<jobid>/vbr-ks.cfg
 ```
 
 **Worked example — from the ISO's GRUB shell (UEFI):** boot the appliance ISO, press **`c`**, type three lines (Enter after each):
 
 ```
-linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.10:8080/media/output/<jobid>/proxy-ks.cfg/content ip=dhcp quiet inst.assumeyes
+linuxefi /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=VeeamJeOS inst.ks=http://192.168.1.10:8080/ks/<jobid>/proxy-ks.cfg ip=dhcp quiet inst.assumeyes
 initrdefi /images/pxeboot/initrd.img
 boot
 ```
