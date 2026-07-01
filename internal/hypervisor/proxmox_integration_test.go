@@ -68,6 +68,26 @@ func makeDummyISO(t *testing.T) string {
 	return path
 }
 
+// skipIfUnreachable converts a network-connectivity failure (host down / no
+// route / timeout / refused) into t.Skip, so a stale .pvetest.env pointing at an
+// offline lab does not fail `go test ./...` on a dev box. Genuine API/logic
+// errors still fail the test.
+func skipIfUnreachable(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	s := err.Error()
+	for _, m := range []string{
+		"dial tcp", "no route to host", "connection refused", "i/o timeout",
+		"context deadline exceeded", "TLS handshake timeout", "network is unreachable",
+	} {
+		if strings.Contains(s, m) {
+			t.Skipf("proxmox host unreachable (%v) — skipping integration test", err)
+		}
+	}
+}
+
 func TestProxmoxCreateAndAttachISO(t *testing.T) {
 	env := loadPVEEnv(t)
 	if env["PVE_URL"] == "" {
@@ -107,6 +127,7 @@ func TestProxmoxCreateAndAttachISO(t *testing.T) {
 		t.Logf("upload progress: %d/%d bytes", done, total)
 	})
 	if err != nil {
+		skipIfUnreachable(t, err) // stale .pvetest.env pointing at an offline lab → skip, not fail
 		t.Fatalf("UploadISO: %v", err)
 	}
 	t.Logf("uploaded ISO: %s", isoRef)

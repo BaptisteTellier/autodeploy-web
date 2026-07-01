@@ -400,7 +400,7 @@
     <tbody>
     {{range .Jobs}}
     <tr>
-      <td class="idcell"><a href="/jobs/{{.ID}}" class="text-blue-600 hover:underline">{{short8 .ID}}</a></td>
+      <td class="idcell"><a href="/jobs/{{.ID}}" style="color:var(--vg-deep);text-decoration:none;">{{short8 .ID}}</a></td>
       <td>{{.Appliance}}</td><td>{{.Hostname}}</td>
       <td><span class="ad-chip {{chipClass (printf "%s" .State)}}"><span class="dot"></span>{{.State}}</span></td>
       <td class="mono" data-sort-value="{{if not .CreatedAt.IsZero}}{{.CreatedAt.Unix}}{{else}}0{{end}}">{{.CreatedAt.Format "15:04:05"}}</td>
