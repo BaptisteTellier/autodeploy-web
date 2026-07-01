@@ -74,6 +74,8 @@ services:
       #   ./data/conf/     ← unattended config-restore files (RestoreConfig)
       #   ./data/configs/  ← named JSON presets saved from the UI
       #   ./data/jobs.db   ← SQLite job history (survives restarts)
+      #   ./data/auth.json ← admin login (bcrypt hash + session secret);
+      #                       delete this file + restart to reset the password
       - ./data:/data
 
 ###############################################################################

@@ -83,14 +83,88 @@ Change the host port or build concurrency by copying `.env.example` → `.env`:
 ### Authentication
 
 A single-admin session login is **on by default**. On first load you're taken to a
-one-time **setup** page to create an admin password; after that you sign in with it.
-It gates the ISO-build, deploy and script-upload actions and, together with a
-`SameSite=Strict` session cookie, blocks cross-site (drive-by) requests. Sessions
-last 30 days with **no idle timeout**. Set `AUTH_DISABLED=true` only when the app is
-bound to `localhost` or sits behind your own authenticating proxy. Do not expose
+one-time **setup** page (`/setup`) to create an admin password; after that you sign
+in at `/login` and log out from the top-bar menu. Sessions last **30 days with no
+idle timeout** (a signed cookie that survives restarts), so you rarely re-enter it.
+
+**What it protects.** Without a login, anyone who can reach the web UI — or a
+malicious web page you visit while the app is reachable (a "drive-by" / CSRF) — can
+drive the tool: upload and run an arbitrary `autodeploy.ps1` (**remote code
+execution on the server**), start ISO builds and hypervisor deployments, and read
+the credentials baked into saved configs. The login plus a `SameSite=Strict`
+session cookie and a same-origin check on state-changing requests close that off.
+
+**Where the credential lives.** A single file, `<data>/auth.json` (with the compose
+setup, `./data/auth.json` on the host — mode `0600`). It holds a **bcrypt** hash of
+the password and a random HMAC secret used to sign sessions. It is never in the
+image and never leaves the box.
+
+**Headless / air-gapped provisioning.** Pre-set the password with
+`ADMIN_PASSWORD_HASH` (a bcrypt hash — generate with
+`docker run --rm httpd:alpine htpasswd -nbBC 12 x 'yourpassword' | cut -d: -f2`) or,
+less securely, `ADMIN_PASSWORD` (plaintext, hashed at startup). Either skips the
+setup screen.
+
+**Turning it off.** Set `AUTH_DISABLED=true` **only** when the app is bound to
+`localhost` or sits behind your own authenticating reverse proxy. Never expose
 autodeploy-web to an untrusted network without authentication.
 
+### Resetting a lost admin password
+
+There is no email recovery (it's a single-operator tool with no mail server) — you
+reset it from the host, which you control:
+
+1. **Delete the credential file and restart** — the app returns to first-run setup:
+   ```bash
+   docker compose down
+   rm ./data/auth.json        # the bcrypt hash + session secret
+   docker compose up -d
+   ```
+   Open the app and you'll be sent to `/setup` to create a new password. This also
+   rotates the session secret, so every existing session is invalidated.
+2. **Or provision a new password via the environment** and restart — put
+   `ADMIN_PASSWORD=new-password` (or `ADMIN_PASSWORD_HASH=<bcrypt>`) in your `.env` /
+   compose `environment:` and `docker compose up -d`. The environment value takes
+   precedence over `auth.json`.
+
+(If auth is running under a bare `docker run`, do the same against the host path you
+mounted at `/data`, e.g. `rm /srv/autodeploy/data/auth.json`.)
+
 To pull a new version later: `docker compose pull && docker compose up -d`.
+
+---
+
+## Security considerations
+
+autodeploy-web is a **single-operator infrastructure tool**: by design it runs
+PowerShell, builds bootable ISOs, and drives hypervisors. Treat it like the
+credential-bearing admin console it is.
+
+- **Run it on a trusted network, authenticated.** The admin login (above) is the
+  primary control. Only disable it (`AUTH_DISABLED=true`) behind `localhost` or your
+  own authenticating proxy.
+- **Prefer HTTPS.** Serve it behind a TLS-terminating reverse proxy (or set
+  `X-Forwarded-Proto: https`); the session cookie is then flagged `Secure`
+  automatically. Over plain HTTP on a LAN the cookie stays usable but unencrypted.
+- **Secrets are stored in cleartext under `/data`** because the build must bake them
+  into the appliance: Veeam admin/SO passwords, MFA secrets, recovery token, VCSP
+  and S3 keys live in `./data/configs/*.json`, in each job's
+  `./data/output/<id>/job-config.json`, and (transiently) in the build config. Keep
+  `./data` on a protected volume, restrict its filesystem permissions, and don't back
+  it up to untrusted storage. (The job-config snapshot is not downloadable through
+  the UI, but it is on disk.) Saved **deploy/Craft templates never contain secrets.**
+- **The `autodeploy.ps1` override (Settings → upload/update) is remote code
+  execution by design** — an uploaded script runs on the server for every build. Only
+  trusted operators should have access (hence the login).
+- **The VSA REST API console** proxies arbitrary calls to a deployed appliance using
+  a server-side session — a deliberate power tool, scoped to that deployment.
+- **Hypervisor / VBR TLS.** Connections to Proxmox, vSphere, Hyper-V, Workstation,
+  Nutanix, XCP-ng and a target VBR verify TLS unless you tick that connection's
+  *Skip TLS verification* box (default on for typical self-signed lab certs).
+  Connections to a freshly-deployed VSA always skip verification because its
+  self-signed certificate cannot be known in advance.
+- **Web fonts are self-hosted** (`static/fonts/`, no external CDN), so the UI works
+  fully offline / air-gapped.
 
 ---
 
