@@ -10,11 +10,11 @@
 ---
 
 > [!WARNING]
-> **No authentication — LAN / trusted network use only.**
+> **Credential-bearing admin tool — protect access.**
 >
-> autodeploy-web ships with **zero authentication**. Anyone who can reach the port can create build jobs, download all output files (including generated kickstart/config files that may contain **passwords**), manage uploaded media, and trigger deployments with hypervisor + appliance credentials.
+> autodeploy-web now ships with a **built-in admin login** (single-password, bcrypt-hashed, signed session cookie + CSRF; see [Authentication](#authentication)). It is on by default: first launch sends you to `/setup` to set a password. Once in, an operator can create build jobs, download all output files (including generated kickstart/config files that may contain **passwords**), manage uploaded media, and trigger deployments with hypervisor + appliance credentials.
 >
-> **Do NOT expose this service directly to the internet.** If remote access is needed, put it behind a reverse proxy with strong auth (Caddy, Traefik, Nginx) and ideally a VPN. The `inst.ks=` direct-link feature serves raw config files to any unauthenticated caller by design (for PXE/Anaconda on a trusted LAN) — which is dangerous on a public network.
+> **Still, do NOT expose this service directly to the internet.** Serve it behind a TLS-terminating reverse proxy (Caddy, Traefik, Nginx) and ideally a VPN — plain HTTP means the session cookie travels unencrypted. The remote-kickstart route `GET /ks/<output-id>/<file>.cfg` is unauthenticated **by design** (Anaconda/GRUB can't log in): it serves only `.cfg` files under an unguessable job UUID and refuses the credential-bearing config snapshot — but it means those kickstart files are readable by anyone who can reach the port and knows the UUID, so keep the service on a trusted network.
 
 ---
 
@@ -266,7 +266,7 @@ boot
 - **`boot` (line 3) is mandatory** — the first two lines only load kernel + initrd; nothing starts until `boot`.
 - **`ip=dhcp`** brings networking up so Anaconda can fetch the HTTP kickstart. For a static address use `ip=<ip>::<gw>:<mask>:<host>::none`. (The **Deploy** page generates this automatically for fixed-IP nodes.)
 - `linuxefi`/`initrdefi` are UEFI; on legacy BIOS use `linux`/`initrd`.
-- This endpoint is unauthenticated by design (so Anaconda can read it) — another reason to keep autodeploy-web on a trusted LAN.
+- This endpoint (`/ks/<output-id>/<file>.cfg`) is unauthenticated by design (so Anaconda can read it during boot, before any login is possible) — it serves only `.cfg` files under an unguessable job UUID and refuses the credential-bearing config snapshot. Still, keep autodeploy-web on a trusted LAN.
 
 ### 🔑 Licenses (`/media/license`)
 
@@ -408,7 +408,7 @@ App-wide settings: the **history limit** (max finished ISO jobs *and* deployment
 
 ## Limitations
 
-- 🚫 **No authentication** — LAN use only; add a reverse proxy for any public exposure.
+- 🔐 **Single admin login** — one shared password, no multi-user accounts or roles. Serve it over HTTPS (reverse proxy) for any exposure beyond localhost; the remote-kickstart `/ks/…` route stays unauthenticated by design.
 - 🧪 **Deploy:** only **Proxmox VE** and **Hyper-V** are production-validated. vSphere / Nutanix AHV / XCP-ng are implemented but untested on live infrastructure; AHV/XCP-ng can't do remote kickstart (use a pre-customised ISO).
 - ⚠️ **Hyper-V/Workstation Pro ISO upload over WinRM is slow** (base64) — pre-stage the ISO so `FindISO` skips the upload.
 - ⚠️ **Remote-kickstart keystroke injection is best-effort** — no console feedback over the hypervisor API; the customised-ISO boot mode is the most reliable.
