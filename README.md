@@ -31,17 +31,13 @@ autodeploy-web bundles three Veeam deployment workflows behind one web UI:
 ---
 
 ## Preview
-<img width="1878" height="783" alt="image" src="https://github.com/user-attachments/assets/5fbb4dd4-b067-4cdb-8d63-4632ce437293" />
-<img width="989" height="750" alt="image" src="https://github.com/user-attachments/assets/a3eebd7c-dd69-48df-bc09-30d1143b79fd" />
-<img width="1536" height="1139" alt="image" src="https://github.com/user-attachments/assets/c65b87a8-5a8b-4dcc-8acc-ed65e423f088" />
-<img width="1559" height="474" alt="image" src="https://github.com/user-attachments/assets/085283c0-c799-45df-a417-c4f4bcb6566a" />
-<img width="1668" height="863" alt="image" src="https://github.com/user-attachments/assets/f387e6bf-d32c-4441-8741-2ad9bb103569" />
-<img width="1676" height="1107" alt="image" src="https://github.com/user-attachments/assets/6d736fbb-c50b-48d8-be1d-e3b02c94aa10" />
-<img width="874" height="961" alt="image" src="https://github.com/user-attachments/assets/47856eee-91c4-44b8-99e9-a8a202508db9" />
-<img width="870" height="1196" alt="image" src="https://github.com/user-attachments/assets/90bb8a7c-50f2-46f8-bca5-316b20e39a0d" />
-<img width="882" height="1123" alt="image" src="https://github.com/user-attachments/assets/66f23210-a7c1-44a0-ba99-539a22361528" />
-<img width="874" height="1198" alt="image" src="https://github.com/user-attachments/assets/aad771b7-79a6-4466-8c34-0f3169c6f189" />
 
+<img width="2560" height="1275" alt="firefox_ajXjsip9dY" src="https://github.com/user-attachments/assets/2bca7445-1d97-44d2-aa94-c78530c4c76f" />
+<img width="2560" height="1277" alt="firefox_uCljO4vKj4" src="https://github.com/user-attachments/assets/f0e7ad88-c66a-4f25-b004-3e1ba30825d3" />
+<img width="2560" height="1280" alt="firefox_cS2PejoQav" src="https://github.com/user-attachments/assets/a7f1b28b-4d7c-47cc-bad4-c1409a3cdcfc" />
+<img width="2560" height="1281" alt="firefox_yvY6UsnyKg" src="https://github.com/user-attachments/assets/5b970c00-9c0e-467b-afdd-4b9ecb0b8843" />
+<img width="2560" height="1275" alt="firefox_DacuSyRLDK" src="https://github.com/user-attachments/assets/9d60493c-0b4e-4b57-a3fb-c0ca8c74d00b" />
+<img width="2560" height="1277" alt="firefox_tKPFuooibQ" src="https://github.com/user-attachments/assets/8284b759-e2da-4280-951e-7d4ac326b009" />
 
 ---
 
