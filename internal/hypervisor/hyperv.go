@@ -166,7 +166,7 @@ $dest  = '%s'
 $dir   = Split-Path $dest
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 [IO.File]::WriteAllBytes($dest, $bytes)
-`, b64, destPath)
+`, psLit(b64), psLit(destPath))
 				first = false
 			} else {
 				// Append via a FileStream so the remote host never buffers the full file.
@@ -174,7 +174,7 @@ if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Ou
 $bytes = [Convert]::FromBase64String('%s')
 $fs = [IO.File]::Open('%s', [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
 try { $fs.Write($bytes, 0, $bytes.Length) } finally { $fs.Close() }
-`, b64, destPath)
+`, psLit(b64), psLit(destPath))
 			}
 
 			if _, err := h.runPS(ctx, script); err != nil {
@@ -210,7 +210,7 @@ func (h *HyperV) FindISO(ctx context.Context, name string) (string, error) {
 	// signals absence.
 	script := fmt.Sprintf(
 		`if (Test-Path '%s') { Write-Output '%s' }`,
-		hostPath, hostPath,
+		psLit(hostPath), psLit(hostPath),
 	)
 	out, err := h.runPS(ctx, script)
 	if err != nil {
@@ -271,7 +271,7 @@ Set-VMFirmware  -VM $vm -EnableSecureBoot Off
 Set-VMKeyProtector -VM $vm -NewLocalKeyProtector
 Enable-VMTPM       -VM $vm
 $vm.Id.Guid
-`, spec.Name, h.cfg.VMPath, memBytes, h.cfg.SwitchName, spec.CPUs, diskPS.String())
+`, psLit(spec.Name), psLit(h.cfg.VMPath), memBytes, psLit(h.cfg.SwitchName), spec.CPUs, diskPS.String())
 
 	out, err := h.runPS(ctx, script)
 	if err != nil {
@@ -287,7 +287,7 @@ $vm.Id.Guid
 // vmName resolves a VMRef GUID to the VM display name via Get-VM -Id. The name
 // is required by cmdlets that don't accept -Id directly.
 func (h *HyperV) vmName(ctx context.Context, vm VMRef) (string, error) {
-	script := fmt.Sprintf(`(Get-VM -Id '%s').Name`, vm.ID)
+	script := fmt.Sprintf(`(Get-VM -Id '%s').Name`, psLit(vm.ID))
 	out, err := h.runPS(ctx, script)
 	if err != nil {
 		return "", fmt.Errorf("hyperv: resolve VM name for %s: %w", vm.ID, err)
@@ -316,7 +316,7 @@ if ($dvd) {
 } else {
     Add-VMDvdDrive -VMName '%s' -Path '%s'
 }
-`, name, name, isoRef, name, isoRef)
+`, psLit(name), psLit(name), psLit(isoRef), psLit(name), psLit(isoRef))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: AttachISO VM %s: %w", vm.ID, err)
 	}
@@ -337,7 +337,7 @@ if ($dvd) {
     Set-VMDvdDrive -VMName '%s' -ControllerNumber $dvd.ControllerNumber `+
 		`-ControllerLocation $dvd.ControllerLocation -Path $null
 }
-`, name, name)
+`, psLit(name), psLit(name))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: DetachISO VM %s: %w", vm.ID, err)
 	}
@@ -356,7 +356,7 @@ $ErrorActionPreference = 'Stop'
 $dvd = Get-VMDvdDrive -VMName '%s' | Select-Object -First 1
 if (-not $dvd) { throw "no DVD drive on VM '%s'" }
 Set-VMFirmware -VMName '%s' -FirstBootDevice $dvd
-`, name, name, name)
+`, psLit(name), name, psLit(name))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: SetBootFromCD VM %s: %w", vm.ID, err)
 	}
@@ -375,7 +375,7 @@ $ErrorActionPreference = 'Stop'
 $disk = Get-VMHardDiskDrive -VMName '%s' | Select-Object -First 1
 if (-not $disk) { throw "no hard disk on VM '%s'" }
 Set-VMFirmware -VMName '%s' -FirstBootDevice $disk
-`, name, name, name)
+`, psLit(name), name, psLit(name))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: SetBootFromDisk VM %s: %w", vm.ID, err)
 	}
@@ -398,7 +398,7 @@ if ($dvd) { $order += $dvd }
 $net = Get-VMNetworkAdapter -VM $vm | Select-Object -First 1
 if ($net) { $order += $net }
 if ($order.Count -gt 0) { Set-VMFirmware -VM $vm -BootOrder $order }
-`, vm.ID)
+`, psLit(vm.ID))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: SetBootDiskThenCD VM %s: %w", vm.ID, err)
 	}
@@ -414,7 +414,7 @@ func (h *HyperV) PowerOn(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 Start-VM -Name '%s'
-`, name)
+`, psLit(name))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: PowerOn VM %s: %w", vm.ID, err)
 	}
@@ -434,7 +434,7 @@ $vm = Get-VM -Name '%s'
 if ($vm.State -ne 'Off') {
     Stop-VM -Name '%s' -TurnOff -Force
 }
-`, name, name)
+`, psLit(name), psLit(name))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: PowerOff VM %s: %w", vm.ID, err)
 	}
@@ -443,7 +443,7 @@ if ($vm.State -ne 'Off') {
 
 // Status returns the coarse power state of the VM.
 func (h *HyperV) Status(ctx context.Context, vm VMRef) (PowerState, error) {
-	script := fmt.Sprintf(`(Get-VM -Id '%s').State`, vm.ID)
+	script := fmt.Sprintf(`(Get-VM -Id '%s').State`, psLit(vm.ID))
 	out, err := h.runPS(ctx, script)
 	if err != nil {
 		return PowerUnknown, fmt.Errorf("hyperv: Status VM %s: %w", vm.ID, err)
@@ -496,7 +496,7 @@ function Remove-VMFolder($p) {
 # Both the path Hyper-V reports and the folder we create at <base>\<name>.
 Remove-VMFolder $vmDir
 Remove-VMFolder (Join-Path $base $vmName)
-`, h.cfg.VMPath, vm.ID)
+`, psLit(h.cfg.VMPath), psLit(vm.ID))
 	if _, err := h.runPS(ctx, script); err != nil {
 		return fmt.Errorf("hyperv: Destroy VM %s: %w", vm.ID, err)
 	}
@@ -680,7 +680,7 @@ $ret = $kb.TypeScancodes(%s)
 if ($ret.ReturnValue -ne 0) {
     throw "TypeScancodes returned $($ret.ReturnValue)"
 }
-`, vm.ID, scArray)
+`, psLit(vm.ID), scArray)
 
 	_, err := h.runPS(ctx, script)
 	return err
@@ -702,7 +702,7 @@ if ($vm) {
         Where-Object { $_ -notlike '127.*' -and $_ -notlike '169.254.*' -and $_ -ne '0.0.0.0' }
     if ($addrs) { ($addrs | Select-Object -First 1).Trim() }
 }
-`, vm.ID)
+`, psLit(vm.ID))
 	out, err := h.runPS(ctx, script)
 	if err != nil {
 		// Integration services not ready — not a hard error.

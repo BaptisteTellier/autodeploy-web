@@ -228,14 +228,14 @@ $dest  = '%s'
 $dir   = Split-Path $dest
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 [IO.File]::WriteAllBytes($dest, $bytes)
-`, b64, destPath)
+`, psLit(b64), psLit(destPath))
 				first = false
 			} else {
 				script = fmt.Sprintf(`
 $bytes = [Convert]::FromBase64String('%s')
 $fs = [IO.File]::Open('%s', [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
 try { $fs.Write($bytes, 0, $bytes.Length) } finally { $fs.Close() }
-`, b64, destPath)
+`, psLit(b64), psLit(destPath))
 			}
 
 			if _, err := w.runPS(ctx, script); err != nil {
@@ -268,7 +268,7 @@ func (w *Workstation) FindISO(ctx context.Context, name string) (string, error) 
 	hostPath := w.cfg.ISODir + `\` + name
 	script := fmt.Sprintf(
 		`if (Test-Path '%s') { Write-Output '%s' }`,
-		hostPath, hostPath,
+		psLit(hostPath), psLit(hostPath),
 	)
 	out, err := w.runPS(ctx, script)
 	if err != nil {
@@ -371,7 +371,7 @@ func (w *Workstation) patchVMXLine(ctx context.Context, vmxPath, key, value stri
 			"    $content = $content.TrimEnd() + \"`r`n\" + $line + \"`r`n\"\n"+
 			"}\n"+
 			"Set-Content -LiteralPath $path -Value $content -NoNewline -Encoding UTF8\n",
-		vmxPath, key, value,
+		psLit(vmxPath), psLit(key), psLit(value),
 	)
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: patchVMXLine %q key %q: %w", vmxPath, key, err)
@@ -415,7 +415,7 @@ func (w *Workstation) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) 
 		fmt.Fprintf(&diskCmds,
 			"& '%s' -c -s %dGB -a lsilogic -t 0 (Join-Path $vmDir 'disk%d.vmdk') | Out-Null\n"+
 				"if ($LASTEXITCODE -ne 0) { throw 'vmware-vdiskmanager failed for disk%d.vmdk' }\n",
-			vdisk, gib, i, i,
+			psLit(vdisk), gib, i, i,
 		)
 	}
 
@@ -439,7 +439,7 @@ $vmxContent = @'
 $vmxContent = $vmxContent.Replace('%s', $name)
 Set-Content -LiteralPath $vmx -Value $vmxContent -Encoding UTF8
 Write-Output $vmx
-`, w.cfg.VMBaseDir, spec.Name, diskCmds.String(), vmxContent, namePlaceholder)
+`, psLit(w.cfg.VMBaseDir), psLit(spec.Name), diskCmds.String(), vmxContent, psLit(namePlaceholder))
 
 	out, err := w.runPS(ctx, script)
 	if err != nil {
@@ -534,7 +534,7 @@ while (-not $ok -and (Get-Date) -lt $deadline) {
     if ($list -match [regex]::Escape($vmx)) { $ok = $true }
 }
 if (-not $ok) { throw "VM did not power on within 20s (not listed by vmrun)" }
-`, w.vmRun(), vm.ID)
+`, psLit(w.vmRun()), psLit(vm.ID))
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: PowerOn VM %s: %w", vm.ID, err)
 	}
@@ -546,7 +546,7 @@ if (-not $ok) { throw "VM did not power on within 20s (not listed by vmrun)" }
 func (w *Workstation) PowerOff(ctx context.Context, vm VMRef) error {
 	script := fmt.Sprintf(`
 & '%s' -T ws stop '%s' hard 2>&1 | Out-Null
-`, w.vmRun(), vm.ID)
+`, psLit(w.vmRun()), psLit(vm.ID))
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: PowerOff VM %s: %w", vm.ID, err)
 	}
@@ -556,7 +556,7 @@ func (w *Workstation) PowerOff(ctx context.Context, vm VMRef) error {
 // Status returns the coarse power state of the VM by checking whether the .vmx
 // path appears in `vmrun list` output.
 func (w *Workstation) Status(ctx context.Context, vm VMRef) (PowerState, error) {
-	script := fmt.Sprintf(`& '%s' -T ws list`, w.vmRun())
+	script := fmt.Sprintf(`& '%s' -T ws list`, psLit(w.vmRun()))
 	out, err := w.runPS(ctx, script)
 	if err != nil {
 		return PowerUnknown, fmt.Errorf("workstation: Status VM %s: %w", vm.ID, err)
@@ -575,7 +575,7 @@ func (w *Workstation) Destroy(ctx context.Context, vm VMRef) error {
 	// Stop (ignore error — VM may already be off).
 	stopScript := fmt.Sprintf(`
 & '%s' -T ws stop '%s' hard 2>&1 | Out-Null
-`, w.vmRun(), vm.ID)
+`, psLit(w.vmRun()), psLit(vm.ID))
 	_, _ = w.runPS(ctx, stopScript)
 
 	// Delete the VM via vmrun.
@@ -586,7 +586,7 @@ $ErrorActionPreference = 'Stop'
 if (Test-Path '%s') {
     Remove-Item -Path '%s' -Recurse -Force -ErrorAction SilentlyContinue
 }
-`, w.vmRun(), vm.ID, vmDir, vmDir)
+`, psLit(w.vmRun()), psLit(vm.ID), psLit(vmDir), psLit(vmDir))
 	if _, err := w.runPS(ctx, script); err != nil {
 		return fmt.Errorf("workstation: Destroy VM %s: %w", vm.ID, err)
 	}
@@ -614,7 +614,7 @@ func vmxDir(vmxPath string) string {
 // Returns ("", nil) when VMware Tools are not yet ready or vmrun reports an
 // error.
 func (w *Workstation) GetVMIP(ctx context.Context, vm VMRef) (string, error) {
-	script := fmt.Sprintf(`& '%s' -T ws getGuestIPAddress '%s'`, w.vmRun(), vm.ID)
+	script := fmt.Sprintf(`& '%s' -T ws getGuestIPAddress '%s'`, psLit(w.vmRun()), psLit(vm.ID))
 	out, err := w.runPS(ctx, script)
 	if err != nil {
 		// Tools not ready — not a hard error.
@@ -656,7 +656,7 @@ $content = Get-Content -LiteralPath '%s' -Raw
 if ($content -match 'RemoteDisplay\.vnc\.port\s*=\s*"(\d+)"') {
     $matches[1]
 }
-`, vmxPath)
+`, psLit(vmxPath))
 	out, err := w.runPS(ctx, script)
 	if err != nil {
 		return 0, fmt.Errorf("workstation: read VNC port from %q: %w", vmxPath, err)

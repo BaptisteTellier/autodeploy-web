@@ -640,12 +640,24 @@ func (s *Server) handleMediaOutputJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOutputJobContent(w http.ResponseWriter, r *http.Request) {
 	jobID := filepath.Base(r.PathValue("jobid"))
 	name := filepath.Base(r.PathValue("name"))
+	// The config snapshot holds plaintext credentials; it is hidden from the
+	// output listing and must not be retrievable by direct URL either.
+	if name == jobConfigName {
+		http.NotFound(w, r)
+		return
+	}
 	serveTextContent(w, filepath.Join(s.deps.DataDir, "output", jobID, name))
 }
 
 func (s *Server) handleOutputJobDownload(w http.ResponseWriter, r *http.Request) {
 	jobID := filepath.Base(r.PathValue("jobid"))
 	name := filepath.Base(r.PathValue("name"))
+	// The config snapshot holds plaintext credentials; hidden from the listing
+	// and not downloadable by direct URL.
+	if name == jobConfigName {
+		http.NotFound(w, r)
+		return
+	}
 	serveFileDownload(w, r, filepath.Join(s.deps.DataDir, "output", jobID, name), name)
 }
 
