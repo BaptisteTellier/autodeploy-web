@@ -282,6 +282,10 @@ func (p *Proxmox) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 		{Name: "net0", Value: net0},
 		{Name: "cpu", Value: "x86-64-v2-AES"},
 		{Name: "vga", Value: "virtio"},
+		// Enable the QEMU Guest Agent channel ("Use QEMU Guest Agent" in the
+		// VM Options). Required for both VSA and VIA nodes so GetVMIP can query
+		// the agent (AgentGetNetworkIFaces) for the assigned address.
+		{Name: "agent", Value: "1"},
 	}
 	if spec.UEFI {
 		// OVMF needs q35 + a dedicated EFI vars disk (Proxmox docs). Secure Boot
