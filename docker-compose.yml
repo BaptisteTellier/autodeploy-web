@@ -47,6 +47,19 @@ services:
       # entry in a .env file or your shell (e.g. TZ=America/New_York).
       # Default: Europe/Paris.
       TZ: "${TZ:-Europe/Paris}"
+      # ── Authentication ───────────────────────────────────────────────────
+      # Single-admin session auth is ON by default: on first load you set an
+      # admin password (/setup), then sign in. It protects the ISO-build,
+      # deploy and script-upload actions. Do NOT expose this app to untrusted
+      # networks without it.
+      #   AUTH_DISABLED=true       → turn auth off (only if bound to localhost
+      #                              or behind your own authenticating proxy).
+      #   ADMIN_PASSWORD_HASH=...  → pre-provision headlessly with a bcrypt hash
+      #                              (skips the /setup screen).
+      #   ADMIN_PASSWORD=...       → pre-provision with a plaintext password
+      #                              (hashed at startup; less safe than the hash).
+      AUTH_DISABLED: "${AUTH_DISABLED:-false}"
+      ADMIN_PASSWORD_HASH: "${ADMIN_PASSWORD_HASH:-}"
 
     volumes:
       # ── Persistent data root ──────────────────────────────────────────────

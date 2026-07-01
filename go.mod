@@ -9,6 +9,7 @@ require (
 	github.com/nutanix-cloud-native/prism-go-client v0.7.3
 	github.com/terra-farm/go-xen-api-client v0.0.2
 	github.com/vmware/govmomi v0.54.1
+	golang.org/x/crypto v0.45.0
 	modernc.org/sqlite v1.52.0
 )
 
@@ -60,7 +61,6 @@ require (
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

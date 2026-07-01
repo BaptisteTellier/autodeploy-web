@@ -959,6 +959,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 		m["Commit"] = s.deps.Commit
 		m["BuildDate"] = s.deps.BuildDate
 		m["Lang"] = lang
+		m["AuthEnabled"] = s.auth != nil && s.auth.enabled
 		m["Path"] = r.URL.Path
 		m["PathRoot"] = "/" + strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)[0]
 		p := r.URL.Path

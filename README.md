@@ -76,6 +76,19 @@ Change the host port or build concurrency by copying `.env.example` → `.env`:
 |---|---|---|
 | `PORT` | `8080` | Host port |
 | `WORKER_CONCURRENCY` | `1` | Parallel ISO builds — raise carefully (disk-bound) |
+| `AUTH_DISABLED` | `false` | Turn off the built-in admin login (only if bound to localhost or behind your own authenticating proxy) |
+| `ADMIN_PASSWORD_HASH` | — | Pre-provision the admin login with a bcrypt hash (skips the first-run setup screen) |
+| `ADMIN_PASSWORD` | — | Pre-provision with a plaintext password (hashed at startup; prefer `ADMIN_PASSWORD_HASH`) |
+
+### Authentication
+
+A single-admin session login is **on by default**. On first load you're taken to a
+one-time **setup** page to create an admin password; after that you sign in with it.
+It gates the ISO-build, deploy and script-upload actions and, together with a
+`SameSite=Strict` session cookie, blocks cross-site (drive-by) requests. Sessions
+last 30 days with **no idle timeout**. Set `AUTH_DISABLED=true` only when the app is
+bound to `localhost` or sits behind your own authenticating proxy. Do not expose
+autodeploy-web to an untrusted network without authentication.
 
 To pull a new version later: `docker compose pull && docker compose up -d`.
 

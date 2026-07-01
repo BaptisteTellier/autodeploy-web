@@ -380,6 +380,12 @@
         <div x-show="m" x-cloak @click.outside="m=false" class="ad-menu">
           <a href="/lang/en" class="{{if eq .Lang "en"}}on{{end}}"><span class="mi">language</span>English</a>
           <a href="/lang/fr" class="{{if eq .Lang "fr"}}on{{end}}"><span class="mi">language</span>Français</a>
+          {{if .AuthEnabled}}
+          <div class="ad-menu-sep"></div>
+          <form method="POST" action="/logout" style="margin:0;">
+            <button type="submit" style="display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:none;background:transparent;border-radius:6px;font-size:13px;color:var(--body);cursor:pointer;font-family:var(--font-ui);text-align:left;" onmouseover="this.style.background='var(--sunken)'" onmouseout="this.style.background='transparent'"><span class="mi">logout</span>{{t "auth.logout"}}</button>
+          </form>
+          {{end}}
         </div>
       </div>
 

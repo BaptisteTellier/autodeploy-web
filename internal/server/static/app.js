@@ -20,6 +20,25 @@ window.chipClass = function (state) {
   }
 };
 
+// Session-expiry handling: a 401 from the auth middleware bounces to /login.
+// Covers fetch() (search, presets, console, deletes) and htmx requests. Other
+// endpoints never return 401, so treating 401 as "session expired" is safe.
+(function () {
+  const origFetch = window.fetch;
+  window.fetch = function (...args) {
+    return origFetch.apply(this, args).then((res) => {
+      if (res.status === 401) window.location.href = '/login';
+      return res;
+    });
+  };
+  document.addEventListener('htmx:beforeOnLoad', function (e) {
+    const xhr = e.detail && e.detail.xhr;
+    if (xhr && xhr.status === 401) {
+      window.location.href = xhr.getResponseHeader('HX-Redirect') || '/login';
+    }
+  });
+})();
+
 function formApp() {
   return {
     // Mirror of the server-side Config struct (only the fields we react to).

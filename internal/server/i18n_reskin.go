@@ -92,6 +92,26 @@ var reskinEN = map[string]string{
 	"search.type.iso":             "Source ISO",
 	"search.type.license":         "License",
 	"search.no_results":           "No results",
+
+	// auth (login / first-run setup)
+	"auth.login_title":      "Sign in",
+	"auth.login_sub":        "Enter your admin password to continue.",
+	"auth.password":         "Password",
+	"auth.sign_in":          "Sign in",
+	"auth.err_bad_password": "Incorrect password.",
+	"auth.err_locked":       "Too many attempts — wait a moment and try again.",
+	"auth.setup_title":      "Create admin password",
+	"auth.setup_sub":        "First run — set a password to protect this instance.",
+	"auth.setup_note":       "This protects the ISO build, deploy and script-upload actions from anyone who can reach this page.",
+	"auth.new_password":     "New password",
+	"auth.confirm_password": "Confirm password",
+	"auth.pw_hint":          "At least 8 characters.",
+	"auth.create_continue":  "Create & continue",
+	"auth.err_mismatch":     "Passwords do not match.",
+	"auth.err_weak":         "Password must be at least 8 characters.",
+	"auth.logout":           "Log out",
+	"form.show_password":    "Show password",
+	"form.hide_password":    "Hide password",
 }
 
 var reskinFR = map[string]string{
@@ -165,4 +185,24 @@ var reskinFR = map[string]string{
 	"search.type.iso":             "ISO source",
 	"search.type.license":         "Licence",
 	"search.no_results":           "Aucun résultat",
+
+	// auth (login / first-run setup)
+	"auth.login_title":      "Connexion",
+	"auth.login_sub":        "Entrez votre mot de passe administrateur pour continuer.",
+	"auth.password":         "Mot de passe",
+	"auth.sign_in":          "Se connecter",
+	"auth.err_bad_password": "Mot de passe incorrect.",
+	"auth.err_locked":       "Trop de tentatives — patientez un instant et réessayez.",
+	"auth.setup_title":      "Créer le mot de passe administrateur",
+	"auth.setup_sub":        "Première utilisation — définissez un mot de passe pour protéger cette instance.",
+	"auth.setup_note":       "Cela protège les actions de build ISO, de déploiement et d'upload de script contre quiconque peut atteindre cette page.",
+	"auth.new_password":     "Nouveau mot de passe",
+	"auth.confirm_password": "Confirmer le mot de passe",
+	"auth.pw_hint":          "Au moins 8 caractères.",
+	"auth.create_continue":  "Créer & continuer",
+	"auth.err_mismatch":     "Les mots de passe ne correspondent pas.",
+	"auth.err_weak":         "Le mot de passe doit contenir au moins 8 caractères.",
+	"auth.logout":           "Se déconnecter",
+	"form.show_password":    "Afficher le mot de passe",
+	"form.hide_password":    "Masquer le mot de passe",
 }

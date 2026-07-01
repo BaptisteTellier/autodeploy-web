@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{t "auth.setup_title"}} · autodeploy-web</title>
+<link rel="stylesheet" href="/static/fonts.css">
+<style>
+  :root{
+    --vg:#00B336; --vg-button:#05A437; --vg-dark:#018A2C; --vg-deep:#06702A;
+    --vg-50:#ECFBF1; --vg-100:#CFF3DA; --ink:#1F2229; --body:#4C4E54;
+    --muted:#62646A; --faint:#8F9094; --layout:#F0F5F8; --card:#fff;
+    --sunken:#F6F8F9; --line:#EDF0F0; --bd2:#D7D9DB;
+    --mi:'Material Symbols Outlined';
+    --font-ui:'Nunito Sans','Circular Pro',-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
+    --font-display:'Jost','ITC Avant Garde Gothic Std','Helvetica Neue',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--layout);font-family:var(--font-ui);color:var(--ink);}
+  .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .mi{font-family:var(--mi);line-height:1;font-weight:normal;-webkit-font-feature-settings:'liga';}
+  .card{width:100%;max-width:420px;background:var(--card);border:1px solid rgba(0,0,0,.08);border-radius:12px;
+        box-shadow:0 10px 28px rgba(28,32,41,.10);padding:28px;}
+  .brand{display:flex;align-items:center;gap:11px;margin-bottom:20px;}
+  .tile{width:38px;height:38px;border-radius:9px;background:var(--vg);display:flex;align-items:center;justify-content:center;
+        color:#fff;box-shadow:0 2px 8px rgba(0,179,54,.35);}
+  .tile .mi{font-size:22px;}
+  .word{font-weight:800;font-size:17px;letter-spacing:-.01em;}
+  .word span{color:var(--vg);}
+  h1{font-family:var(--font-display);font-size:22px;font-weight:500;margin:0 0 4px;letter-spacing:-.01em;}
+  .sub{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5;}
+  .note{background:var(--vg-50);border:1px solid var(--vg-100);color:var(--vg-deep);border-radius:8px;padding:10px 12px;
+        font-size:12px;margin-bottom:18px;display:flex;align-items:flex-start;gap:8px;line-height:1.5;}
+  .note .mi{font-size:17px;flex-shrink:0;}
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--body);margin-bottom:6px;}
+  .field{position:relative;margin-bottom:16px;}
+  input{width:100%;height:40px;padding:0 40px 0 12px;border:1px solid var(--bd2);border-radius:8px;font-size:14px;
+        font-family:var(--font-ui);outline:none;transition:border-color 140ms,box-shadow 140ms;}
+  input:focus{border-color:var(--vg);box-shadow:0 0 0 3px rgba(0,179,54,.15);}
+  .eye{position:absolute;right:6px;top:5px;width:30px;height:30px;border:none;background:transparent;color:var(--faint);
+       cursor:pointer;display:inline-flex;align-items:center;justify-content:center;}
+  .eye .mi{font-size:19px;}
+  .hint{font-size:11px;color:var(--faint);margin-top:5px;}
+  button.submit{width:100%;height:44px;border:none;border-radius:8px;background:var(--vg-button);color:#fff;
+        font-weight:700;font-size:14.5px;cursor:pointer;font-family:var(--font-ui);transition:background 150ms;}
+  button.submit:hover{background:var(--vg-dark);}
+  .err{background:#F8D6D1;color:#8C2A1F;border:1px solid #f0b8b0;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:16px;
+       display:flex;align-items:center;gap:7px;}
+  .err .mi{font-size:17px;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <form class="card" method="POST" action="/setup" x-data="{show:false}">
+      <div class="brand">
+        <span class="tile"><span class="mi">rocket_launch</span></span>
+        <span class="word">autodeploy<span>-web</span></span>
+      </div>
+      <h1>{{t "auth.setup_title"}}</h1>
+      <div class="sub">{{t "auth.setup_sub"}}</div>
+      <div class="note"><span class="mi">shield</span><span>{{t "auth.setup_note"}}</span></div>
+
+      {{if .Error}}<div class="err"><span class="mi">error</span>{{.Error}}</div>{{end}}
+
+      <div class="field">
+        <label for="pw">{{t "auth.new_password"}}</label>
+        <input :type="show?'text':'password'" id="pw" name="password" autocomplete="new-password" autofocus required minlength="8">
+        <button type="button" class="eye" @click="show=!show"><span class="mi" x-text="show?'visibility_off':'visibility'">visibility</span></button>
+        <div class="hint">{{t "auth.pw_hint"}}</div>
+      </div>
+      <div class="field">
+        <label for="confirm">{{t "auth.confirm_password"}}</label>
+        <input :type="show?'text':'password'" id="confirm" name="confirm" autocomplete="new-password" required minlength="8">
+      </div>
+      <button type="submit" class="submit">{{t "auth.create_continue"}}</button>
+    </form>
+  </div>
+  <script src="/static/alpine.min.js" defer></script>
+</body>
+</html>

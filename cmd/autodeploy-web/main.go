@@ -97,6 +97,10 @@ func main() {
 		DeployManager: deployMgr,
 		DeployPresets: deployPresets,
 		CraftPresets:  craftPresets,
+
+		AuthDisabled:      envBool("AUTH_DISABLED", false),
+		AdminPasswordHash: os.Getenv("ADMIN_PASSWORD_HASH"),
+		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 	})
 
 	httpSrv := &http.Server{
@@ -128,6 +132,16 @@ func main() {
 func envDefault(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+// envBool parses a boolean env var (1/t/true/0/f/false…) with a default.
+func envBool(k string, def bool) bool {
+	if v := os.Getenv(k); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
 	return def
 }

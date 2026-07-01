@@ -24,6 +24,14 @@ type Deps struct {
 	DeployManager *deploy.Manager
 	DeployPresets *deploy.PresetStore
 	CraftPresets  *craftapi.PresetStore
+
+	// Auth (single-admin session auth). AuthDisabled turns it off entirely
+	// (e.g. bound to localhost or behind an authenticating proxy). The password
+	// may be pre-provisioned headlessly via AdminPasswordHash (bcrypt) or, less
+	// securely, AdminPassword (plaintext, hashed at startup).
+	AuthDisabled      bool
+	AdminPasswordHash string
+	AdminPassword     string
 }
 
 type Server struct {
@@ -31,6 +39,7 @@ type Server struct {
 	templates map[string]map[string]*template.Template // lang → page-name → template
 	static    fs.FS
 	console   *consoleManager // in-memory VSA REST console sessions
+	auth      *authManager    // single-admin session auth (nil-safe when disabled)
 }
 
 func New(d Deps) *Server {
@@ -43,6 +52,7 @@ func New(d Deps) *Server {
 		templates: parseTemplates(),
 		static:    staticSub,
 		console:   newConsoleManager(),
+		auth:      newAuthManager(d.DataDir, d.AuthDisabled, d.AdminPasswordHash, d.AdminPassword),
 	}
 	s.console.startSweeper() // expire idle VSA console sessions
 	return s
@@ -145,5 +155,14 @@ func (s *Server) Routes() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	return logging(recover_(mux))
+	// Auth (session login + first-run setup). These paths are on the middleware
+	// allow-list (see authPublic).
+	mux.HandleFunc("GET /login", s.handleLogin)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("GET /setup", s.handleSetup)
+	mux.HandleFunc("POST /setup", s.handleSetup)
+	mux.HandleFunc("GET /logout", s.handleLogout)
+	mux.HandleFunc("POST /logout", s.handleLogout)
+
+	return logging(recover_(s.requireAuth(mux)))
 }
