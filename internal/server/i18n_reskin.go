@@ -112,6 +112,8 @@ var reskinEN = map[string]string{
 	"auth.logout":           "Log out",
 	"form.show_password":    "Show password",
 	"form.hide_password":    "Hide password",
+	"shell.profile":         "Profile",
+	"shell.no_session":      "No active session",
 }
 
 var reskinFR = map[string]string{
@@ -205,4 +207,6 @@ var reskinFR = map[string]string{
 	"auth.logout":           "Se déconnecter",
 	"form.show_password":    "Afficher le mot de passe",
 	"form.hide_password":    "Masquer le mot de passe",
+	"shell.profile":         "Profil",
+	"shell.no_session":      "Aucune session active",
 }
