@@ -425,6 +425,17 @@ make image     # docker build
 make dev-up    # docker compose up --build
 ```
 
+## Running without Docker (native VM install)
+
+Docker is the recommended and supported way to run autodeploy-web. If you must
+run it directly on a VM or bare server instead — locked-down host, no-Docker
+policy, or you want a `systemd`-managed service — there's a complete,
+copy-paste, **no-experience-required** walkthrough for both Linux and Windows:
+
+**➡️ [docs/native-vm-install.md](docs/native-vm-install.md)** — install the Go
+binary, PowerShell 7, `xorriso`/`rsync`, the `wsl`/`cmd` shims and
+`autodeploy.ps1`, then wire it up as a service.
+
 ## Acknowledgements
 
 All ISO customisation logic (kickstart, GRUB, MFA, VCSP, license) is done by **[BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy)**. This project provides the Docker packaging, web UI, and the Deploy / Craft API layers.
