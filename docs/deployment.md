@@ -9,12 +9,19 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    # Mount the WHOLE /data directory as one volume. The app keeps its
+    # credential file (auth.json), job/deployment history (jobs.db,
+    # deployments.db) and settings.json directly under /data — mounting only
+    # the sub-folders would lose your admin password and history on every
+    # container recreate.
     volumes:
-      - ./data/iso:/data/iso
-      - ./data/output:/data/output
-      - ./data/license:/data/license
-      - ./data/conf:/data/conf
-      - ./data/configs:/data/configs
+      - ./data:/data
+    environment:
+      # Auth is ON by default; open the UI once to set the password at /setup.
+      # - AUTH_DISABLED=true              # only behind your own proxy / localhost
+      # - ADMIN_PASSWORD_HASH=<bcrypt>    # pre-provision (skips /setup)
+      # - ADMIN_PASSWORD=<plaintext>      # pre-provision (hashed at startup)
+      - TZ=Europe/Paris
 ```
 
 ## Plain Docker
@@ -22,13 +29,15 @@ services:
 ```bash
 docker run -d --name autodeploy-web \
   -p 8080:8080 \
-  -v $(pwd)/data/iso:/data/iso \
-  -v $(pwd)/data/output:/data/output \
-  -v $(pwd)/data/license:/data/license \
-  -v $(pwd)/data/conf:/data/conf \
-  -v $(pwd)/data/configs:/data/configs \
+  -v $(pwd)/data:/data \
   ghcr.io/baptistetellier/autodeploy-web:latest
 ```
+
+> **Persistence matters:** `-v $(pwd)/data:/data` maps the entire data
+> directory. If you prefer to mount individual sub-folders, you **must** also
+> persist `auth.json`, `jobs.db`, `deployments.db` and `settings.json` (all at
+> the `/data` root) or you'll be sent back to `/setup` and lose history after
+> any recreate.
 
 ## Behind a reverse proxy (HTTPS)
 
@@ -69,14 +78,20 @@ docker compose up -d
 A new image is published automatically when:
 1. A new release of `autodeploy.ps1` is tagged upstream → the
    `release-watcher` workflow opens a PR here.
-2. The PR merges to `main` → the `build-image` workflow rebuilds the
+2. The change lands on `master` → the `build-image` workflow rebuilds the
    image and tags `latest` + a semver tag matching the upstream version.
+
+> Not running Docker? See [native-vm-install.md](native-vm-install.md) to build
+> and run the binary directly on a Linux or Windows VM.
 
 ## Backups
 
-What to back up:
-- `data/configs/` — your saved JSON presets.
-- `data/output/` — generated ISOs (only if you don't want to regenerate them).
+What to back up (all under `data/`):
+- `auth.json` — admin password hash + session secret. Losing it means resetting the password at `/setup`.
+- `configs/`, `deploy-presets/`, `craft-presets/` — your saved presets/topologies.
+- `settings.json` — app settings (history limit, language).
+- `jobs.db`, `deployments.db` — build & deployment history (optional; safe to lose).
+- `output/` — generated ISOs (only if you don't want to regenerate them).
 
-Everything else (`data/iso/`, `data/license/`) is user-provided and can
-be re-uploaded.
+Everything else (`iso/`, `license/`, `conf/`) is user-provided and can
+be re-uploaded. The simplest approach is to back up the whole `data/` directory.
