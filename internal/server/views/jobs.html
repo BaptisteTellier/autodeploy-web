@@ -86,6 +86,7 @@ async function deleteDeployment(id) {
       <thead><tr>
         <th>{{t "th.id"}}</th>
         <th>{{t "deploy.topology"}}</th>
+        <th>{{t "th.hostname"}}</th>
         <th>{{t "deploy.provider"}}</th>
         <th>{{t "deploy.nodes"}}</th>
         <th>{{t "th.state"}}</th>
@@ -97,7 +98,30 @@ async function deleteDeployment(id) {
       {{range .Deployments}}
       <tr style="cursor:pointer;" onclick="location.href='/deploy/{{.ID}}'">
         <td class="idcell">{{short8 .ID}}</td>
-        <td class="mono" style="font-size:12.5px;">{{.Kind}}{{if .RetriedFrom}}<a href="/deploy/{{.RetriedFrom}}" onclick="event.stopPropagation();" style="margin-left:6px;font-size:11px;color:var(--faint);text-decoration:none;" title="{{t "deploy.retry_of"}} {{short8 .RetriedFrom}}">↻ {{t "deploy.retry_of"}} {{short8 .RetriedFrom}}</a>{{end}}</td>
+        <td style="font-size:12.5px;">
+          {{if .Nodes}}
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-start;">
+            {{range .Nodes}}
+            <span style="display:inline-flex;align-items:center;min-height:24px;">
+              {{if eq .Role "VSA"}}<span class="ad-role ad-role-vsa"><span class="mi">dns</span>{{.Role}}</span>
+              {{else if eq .Role "VIA-Proxy"}}<span class="ad-role ad-role-proxy"><span class="mi">swap_horiz</span>{{.Role}}</span>
+              {{else if eq .Role "VIA-HR"}}<span class="ad-role ad-role-hr"><span class="mi">shield</span>{{.Role}}</span>
+              {{else}}<span class="ad-role ad-role-vsa"><span class="mi">dns</span>{{.Role}}</span>{{end}}
+            </span>
+            {{end}}
+          </div>
+          {{else}}<span class="mono" style="color:var(--muted);">{{.Kind}}</span>{{end}}
+          {{if .RetriedFrom}}<a href="/deploy/{{.RetriedFrom}}" onclick="event.stopPropagation();" style="display:inline-block;margin-top:4px;font-size:11px;color:var(--faint);text-decoration:none;" title="{{t "deploy.retry_of"}} {{short8 .RetriedFrom}}">↻ {{t "deploy.retry_of"}} {{short8 .RetriedFrom}}</a>{{end}}
+        </td>
+        <td class="mono" style="font-size:12px;">
+          {{if .Nodes}}
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-start;">
+            {{range .Nodes}}
+            <span style="display:inline-flex;align-items:center;min-height:24px;">{{if .Hostname}}{{.Hostname}}{{else}}<span style="color:var(--faint);">—</span>{{end}}</span>
+            {{end}}
+          </div>
+          {{else}}<span style="color:var(--faint);">—</span>{{end}}
+        </td>
         <td style="font-size:12.5px;color:var(--muted);">{{if .Form.Provider}}{{.Form.Provider}}{{else}}—{{end}}</td>
         <td style="font-variant-numeric:tabular-nums;">{{len .Nodes}}</td>
         <td><span class="ad-chip {{chipClass .State}}"><span class="dot"></span>{{.State}}</span></td>
