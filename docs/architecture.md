@@ -11,8 +11,8 @@ it generates a JSON file and runs the PS1 against it.
 debian:bookworm-slim  (+ PowerShell 7.4 from the official GitHub tarball)
   ├── /usr/local/bin/autodeploy-web      Go binary (HTTP server + worker)
   ├── /usr/bin/pwsh                      PowerShell 7 (symlink to /opt/microsoft/powershell/7)
-  ├── /usr/local/bin/wsl                 shim that forwards `wsl <cmd>` → `<cmd>`
-  ├── /usr/local/bin/cmd                 shim that forwards `cmd /c <cmd>` → bash
+  ├── /usr/local/bin/wsl                 shim: `wsl <cmd>` → `<cmd>`  (fallback since autodeploy v2.8 — script calls xorriso natively)
+  ├── /usr/local/bin/cmd                 shim: `cmd /c <cmd>` → bash  (fallback, same as above)
   ├── /opt/autodeploy/                   pinned clone of upstream repo
   │     ├── autodeploy.ps1
   │     ├── conf/

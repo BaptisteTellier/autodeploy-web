@@ -28,10 +28,10 @@ The Docker image bundles four things. A VM must supply the same four:
 | 3 | **`xorriso` + `rsync`** | Called by `autodeploy.ps1` to unpack and rebuild the ISO. |
 | 4 | **`autodeploy.ps1`** (the companion script) | The actual ISO logic, from [BaptisteTellier/autodeploy](https://github.com/BaptisteTellier/autodeploy). |
 
-Plus one non-obvious detail: `autodeploy.ps1` was written for **Windows**, where
-it calls `wsl xorriso …` and `cmd /c …`. On Linux we install two tiny
-**wrapper scripts** named `wsl` and `cmd` that forward those calls to the native
-tools. Part A installs them for you.
+One non-obvious detail: since autodeploy **v2.8**, `autodeploy.ps1` detects Linux
+and calls `xorriso` directly. The `wsl` / `cmd` **wrapper scripts** (installed by
+Part A) are now only a **fallback** — needed if you import an older, Windows-only
+version of the script.
 
 Everything else — the web UI, fonts, JavaScript, HTML templates — is **embedded
 inside the Go binary**, so there are no separate web assets to deploy.
@@ -165,8 +165,9 @@ Verify:
 wsl --version     # prints "WSL version (container shim): 1.0" — this is expected
 ```
 
-> These shims are the single most common thing people forget. Without them, ISO
-> builds fail because `autodeploy.ps1` cannot find `wsl`/`cmd`.
+> Since autodeploy v2.8 these shims are **optional** (the script calls xorriso
+> natively). Installing them anyway is recommended: it's free and covers the case
+> where you import a pre-v2.8 script.
 
 ### Step 6 — Get `autodeploy.ps1`
 
