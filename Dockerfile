@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 2 — Fetch autodeploy.ps1
 ############################
 FROM alpine:3.20 AS fetch
-ARG AUTODEPLOY_VERSION=dev
+ARG AUTODEPLOY_VERSION=main
 ARG AUTODEPLOY_REPO=https://github.com/BaptisteTellier/autodeploy.git
 RUN apk add --no-cache git
 RUN git clone --depth 1 --branch ${AUTODEPLOY_VERSION} ${AUTODEPLOY_REPO} /autodeploy
@@ -37,7 +37,7 @@ RUN echo "${AUTODEPLOY_VERSION}" > /autodeploy/.pinned-version
 # GitHub + Docker Hub (used by the other stages) are the reliable registries here.
 FROM debian:bookworm-slim
 
-ARG AUTODEPLOY_VERSION=dev
+ARG AUTODEPLOY_VERSION=main
 ARG PWSH_VERSION=7.4.6
 ARG TARGETARCH
 LABEL org.opencontainers.image.title="autodeploy-web"
