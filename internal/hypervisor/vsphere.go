@@ -393,7 +393,7 @@ func (v *VSphere) CreateVM(ctx context.Context, spec VMSpec) (VMRef, error) {
 		NumCPUs:  int32(spec.CPUs),
 		MemoryMB: int64(spec.MemoryMiB),
 		GuestId:  "rhel9_64Guest",
-		Version:  "vmx-15",
+		Version:  "vmx-19",
 		Firmware: firmware,
 		Files: &types.VirtualMachineFileInfo{
 			VmPathName: fmt.Sprintf("[%s]", ds.Name()),
