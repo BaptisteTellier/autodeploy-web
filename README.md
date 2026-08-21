@@ -3,7 +3,7 @@
 > 🐳 A containerised web UI for deploying Veeam — from customising a Software Appliance ISO, to provisioning a full multi-VM topology on a hypervisor, to generating the exact REST wiring script. Docker is the only dependency.
 
 [![CI](https://github.com/BaptisteTellier/autodeploy-web/actions/workflows/ci.yml/badge.svg)](https://github.com/BaptisteTellier/autodeploy-web/actions/workflows/ci.yml)
-[![GHCR](https://img.shields.io/badge/ghcr.io-autodeploy--web-blue?logo=docker)](https://github.com/BaptisteTellier/autodeploy-web/pkgs/container/autodeploy-web)
+[![GHCR](https://img.shields.io/badge/ghcr.io-neo--autodeploy--web-blue?logo=docker)](https://github.com/MaxenceAchille/neo-autodeploy-web/pkgs/container/neo-autodeploy-web)
 [![Veeam](https://img.shields.io/badge/Veeam-v13.1-00B336.svg)](https://www.veeam.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -175,19 +175,19 @@ credential-bearing admin console it is.
 The container packages the Go web server **and** the unmodified `autodeploy.ps1` together, so the PowerShell script runs identically to how it would on Windows + WSL:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│   container : ghcr.io/baptistetellier/autodeploy-web:latest  │
-│                                                              │
-│   ┌──────────┐  HTTP   ┌───────────┐  spawn   ┌────────────┐ │
-│   │ browser  │───────▶ │ Go binary │────────▶ │  pwsh +    │ │
-│   │  (form)  │  :8080  │  + web UI │  exec    │ autodeploy │ │
-│   │          │ ◀───SSE │           │ ◀─stdout │    .ps1    │ │
-│   └──────────┘         └───────────┘          └────────────┘ │
-│                              │                       │       │
-│                              ▼                       ▼       │
-│                       /data/configs/         xorriso (native)│
-│                       /data/iso/         ──▶ /data/output/   │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│   container : ghcr.io/maxenceachille/neo-autodeploy-web:latest  │
+│                                                                 │
+│   ┌──────────┐  HTTP   ┌───────────┐  spawn   ┌────────────┐    │
+│   │ browser  │───────▶ │ Go binary │────────▶ │  pwsh +    │    │
+│   │  (form)  │  :8080  │  + web UI │  exec    │ autodeploy │    │
+│   │          │ ◀───SSE │           │ ◀─stdout │    .ps1    │    │
+│   └──────────┘         └───────────┘          └────────────┘    │
+│                              │                       │          │
+│                              ▼                       ▼          │
+│                       /data/configs/         xorriso (native)   │
+│                       /data/iso/         ──▶ /data/output/      │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 - **ISO customisation** is delegated to **[`autodeploy`](https://github.com/BaptisteTellier/autodeploy)** — the PowerShell script is the authoritative source of all build logic (kickstart, GRUB, MFA, VCSP, license). The Go server just renders the form, writes the JSON config, and spawns `pwsh autodeploy.ps1`, streaming its output to the browser over SSE. A tiny `/usr/local/bin/wsl` shim forwards the script's `wsl xorriso …` calls to the native `xorriso`. The PS1 is **never modified**, and the form's JSON export is **100 % compatible** with running the script directly on Windows.

@@ -18,7 +18,7 @@ services:
     # Pre-built image from GHCR (recommended — no build tools needed on the host).
     # If the image is not yet available (first deploy before CI runs), comment
     # the line below and uncomment the "build:" block instead.
-    image: ghcr.io/baptistetellier/autodeploy-web:latest
+    image: ghcr.io/maxenceachille/neo-autodeploy-web:latest
 
     # ── Alternative: build locally from source ──────────────────────────────
     # Requires git + Docker BuildKit on the host. Uncomment if GHCR is not
@@ -26,7 +26,7 @@ services:
     #
     # image: autodeploy-web:local
     # build:
-    #   context: https://github.com/BaptisteTellier/autodeploy-web.git
+    #   context: https://github.com/MaxenceAchille/neo-autodeploy-web.git
     #   args:
     #     AUTODEPLOY_VERSION: main
     # ────────────────────────────────────────────────────────────────────────
