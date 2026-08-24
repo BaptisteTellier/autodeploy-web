@@ -273,7 +273,7 @@ Upload and manage Veeam `.lic` files. They're used when *LicenseVBRTune* bakes a
 Two histories, both persisted in SQLite and survive restarts:
 
 - **ISO-creation jobs** — every build with state, timestamps, and a per-row delete.
-- **Deployments** — every Auto-Deploy run, with **Created** / **Finished** date-time columns, a **↻ retry of …** link when a run is a retry of another, and per-row actions: **retry** (re-run end-to-end), **re-wire** (re-run only the REST wiring against existing VMs), and **🗑 delete** (removes the *record* only — does not touch the VMs). A run interrupted by a restart is reloaded as *failed ("interrupted by a restart")*. Opening a deployment shows its **live log** and a **node table with each machine's IP** (static IPs immediately; DHCP IPs stream in as they resolve).
+- **Deployments** — every Auto-Deploy run, with **Created** / **Finished** date-time columns, a **↻ retry of …** link when a run is a retry of another, and per-row actions: **retry** (re-run end-to-end), **re-wire** (re-run only the REST wiring against existing VMs — the wiring is **idempotent** (find-before-add), so it effectively *resumes*: already-registered hosts, repositories and proxies are detected and skipped, and only the failed/remaining steps are redone), and **🗑 delete** (removes the *record* only — does not touch the VMs). A run interrupted by a restart is reloaded as *failed ("interrupted by a restart")*. Opening a deployment shows its **live log** and a **node table with each machine's IP** (static IPs immediately; DHCP IPs stream in as they resolve).
 
 ### 🚀 Deploy (`/deploy`)
 

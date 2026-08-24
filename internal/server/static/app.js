@@ -130,7 +130,13 @@ function initSortableTables(root) {
       th.addEventListener('click', function () {
         const body = table.tBodies[0];
         if (!body) return;
-        const rows = Array.from(body.rows);
+        // Sorting reveals everything first, so a collapsed table sorts its full set.
+        if (table._expandRows) table._expandRows();
+        // Rows marked data-nosort (e.g. a "show previous" toggle row) are pinned
+        // to the top and excluded from sorting.
+        const allRows = Array.from(body.rows);
+        const pinned = allRows.filter(function (r) { return r.hasAttribute('data-nosort'); });
+        const rows = allRows.filter(function (r) { return !r.hasAttribute('data-nosort'); });
         const asc = th.getAttribute('data-dir') !== 'asc';
 
         // Reset the indicators on the other headers.
@@ -162,13 +168,57 @@ function initSortableTables(root) {
           }
           return asc ? x.localeCompare(y) : y.localeCompare(x);
         });
+        pinned.forEach(function (r) { body.appendChild(r); });
         rows.forEach(function (r) { body.appendChild(r); });
       });
     });
   });
 }
 
-document.addEventListener('DOMContentLoaded', function () { initSortableTables(); });
+// Collapsible tables: for any <table data-collapse="N">, show only the N most
+// recent data rows and pin a "show previous" toggle row on top (arrow points up).
+// The toggle row is data-nosort so initSortableTables keeps it pinned; sorting
+// auto-expands via table._expandRows. Labels come from data-collapse-more /
+// data-collapse-less (already localized server-side).
+function initCollapsibleTables(root) {
+  (root || document).querySelectorAll('table[data-collapse]').forEach(function (table) {
+    const body = table.tBodies[0];
+    if (!body) return;
+    const n = parseInt(table.getAttribute('data-collapse'), 10) || 3;
+    const dataRows = Array.from(body.rows).filter(function (r) { return !r.hasAttribute('data-nosort'); });
+    if (dataRows.length <= n) return;
+    const cols = (table.tHead && table.tHead.rows[0]) ? table.tHead.rows[0].cells.length : 1;
+    const moreLabel = table.getAttribute('data-collapse-more') || 'Show previous';
+    const lessLabel = table.getAttribute('data-collapse-less') || 'Show less';
+    const hidden = dataRows.slice(n);
+
+    const toggle = document.createElement('tr');
+    toggle.setAttribute('data-nosort', '');
+    const td = document.createElement('td');
+    td.setAttribute('colspan', cols);
+    td.style.cssText = 'cursor:pointer;text-align:center;color:var(--muted);font-size:12px;padding:7px;user-select:none;';
+    const icon = document.createElement('span');
+    icon.className = 'mi';
+    icon.style.cssText = 'font-size:16px;vertical-align:middle;';
+    icon.textContent = 'keyboard_arrow_up';
+    const label = document.createElement('span');
+    td.appendChild(icon);
+    td.appendChild(label);
+    toggle.appendChild(td);
+
+    let expanded = false;
+    function render() {
+      hidden.forEach(function (r) { r.style.display = expanded ? '' : 'none'; });
+      label.textContent = ' ' + (expanded ? lessLabel : moreLabel + ' (' + hidden.length + ')');
+    }
+    table._expandRows = function () { if (!expanded) { expanded = true; render(); } };
+    td.addEventListener('click', function () { expanded = !expanded; render(); });
+    body.insertBefore(toggle, body.firstChild);
+    render();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function () { initSortableTables(); initCollapsibleTables(); });
 
 // --- Deploy templates --------------------------------------------------------
 // Save the current deploy form as a named template (a non-secret FormSnapshot),

@@ -337,10 +337,24 @@ func (s *Server) handleDeployDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	view := d.View()
 	s.render(w, r, "views/deploy_detail.html", map[string]any{
-		"Deployment": d.View(),
+		"Deployment": view,
 		"Lines":      d.Snapshot(),
+		"SwaggerURL": deploySwaggerURL(view),
 	})
+}
+
+// deploySwaggerURL returns the VBR REST Swagger-UI URL for a deployment's VSA
+// node, or "" when no VSA node IP is known (e.g. add-to-existing-VBR mode). The
+// browser opens it directly, so the VSA must be LAN-reachable from the client.
+func deploySwaggerURL(v deploy.View) string {
+	for _, n := range v.Nodes {
+		if strings.HasPrefix(n.Role, "VSA") && n.IP != "" {
+			return "https://" + n.IP + ":9419/swagger/index.html"
+		}
+	}
+	return ""
 }
 
 // handleDeployStream streams a deployment's log over SSE (mirrors handleJobStream).

@@ -162,7 +162,8 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 		}
 		log("target VBR REST is up — authenticated.")
 		defer client.Logout(context.Background())
-		if _, err := w.wireVIANodes(ctx, client, vias, log); err != nil {
+		msID := w.resolveMountServer(ctx, client, log, w.cfg.TargetVBR.Address)
+		if _, err := w.wireVIANodes(ctx, client, vias, msID, log); err != nil {
 			return err
 		}
 		// applyAdvanced in target mode: no VSA node in the deploy, so
@@ -202,7 +203,10 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	}
 
 	// Register VIA nodes and handle HA (normal VSA-present path).
-	hardenedRepoID, err := w.wireVIANodes(ctx, client, vias, log)
+	// The VBR server IS the primary VSA (we're connected to it): pin it as the
+	// hardened-repo Linux mount server. Try its IP first, then its hostname.
+	msID := w.resolveMountServer(ctx, client, log, primary.IP, primary.Name)
+	hardenedRepoID, err := w.wireVIANodes(ctx, client, vias, msID, log)
 	if err != nil {
 		return err
 	}
@@ -233,12 +237,40 @@ func (w *Wirer) Wire(ctx context.Context, nodes []deploy.NodeDeploy, log func(st
 	return nil
 }
 
+// resolveMountServer finds the managed-server id of the VBR/VSA host to pin as the
+// Linux mount server for hardened repositories. It tries each candidate (IP then
+// hostname) and returns the first match. Returns "" with a warning when none
+// resolve — on 13.1 GA a hardened-repo create then fails with an HTTP 400
+// "Linux mount server requires a RHEL or Rocky operating system".
+func (w *Wirer) resolveMountServer(ctx context.Context, client *veeam.Client, log func(string), candidates ...string) string {
+	for _, cand := range candidates {
+		if cand == "" {
+			continue
+		}
+		id, err := client.FindManagedServerByName(ctx, cand)
+		if err != nil {
+			log(fmt.Sprintf("mount server: lookup %s failed (%v)", cand, err))
+			continue
+		}
+		if id != "" {
+			log(fmt.Sprintf("using VBR host %s as hardened-repo Linux mount server", cand))
+			return id
+		}
+	}
+	log("WARNING: could not resolve a VBR mount server — hardened repositories may fail on 13.1 GA (HTTP 400 RHEL/Rocky)")
+	return ""
+}
+
 // wireVIANodes registers each VIA node (proxy / hardened repo) into client once
 // the node answers on the network. Operations are idempotent (find-before-add).
 // Per-node work is fanned out up to maxParallelWiring at once.
 // It returns the repository ID of the lowest-index hardened repo (for HA config-backup),
 // or "" when there are no HR nodes. In standalone mode the returned ID is discarded.
-func (w *Wirer) wireVIANodes(ctx context.Context, client *veeam.Client, vias []deploy.NodeDeploy, log func(string)) (hardenedRepoID string, _ error) {
+// mountServerID is the managed-server UUID of the Linux host to pin as the mount
+// server for hardened repositories (normally the VBR/VSA server). Required on 13.1
+// GA — see veeam.Client.AddHardenedRepository. "" falls back to legacy behaviour
+// (no mountServer block), which 13.1 GA rejects with an HTTP 400 RHEL/Rocky error.
+func (w *Wirer) wireVIANodes(ctx context.Context, client *veeam.Client, vias []deploy.NodeDeploy, mountServerID string, log func(string)) (hardenedRepoID string, _ error) {
 	// Register each VIA node (proxy / hardened repo) once it answers on the
 	// network (its unattended install must be finished before pairing works).
 	// Part 2: precompute HR name counts to disambiguate colliding hostnames.
@@ -338,7 +370,7 @@ func (w *Wirer) wireVIANodes(ctx context.Context, client *veeam.Client, vias []d
 				if id == "" {
 					log(fmt.Sprintf("creating hardened repository on %s…", n.IP))
 					if err := w.createWithComponents(fanCtx, client, hostID, "HR "+n.IP, log, func() error {
-						rs, e := client.AddHardenedRepository(fanCtx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays)
+						rs, e := client.AddHardenedRepository(fanCtx, repoName, hostID, w.cfg.RepoPath, "", true, w.cfg.ImmutableDays, mountServerID)
 						if e != nil {
 							return e
 						}

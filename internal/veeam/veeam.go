@@ -446,7 +446,18 @@ func (c *Client) UpdateHostComponents(ctx context.Context, ids []string) (string
 
 // AddHardenedRepository adds a LinuxHardened repository on hostID with optional
 // XFS fast clone and immutability. Returns the async session id.
-func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, description string, xfsFastClone bool, immutabilityDays int) (string, error) {
+// AddHardenedRepository adds a Linux hardened repository (LinuxHardenedStorageSpec)
+// and returns the async session id.
+//
+// mountServerID is the managed-server UUID of the Linux (RHEL/Rocky) host that acts
+// as the mount server for restores. A hardened repository is not its own mount
+// server (the hardened appliance must not run the mount/vPowerNFS role), so this
+// must point at a separate host — normally the VBR/VSA server. It is REQUIRED in
+// practice on 13.1 GA: when the mountServer block is omitted, VBR auto-selects a
+// mount server and rejects the create with HTTP 400 "Linux mount server requires a
+// RHEL or Rocky operating system". When mountServerID is "" the block is omitted
+// (legacy behaviour) — the caller is responsible for supplying it on 13.1.
+func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, description string, xfsFastClone bool, immutabilityDays int, mountServerID string) (string, error) {
 	body := map[string]any{
 		"type":        "LinuxHardened",
 		"name":        name,
@@ -457,6 +468,23 @@ func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, 
 			"useFastCloningOnXFSVolumes":     xfsFastClone,
 			"makeRecentBackupsImmutableDays": immutabilityDays,
 		},
+	}
+	// Linux mount server pin (MountServersSettingsModel). mountServerSettingsType
+	// "Linux" with linux.{mountServerId,vPowerNFSEnabled,writeCacheFolder}; those
+	// three are the required fields of MountServerSettingsModel.
+	if mountServerID != "" {
+		body["mountServer"] = map[string]any{
+			"mountServerSettingsType": "Linux",
+			"linux": map[string]any{
+				"mountServerId":    mountServerID,
+				"vPowerNFSEnabled": true,
+				// The vPower NFS service on the appliance requires its standard IRCache
+				// working directory; "/tmp" is rejected at save time with
+				// "Reconfiguring vPower NFS service Error: Invalid package working directory".
+				// This is the GUI default on a Veeam appliance mount server.
+				"writeCacheFolder": "/var/lib/veeamdata/veeam/IRCache/",
+			},
+		}
 	}
 	var out idResponse
 	if err := c.do(ctx, http.MethodPost, "/api/v1/backupInfrastructure/repositories", body, &out); err != nil {
@@ -868,7 +896,10 @@ func (c *Client) SetNodeExporter(ctx context.Context, enabled, tls bool, usernam
 		return fmt.Errorf("veeam: SetNodeExporter: %w", err)
 	}
 	if username != "" {
+		// NodeExporterBasicAuthModel is allOf[NodeExporterAuthenticationModel]+{username,password};
+		// the base carries the discriminator `type` (required), so it must be sent here too.
 		credsBody := map[string]any{
+			"type":     "UsernamePassword",
 			"username": username,
 			"password": password,
 		}
