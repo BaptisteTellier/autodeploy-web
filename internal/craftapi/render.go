@@ -161,11 +161,13 @@ func RenderPowerShell(s Spec) (string, error) {
 	b.WriteString("    return $id\n")
 	b.WriteString("}\n")
 	b.WriteString("function New-VbrHardenedRepo {\n")
-	b.WriteString("    param([string]$HostId, [string]$Name, [string]$Path, [int]$ImmutableDays)\n")
+	b.WriteString("    param([string]$HostId, [string]$Name, [string]$Path, [int]$ImmutableDays, [string]$MountServerId)\n")
 	b.WriteString("    $id = Find-VbrRepository -Name $Name\n")
 	b.WriteString("    if ($id) { Write-Host \"    repository $Name already exists - skipping\"; return $id }\n")
 	b.WriteString("    Write-Host \"    creating hardened repository $Name\"\n")
-	b.WriteString("    $body = @{ type = 'LinuxHardened'; name = $Name; description = ''; hostId = $HostId; repository = @{ path = $Path; useFastCloningOnXFSVolumes = $true; makeRecentBackupsImmutableDays = $ImmutableDays } } | ConvertTo-Json -Depth 12\n")
+	b.WriteString("    $repoBody = @{ type = 'LinuxHardened'; name = $Name; description = ''; hostId = $HostId; repository = @{ path = $Path; useFastCloningOnXFSVolumes = $true; makeRecentBackupsImmutableDays = $ImmutableDays } }\n")
+	b.WriteString("    if ($MountServerId) { $repoBody.mountServer = @{ mountServerSettingsType = 'Linux'; linux = @{ mountServerId = $MountServerId; vPowerNFSEnabled = $true; writeCacheFolder = '/tmp' } } }\n")
+	b.WriteString("    $body = $repoBody | ConvertTo-Json -Depth 12\n")
 	b.WriteString("    for ($a = 1; $a -le 3; $a++) {\n")
 	b.WriteString("        try { $r = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/backupInfrastructure/repositories\" -Body $body; Wait-VbrSession -SessionId $r.id; break }\n")
 	b.WriteString("        catch {\n")
@@ -291,11 +293,15 @@ func renderPSWireViaHr(b *strings.Builder, st Step) error {
 		st.HostVar, st.IP,
 		strings.ReplaceAll(st.Role, "'", "''"),
 		strings.ReplaceAll(st.Pairing, "'", "''"))
-	fmt.Fprintf(b, "$%s = New-VbrHardenedRepo -HostId $%s -Name '%s' -Path '%s' -ImmutableDays %d\n",
+	mountArg := "''"
+	if st.MountServerVar != "" {
+		mountArg = "$" + st.MountServerVar
+	}
+	fmt.Fprintf(b, "$%s = New-VbrHardenedRepo -HostId $%s -Name '%s' -Path '%s' -ImmutableDays %d -MountServerId %s\n",
 		st.RepoVar, st.HostVar,
 		strings.ReplaceAll(st.RepoName, "'", "''"),
 		strings.ReplaceAll(st.RepoPath, "'", "''"),
-		st.ImmutableDays)
+		st.ImmutableDays, mountArg)
 	b.WriteString("\n")
 	return nil
 }
@@ -674,12 +680,16 @@ func RenderCurl(s Spec) (string, error) {
 	b.WriteString("  printf '%s' \"$id\"\n")
 	b.WriteString("}\n")
 	b.WriteString("new_hardened_repo() {\n")
-	b.WriteString("  local host_id=$1 name=$2 path=$3 days=$4\n")
+	b.WriteString("  local host_id=$1 name=$2 path=$3 days=$4 mount_id=$5\n")
 	b.WriteString("  local id; id=$(find_repository \"$name\")\n")
 	b.WriteString("  if [ -n \"$id\" ]; then echo \"    repository $name already exists - skipping\" >&2; printf '%s' \"$id\"; return; fi\n")
 	b.WriteString("  echo \"    creating hardened repository $name\" >&2\n")
-	b.WriteString("  local body; body=$(printf '{\"type\":\"LinuxHardened\",\"name\":\"%s\",\"description\":\"\",\"hostId\":\"%s\",\"repository\":{\"path\":\"%s\",\"useFastCloningOnXFSVolumes\":true,\"makeRecentBackupsImmutableDays\":%s}}' \\\n")
-	b.WriteString("    \"$name\" \"$host_id\" \"$path\" \"$days\")\n")
+	// A hardened repo needs an explicit Linux mount server on 13.1 GA (otherwise
+	// HTTP 400 RHEL/Rocky). Append the mountServer block when a mount id is given.
+	b.WriteString("  local mount=''\n")
+	b.WriteString("  [ -n \"$mount_id\" ] && mount=$(printf ',\"mountServer\":{\"mountServerSettingsType\":\"Linux\",\"linux\":{\"mountServerId\":\"%s\",\"vPowerNFSEnabled\":true,\"writeCacheFolder\":\"/tmp\"}}' \"$mount_id\")\n")
+	b.WriteString("  local body; body=$(printf '{\"type\":\"LinuxHardened\",\"name\":\"%s\",\"description\":\"\",\"hostId\":\"%s\",\"repository\":{\"path\":\"%s\",\"useFastCloningOnXFSVolumes\":true,\"makeRecentBackupsImmutableDays\":%s}%s}' \\\n")
+	b.WriteString("    \"$name\" \"$host_id\" \"$path\" \"$days\" \"$mount\")\n")
 	b.WriteString("  local a resp sid msg\n")
 	b.WriteString("  for a in 1 2 3; do\n")
 	b.WriteString("    resp=$(vbr POST \"${BASE_URL}/api/v1/backupInfrastructure/repositories\" \\\n")
@@ -813,11 +823,15 @@ func renderCurlWireViaHr(b *strings.Builder, st Step) error {
 	fmt.Fprintf(b, "%s=$(register_via_host '%s' '%s' '%s')\n",
 		st.HostVar, st.IP, roleEsc,
 		strings.ReplaceAll(st.Pairing, "'", `'\''`))
-	fmt.Fprintf(b, "%s=$(new_hardened_repo \"${%s}\" '%s' '%s' '%d')\n",
+	mountArg := ""
+	if st.MountServerVar != "" {
+		mountArg = "${" + st.MountServerVar + "}"
+	}
+	fmt.Fprintf(b, "%s=$(new_hardened_repo \"${%s}\" '%s' '%s' '%d' '%s')\n",
 		st.RepoVar, st.HostVar,
 		strings.ReplaceAll(st.RepoName, "'", `'\''`),
 		strings.ReplaceAll(st.RepoPath, "'", `'\''`),
-		st.ImmutableDays)
+		st.ImmutableDays, mountArg)
 	b.WriteString("\n")
 	return nil
 }

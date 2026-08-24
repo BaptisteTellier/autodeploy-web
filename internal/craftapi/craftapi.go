@@ -94,14 +94,15 @@ type Step struct {
 	Kind string
 
 	// Fields used by wireViaHr / wireViaProxy kinds.
-	HostVar       string // PS/bash variable to assign the resolved managed-server id
-	RepoVar       string // PS/bash variable to assign the resolved repo id (HR only)
-	IP            string // node IP address
-	Role          string // node role label (used as description on managed-server add)
-	Pairing       string // handshake/pairing code
-	RepoName      string // hardened repo name (HR only)
-	RepoPath      string // repo filesystem path (HR only)
-	ImmutableDays int    // immutability days (HR only)
+	HostVar        string // PS/bash variable to assign the resolved managed-server id
+	RepoVar        string // PS/bash variable to assign the resolved repo id (HR only)
+	IP             string // node IP address
+	Role           string // node role label (used as description on managed-server add)
+	Pairing        string // handshake/pairing code
+	RepoName       string // hardened repo name (HR only)
+	RepoPath       string // repo filesystem path (HR only)
+	ImmutableDays  int    // immutability days (HR only)
+	MountServerVar string // bare var name holding the Linux mount-server id for HR (HR only; "" = none)
 }
 
 // licenseB64Placeholder is emitted in the install body when LicenseB64 is
@@ -248,6 +249,21 @@ func Plan(s Spec) []Step {
 	// reference its repo var — mirrors wiring.go's "lowest-index HR" logic.
 	firstHRIdx := -1
 
+	// Resolve the Linux mount server for hardened repositories once, before the
+	// HR steps. A hardened repo is not its own mount server, so we pin the primary
+	// VSA (the VBR server). Without this, 13.1 GA rejects the HR create with HTTP
+	// 400 "Linux mount server requires a RHEL or Rocky operating system".
+	hrMountVar := ""
+	if len(hrNameCount) > 0 && len(vsas) > 0 && vsas[0].IP != "" {
+		hrMountVar = "hrMount_id"
+		add(Step{
+			Comment:  "Find the primary VSA managed-server id to pin as the hardened-repo Linux mount server.",
+			Method:   "GET",
+			Path:     "/api/v1/backupInfrastructure/managedServers?nameFilter=" + vsas[0].IP + "&limit=10",
+			Captures: []Capture{{Var: hrMountVar, Expr: "data[0].id"}},
+		})
+	}
+
 	for i, n := range vias {
 		hostVar := hostVarName(i)
 
@@ -259,16 +275,17 @@ func Plan(s Spec) []Step {
 				repoName += "-" + n.IP
 			}
 			add(Step{
-				Comment:       "Wire " + n.Role + " " + n.IP + " — wait for node, register host (find-before-add), create hardened repo (with component-update retry).",
-				Kind:          "wireViaHr",
-				HostVar:       hostVar + "_id",
-				RepoVar:       repoVarName(i) + "_id",
-				IP:            n.IP,
-				Role:          n.Role,
-				Pairing:       pairingCode(n),
-				RepoName:      repoName,
-				RepoPath:      s.RepoPath,
-				ImmutableDays: s.ImmutableDays,
+				Comment:        "Wire " + n.Role + " " + n.IP + " — wait for node, register host (find-before-add), create hardened repo (with component-update retry).",
+				Kind:           "wireViaHr",
+				HostVar:        hostVar + "_id",
+				RepoVar:        repoVarName(i) + "_id",
+				IP:             n.IP,
+				Role:           n.Role,
+				Pairing:        pairingCode(n),
+				RepoName:       repoName,
+				RepoPath:       s.RepoPath,
+				ImmutableDays:  s.ImmutableDays,
+				MountServerVar: hrMountVar,
 			})
 			if firstHRIdx == -1 {
 				firstHRIdx = i
@@ -516,8 +533,8 @@ func addLinuxHostBody(n Node, certFPExpr string) map[string]any {
 	}
 }
 
-func addHardenedRepoBody(name, hostIDExpr, path string, immutableDays int) map[string]any {
-	return map[string]any{
+func addHardenedRepoBody(name, hostIDExpr, path string, immutableDays int, mountServerIDExpr string) map[string]any {
+	body := map[string]any{
 		"type":        "LinuxHardened",
 		"name":        name,
 		"description": "",
@@ -528,6 +545,17 @@ func addHardenedRepoBody(name, hostIDExpr, path string, immutableDays int) map[s
 			"makeRecentBackupsImmutableDays": immutableDays,
 		},
 	}
+	if mountServerIDExpr != "" {
+		body["mountServer"] = map[string]any{
+			"mountServerSettingsType": "Linux",
+			"linux": map[string]any{
+				"mountServerId":    mountServerIDExpr,
+				"vPowerNFSEnabled": true,
+				"writeCacheFolder": "/tmp",
+			},
+		}
+	}
+	return body
 }
 
 func addVmwareProxyBody(hostIDExpr string) map[string]any {

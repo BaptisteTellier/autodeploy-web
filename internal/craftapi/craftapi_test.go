@@ -631,7 +631,7 @@ func TestPlanMatchesVeeamClient_AddHardenedRepository(t *testing.T) {
 	mustAuthenticate(t, c)
 
 	_, _ = c.AddHardenedRepository(context.Background(),
-		"HR-hr1", "host-uuid", "/var/lib/veeam/backups", "", true, 7)
+		"HR-hr1", "host-uuid", "/var/lib/veeam/backups", "", true, 7, "mount-uuid")
 
 	// Real client must POST to repositories with LinuxHardened type.
 	if !strings.Contains(rec.path, "/backupInfrastructure/repositories") {

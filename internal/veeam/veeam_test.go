@@ -219,11 +219,33 @@ func TestAddHardenedRepositoryPayload(t *testing.T) {
 		if repo["makeRecentBackupsImmutableDays"].(float64) != 30 {
 			t.Errorf("immutability = %v, want 30", repo["makeRecentBackupsImmutableDays"])
 		}
+		// Mount server must be pinned as Linux with the given managed-server id
+		// (13.1 GA rejects the create otherwise: HTTP 400 RHEL/Rocky).
+		ms, ok := body["mountServer"].(map[string]any)
+		if !ok {
+			t.Fatal("mountServer block missing from hardened-repo body")
+		}
+		if ms["mountServerSettingsType"] != "Linux" {
+			t.Errorf("mountServerSettingsType = %v, want Linux", ms["mountServerSettingsType"])
+		}
+		linux, ok := ms["linux"].(map[string]any)
+		if !ok {
+			t.Fatal("mountServer.linux sub-object missing")
+		}
+		if linux["mountServerId"] != "mount-1" {
+			t.Errorf("mountServerId = %v, want mount-1", linux["mountServerId"])
+		}
+		if _, ok := linux["writeCacheFolder"]; !ok {
+			t.Error("mountServer.linux.writeCacheFolder missing (required field)")
+		}
+		if _, ok := linux["vPowerNFSEnabled"]; !ok {
+			t.Error("mountServer.linux.vPowerNFSEnabled missing (required field)")
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "sess-repo"})
 	})
 	c, _ := newTestClient(t, mux)
 
-	sess, err := c.AddHardenedRepository(context.Background(), "HR-01", "host-1", "/backups", "", true, 30)
+	sess, err := c.AddHardenedRepository(context.Background(), "HR-01", "host-1", "/backups", "", true, 30, "mount-1")
 	if err != nil {
 		t.Fatalf("AddHardenedRepository: %v", err)
 	}
