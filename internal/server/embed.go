@@ -66,13 +66,9 @@ var baseFuncMap = template.FuncMap{
 		}
 		return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 	},
-	// fmtTime formats a time.Time as "2006-01-02 15:04:05"; returns "" for the zero value.
-	"fmtTime": func(t time.Time) string {
-		if t.IsZero() {
-			return ""
-		}
-		return t.Format("2006-01-02 15:04:05")
-	},
+	// NOTE: fmtTime and shortTime are intentionally NOT defined here — they are
+	// language-dependent (fr → DD-MM/24h, en → MM-DD/12h) and defined per-language
+	// in funcMapForLang so date display follows the UI language.
 	// short8 truncates an id-like string to its first 8 characters (dashboard/table display).
 	"short8": func(v any) string {
 		s := fmt.Sprintf("%v", v)
@@ -80,13 +76,6 @@ var baseFuncMap = template.FuncMap{
 			return s[:8]
 		}
 		return s
-	},
-	// shortTime formats a time.Time as "01-02 15:04"; returns "—" for the zero value.
-	"shortTime": func(t time.Time) string {
-		if t.IsZero() {
-			return "—"
-		}
-		return t.Format("01-02 15:04")
 	},
 	// fmtDur formats the elapsed time between two instants (e.g. "5m30s"); returns "" if either is zero.
 	"fmtDur": func(from, to time.Time) string {
@@ -137,6 +126,30 @@ func funcMapForLang(lang string) template.FuncMap {
 	for k, v := range baseFuncMap {
 		fm[k] = v
 	}
+
+	// Date/time display follows the UI language: fr → DD-MM (24-hour),
+	// en (US) → MM-DD (12-hour AM/PM). Every template formats dates through
+	// shortTime/fmtTime, so overriding them per-language switches date display
+	// across the whole UI at once. (Sorting is unaffected: tables sort on the
+	// numeric data-sort-value, not the displayed string. fmtDur is a duration,
+	// so it stays locale-independent.)
+	shortLayout, fullLayout := "01-02 03:04 PM", "01-02-2006 03:04:05 PM" // en / US
+	if lang == "fr" {
+		shortLayout, fullLayout = "02-01 15:04", "02-01-2006 15:04:05"
+	}
+	fm["shortTime"] = func(t time.Time) string {
+		if t.IsZero() {
+			return "—"
+		}
+		return t.Format(shortLayout)
+	}
+	fm["fmtTime"] = func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.Format(fullLayout)
+	}
+
 	fm["t"] = func(key string) string { return translate(lang, key) }
 	fm["tjs"] = func(key string) template.JS {
 		b, _ := json.Marshal(translate(lang, key))
