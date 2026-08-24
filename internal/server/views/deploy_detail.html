@@ -58,6 +58,13 @@
       <span x-text="sessionOpen ? {{tjs "deploy.console_close"}} : {{tjs "deploy.console_open"}}"></span>
     </button>
 
+    {{if .SwaggerURL}}
+    <!-- Open the VSA's built-in Swagger UI in a new tab (full, always-current API reference). -->
+    <a href="{{.SwaggerURL}}" target="_blank" rel="noopener" class="ad-btn ad-btn-secondary">
+      <span class="mi">api</span>{{t "deploy.swagger_open"}}
+    </a>
+    {{end}}
+
     {{if ne (printf "%s" .Deployment.State) "removed"}}
     <button type="button" @click="showRemove=true; confirmed=false" class="ad-btn ad-btn-red"><span class="mi">delete</span>{{t "deploy.remove"}}</button>
     {{end}}

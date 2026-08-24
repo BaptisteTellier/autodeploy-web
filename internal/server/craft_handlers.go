@@ -47,6 +47,7 @@ func (s *Server) handleCraftAPIRender(w http.ResponseWriter, r *http.Request) {
 	}
 
 	spec := craftapi.Spec{
+		BaseURL:          strings.TrimSpace(r.FormValue("base_url")),
 		Username:         craftStrDefault(r.FormValue("username"), "veeamadmin"),
 		Password:         r.FormValue("password"),
 		APIVersion:       craftStrDefault(strings.TrimSpace(r.FormValue("api_version")), "1.3-rev2"),

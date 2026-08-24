@@ -32,7 +32,7 @@ async function deleteDeployment(id) {
       <span class="mi" style="font-size:14px;color:var(--faint);">swap_vert</span>
       <span style="font-size:11.5px;color:var(--muted);">{{t "jobs.sort_hint"}}</span>
     </div>
-    <table class="ad-table sortable">
+    <table class="ad-table sortable" data-collapse="3" data-collapse-more="{{t "jobs.show_previous"}}" data-collapse-less="{{t "jobs.show_less"}}">
       <thead><tr>
         <th>{{t "th.id"}}</th>
         <th>{{t "th.appliance"}}</th>
@@ -82,7 +82,7 @@ async function deleteDeployment(id) {
     </div>
 
     {{if .Deployments}}
-    <table class="ad-table sortable">
+    <table class="ad-table sortable" data-collapse="3" data-collapse-more="{{t "jobs.show_previous"}}" data-collapse-less="{{t "jobs.show_less"}}">
       <thead><tr>
         <th>{{t "th.id"}}</th>
         <th>{{t "deploy.topology"}}</th>

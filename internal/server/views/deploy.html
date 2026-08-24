@@ -183,82 +183,43 @@
                   return lx+'\ninitrdefi /images/pxeboot/initrd.img\nboot'; },
                 revealBoot(i){ if(!this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
                 refreshBoot(i){ if(this.adv[i] && !this.edited[i]) this.bootcmd[i]=this.defaultBoot(i); },
-                wirePreview(){
-                  const vsaIdxs=this.roles.map((r,i)=>r.startsWith('VSA')?i:-1).filter(i=>i>=0);
-                  const vsaIP=vsaIdxs.length>0?(this.summ(vsaIdxs[0])?.network||'<VSA-IP>'):'<VSA-IP>';
-                  const ep='https://'+vsaIP+':9419';
-                  const L=[];
-                  L.push('POST '+ep+'/api/oauth2/token');
-                  L.push('  body: { grant_type:password, username:veeamadmin, password:*** }');
-                  L.push('');
-                  if(this.licenseFile){
-                    L.push('# Install license (VSA boots unlicensed under remote kickstart)');
-                    L.push('GET  '+ep+'/api/v1/license  # skip if already Valid');
-                    L.push('POST '+ep+'/api/v1/license/install');
-                    L.push('  body: { license: <base64 of '+this.licenseFile+'> }');
-                    L.push('');
-                  }
-                  this.roles.forEach(function(role,i){
-                    if(role.startsWith('VSA')) return;
-                    const ip=this.summ(i)?.network||'<node-IP>';
-                    L.push('# '+role+' ('+ip+') — wait for port 6160/443/22');
-                    L.push('GET  '+ep+'/api/v1/backupInfrastructure/managedServers');
-                    L.push('POST '+ep+'/api/v1/backupInfrastructure/managedServers  # if not already registered');
-                    L.push('  body: { name:'+ip+', type:LinuxHost, pairingCode:000000 }');
-                    if(role.includes('HR')){
-                      L.push('GET  '+ep+'/api/v1/backupInfrastructure/repositories');
-                      L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories  # type=LinuxHardened, if absent');
-                      L.push('  body: { name:HR-<hostname>, hostId:<id>, path:/var/lib/veeam/backups, immutabilityDays:7 }');
-                    } else if(role.includes('Proxy')){
-                      L.push('POST '+ep+'/api/v1/backupInfrastructure/vsphereProxies');
-                      L.push('  body: { hostId:<id>, maxTasksCount:4 }');
-                    }
-                    L.push('');
-                  }.bind(this));
-                  if(vsaIdxs.length>=2){
-                    const secIP=this.summ(vsaIdxs[1])?.network||'<secondary-IP>';
-                    const hasHR=this.roles.some(r=>r.includes('HR'));
-                    if(hasHR){
-                      L.push('# Redirect config backup before removing default repo');
-                      L.push('PUT  '+ep+'/api/v1/configBackup/target');
-                      L.push('  body: { repositoryId:<hardened-repo-id> }');
-                      L.push('DELETE '+ep+'/api/v1/backupInfrastructure/repositories/<default-repo-id>');
-                      L.push('');
-                    }
-                    L.push('# HA cluster');
-                    L.push('POST '+ep+'/api/v1/credentials');
-                    L.push('  body: { username:veeamadmin, password:*** }');
-                    L.push('POST '+ep+'/api/v1/connectionCertificate?host='+secIP);
-                    L.push('POST '+ep+'/api/v1/highAvailabilityCluster');
-                    L.push('  body: { primaryNodeIpAddress:'+vsaIP+', secondaryNodeIpAddress:'+secIP+', clusterDnsName:<dns>, clusterEndpoint:<vip>, certificate:{…} }');
-                  }
-                  // Advanced options, applied on the primary VSA.
-                  if(this.wireNodeExp){
-                    L.push('');
-                    L.push('# node_exporter (Prometheus metrics)');
-                    L.push('PUT  '+ep+'/api/v1/generalOptions/nodeExporterSettings');
-                    L.push('  body: { metricsSharingEnabled:true, tlsEnabled:<tls>, auth:{ type:None|UsernamePassword } }');
-                  }
-                  {
-                    const sl=(document.getElementsByName('wire_syslog_server')[0]||{}).value;
-                    if(sl){
-                      L.push('');
-                      L.push('# syslog event forwarding');
-                      L.push('PUT  '+ep+'/api/v1/generalOptions/eventForwarding');
-                      L.push('  body: { syslogServer:{ serverName:'+sl+', port:<port>, transportProtocol:<proto> } }');
-                    }
-                  }
-                  if(this.wireS3){
-                    const t=this.wireS3Compat?'S3Compatible':'AmazonS3';
-                    const bucket=(document.getElementsByName('wire_s3_bucket')[0]||{}).value||'<bucket>';
-                    L.push('');
-                    L.push('# object-storage repository ('+t+')');
-                    L.push('POST '+ep+'/api/v1/cloudCredentials');
-                    L.push('  body: { type:Amazon, accessKey:***, secretKey:*** }');
-                    L.push('POST '+ep+'/api/v1/backupInfrastructure/repositories');
-                    L.push('  body: { type:'+t+', bucket:{ bucketName:'+bucket+', folderName:<folder> } }');
-                  }
-                  return L.join('\n');
+                restPreview:{ps:'',curl:''}, restTab:'ps', restErr:'', restBusy:false, restShown:false,
+                // Fetch the REAL, fully copy-pastable REST call sequence from
+                // /craft-api/render (the same renderer as the Craft API page), built
+                // from the current deploy state — not a hand-written approximation.
+                async refreshPreview(){
+                  this.restBusy=true; this.restErr=''; this.restShown=true;
+                  try{
+                    const fd=new FormData();
+                    this.roles.forEach((role,i)=>{
+                      const o=this.summ(i);
+                      fd.set('node_'+i+'_role', role);
+                      fd.set('node_'+i+'_ip', (o&&o.network)?o.network:'');
+                      fd.set('node_'+i+'_hostname', (o&&o.hostname)?o.hostname:'');
+                      fd.set('node_'+i+'_pairing','000000');
+                    });
+                    const F=document.getElementById('deploy-form');
+                    const g=k=>{ const el=F.elements[k]; if(!el) return ''; return el.type==='checkbox'?(el.checked?'on':''):el.value; };
+                    const map={ wire_license:'license', wire_node_exporter:'node_exporter',
+                      wire_node_exporter_tls:'node_exporter_tls', wire_node_exporter_user:'node_exporter_user',
+                      wire_node_exporter_pass:'node_exporter_pass', wire_syslog_server:'syslog_server',
+                      wire_syslog_port:'syslog_port', wire_syslog_protocol:'syslog_protocol',
+                      wire_s3:'s3', wire_s3_compatible:'s3_compatible', wire_s3_name:'s3_name',
+                      wire_s3_endpoint:'s3_endpoint', wire_s3_region:'s3_region', wire_s3_bucket:'s3_bucket',
+                      wire_s3_folder:'s3_folder', wire_s3_access_key:'s3_access_key', wire_s3_secret_key:'s3_secret_key',
+                      wire_s3_immutable_days:'s3_immutable_days', wire_s3_mount_node:'s3_mount_node',
+                      wire_s3_overwrite:'s3_overwrite', cluster_dns:'cluster_dns', cluster_endpoint:'cluster_vip' };
+                    Object.keys(map).forEach(k=>{ const v=g(k); if(v!=='') fd.set(map[k], v); });
+                    const ta=g('target_address');
+                    if(ta){ fd.set('base_url','https://'+ta+':'+(g('target_port')||'9419')); }
+                    const r=await fetch('/craft-api/render',{method:'POST',body:fd});
+                    const d=await r.json();
+                    if(d.error){ this.restErr=d.error; this.restPreview={ps:'',curl:''}; }
+                    else { this.restPreview={ps:d.powershell||'',curl:d.curl||''}; }
+                  }catch(e){ this.restErr=String(e); }
+                  this.restBusy=false;
+                },
+                copyPreview(){ const t=this.restTab==='ps'?this.restPreview.ps:this.restPreview.curl; if(t&&navigator.clipboard) navigator.clipboard.writeText(t);
                 } }">
 
   <div class="ad-2col">
@@ -1245,7 +1206,21 @@
                   </div>
                 </div>
 
-                <pre style="background:var(--sunken);border:1px solid var(--bd2);border-radius:8px;padding:12px;font-size:11px;font-family:var(--font-mono);color:var(--body);white-space:pre;overflow-x:auto;" x-text="wirePreview()"></pre>
+                <div style="margin-top:4px;">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                    <div style="display:flex;gap:2px;">
+                      <button type="button" @click="restTab='ps'" :style="restTab==='ps'?'font-weight:700;':'opacity:.6;'" class="ad-btn ad-btn-secondary" style="height:28px;padding:0 10px;font-size:11.5px;">{{t "craft.tab_ps"}}</button>
+                      <button type="button" @click="restTab='curl'" :style="restTab==='curl'?'font-weight:700;':'opacity:.6;'" class="ad-btn ad-btn-secondary" style="height:28px;padding:0 10px;font-size:11.5px;">{{t "craft.tab_curl"}}</button>
+                    </div>
+                    <button type="button" @click="refreshPreview()" :disabled="restBusy" class="ad-btn ad-btn-secondary" style="height:28px;padding:0 10px;font-size:11.5px;">
+                      <span class="mi" style="font-size:14px;" x-text="restBusy?'hourglass_empty':'sync'"></span>{{t "deploy.rest_preview_refresh"}}</button>
+                    <button type="button" @click="copyPreview()" x-show="restPreview.ps||restPreview.curl" x-cloak class="ad-btn ad-btn-secondary" style="height:28px;padding:0 10px;font-size:11.5px;">
+                      <span class="mi" style="font-size:14px;">content_copy</span>{{t "craft.copy"}}</button>
+                  </div>
+                  <p x-show="restErr" x-cloak style="color:#b00;font-size:11.5px;margin:0 0 6px;" x-text="restErr"></p>
+                  <pre x-show="!restShown" x-cloak style="background:var(--sunken);border:1px solid var(--bd2);border-radius:8px;padding:12px;font-size:11px;font-family:var(--font-mono);color:var(--muted);white-space:pre-wrap;">{{t "deploy.rest_preview_hint"}}</pre>
+                  <pre x-show="restShown" style="background:var(--sunken);border:1px solid var(--bd2);border-radius:8px;padding:12px;font-size:11px;font-family:var(--font-mono);color:var(--body);white-space:pre;overflow-x:auto;max-height:32rem;" x-text="restTab==='ps'?restPreview.ps:restPreview.curl"></pre>
+                </div>
               </div>
             </div>
           </div>
