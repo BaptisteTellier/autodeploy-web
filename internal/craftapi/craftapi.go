@@ -551,7 +551,7 @@ func addHardenedRepoBody(name, hostIDExpr, path string, immutableDays int, mount
 			"linux": map[string]any{
 				"mountServerId":    mountServerIDExpr,
 				"vPowerNFSEnabled": true,
-				"writeCacheFolder": "/tmp",
+				"writeCacheFolder": "/var/lib/veeamdata/veeam/IRCache/",
 			},
 		}
 	}

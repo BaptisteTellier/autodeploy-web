@@ -478,7 +478,11 @@ func (c *Client) AddHardenedRepository(ctx context.Context, name, hostID, path, 
 			"linux": map[string]any{
 				"mountServerId":    mountServerID,
 				"vPowerNFSEnabled": true,
-				"writeCacheFolder": "/tmp",
+				// The vPower NFS service on the appliance requires its standard IRCache
+				// working directory; "/tmp" is rejected at save time with
+				// "Reconfiguring vPower NFS service Error: Invalid package working directory".
+				// This is the GUI default on a Veeam appliance mount server.
+				"writeCacheFolder": "/var/lib/veeamdata/veeam/IRCache/",
 			},
 		}
 	}

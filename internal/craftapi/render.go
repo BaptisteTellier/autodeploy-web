@@ -166,7 +166,7 @@ func RenderPowerShell(s Spec) (string, error) {
 	b.WriteString("    if ($id) { Write-Host \"    repository $Name already exists - skipping\"; return $id }\n")
 	b.WriteString("    Write-Host \"    creating hardened repository $Name\"\n")
 	b.WriteString("    $repoBody = @{ type = 'LinuxHardened'; name = $Name; description = ''; hostId = $HostId; repository = @{ path = $Path; useFastCloningOnXFSVolumes = $true; makeRecentBackupsImmutableDays = $ImmutableDays } }\n")
-	b.WriteString("    if ($MountServerId) { $repoBody.mountServer = @{ mountServerSettingsType = 'Linux'; linux = @{ mountServerId = $MountServerId; vPowerNFSEnabled = $true; writeCacheFolder = '/tmp' } } }\n")
+	b.WriteString("    if ($MountServerId) { $repoBody.mountServer = @{ mountServerSettingsType = 'Linux'; linux = @{ mountServerId = $MountServerId; vPowerNFSEnabled = $true; writeCacheFolder = '/var/lib/veeamdata/veeam/IRCache/' } } }\n")
 	b.WriteString("    $body = $repoBody | ConvertTo-Json -Depth 12\n")
 	b.WriteString("    for ($a = 1; $a -le 3; $a++) {\n")
 	b.WriteString("        try { $r = Invoke-Vbr -Method POST -Uri \"$BaseURL/api/v1/backupInfrastructure/repositories\" -Body $body; Wait-VbrSession -SessionId $r.id; break }\n")
@@ -687,7 +687,7 @@ func RenderCurl(s Spec) (string, error) {
 	// A hardened repo needs an explicit Linux mount server on 13.1 GA (otherwise
 	// HTTP 400 RHEL/Rocky). Append the mountServer block when a mount id is given.
 	b.WriteString("  local mount=''\n")
-	b.WriteString("  [ -n \"$mount_id\" ] && mount=$(printf ',\"mountServer\":{\"mountServerSettingsType\":\"Linux\",\"linux\":{\"mountServerId\":\"%s\",\"vPowerNFSEnabled\":true,\"writeCacheFolder\":\"/tmp\"}}' \"$mount_id\")\n")
+	b.WriteString("  [ -n \"$mount_id\" ] && mount=$(printf ',\"mountServer\":{\"mountServerSettingsType\":\"Linux\",\"linux\":{\"mountServerId\":\"%s\",\"vPowerNFSEnabled\":true,\"writeCacheFolder\":\"/var/lib/veeamdata/veeam/IRCache/\"}}' \"$mount_id\")\n")
 	b.WriteString("  local body; body=$(printf '{\"type\":\"LinuxHardened\",\"name\":\"%s\",\"description\":\"\",\"hostId\":\"%s\",\"repository\":{\"path\":\"%s\",\"useFastCloningOnXFSVolumes\":true,\"makeRecentBackupsImmutableDays\":%s}%s}' \\\n")
 	b.WriteString("    \"$name\" \"$host_id\" \"$path\" \"$days\" \"$mount\")\n")
 	b.WriteString("  local a resp sid msg\n")
