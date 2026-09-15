@@ -110,6 +110,24 @@ func Validate(c Config) ValidationErrors {
 		add("NtpServer", "at least one NTP server is required")
 	}
 
+	// /etc/hosts extra entries.
+	//
+	// These are emitted verbatim into a quoted-'EOF' heredoc in the generated
+	// kickstart, which makes them literal to bash. Only two inputs escape that
+	// context, and both corrupt the kickstart, so autodeploy.ps1 rejects them --
+	// mirror that here so the user is told in the form rather than by a job that
+	// fails minutes later. Anything else (comments, odd spacing, IPv6, exotic
+	// alias counts) is deliberately allowed: /etc/hosts accepts more shapes than
+	// is worth encoding as a rule, and the appliance ignores what it cannot parse.
+	for i, e := range c.HostsEntries {
+		if strings.ContainsAny(e, "\r\n") {
+			add("HostsEntries", fmt.Sprintf("entry %d contains a line break; each entry must be a single /etc/hosts line", i+1))
+		}
+		if strings.TrimSpace(e) == "EOF" {
+			add("HostsEntries", fmt.Sprintf("entry %d is \"EOF\", the heredoc terminator used to write /etc/hosts; it would truncate the block", i+1))
+		}
+	}
+
 	// VSA 13.1 timeouts
 	if c.ExternalManagersInstallationTimeout < 60 || c.ExternalManagersInstallationTimeout > 86400 {
 		add("ExternalManagersInstallationTimeout", "must be between 60 and 86400 seconds")

@@ -190,6 +190,14 @@
 {{end}}</textarea>
           </div>
         </div>
+        <!-- Extra /etc/hosts entries: outside the static-IP grid, since they apply
+             in DHCP mode too. -->
+        <div style="margin-top:14px;">
+          <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.hosts_entries"}} {{helpTip "wiz.help.HostsEntries"}}</span>
+          <textarea name="HostsEntries" rows="3" placeholder="10.0.0.10   vbr01 vbr01.lab.local&#10;10.0.0.11   repo01"
+                    class="ad-input mono" style="height:auto;padding:8px 11px;line-height:1.5;">{{range .Config.HostsEntries}}{{.}}
+{{end}}</textarea>
+        </div>
       </div>
 
       <!-- ===== STEP 4: Accounts & security ===== -->

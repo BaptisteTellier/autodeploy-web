@@ -50,6 +50,13 @@ type Config struct {
 	Gateway    string          `json:"Gateway"`
 	DNSServers FlexStringArray `json:"DNSServers"`
 
+	// HostsEntries are extra lines appended to /etc/hosts on the appliance, in
+	// ordinary Linux hosts-file syntax ("<ip> <name> [alias...]"). Comment lines
+	// are allowed. Empty means the file is left exactly as the image ships it:
+	// autodeploy.ps1 v2.9 appends, so the stock localhost / ::1 entries always
+	// survive. Applies to every appliance type.
+	HostsEntries FlexStringArray `json:"HostsEntries"`
+
 	// --- Veeam accounts
 	VeeamAdminPassword     string   `json:"VeeamAdminPassword"`
 	VeeamAdminMfaSecretKey string   `json:"VeeamAdminMfaSecretKey"`

@@ -315,7 +315,7 @@ const REAL_BOOL_KEYS = new Set([
   'RestoreConfig','VIASingleDisk','Debug',
 ]);
 const INT_KEYS = new Set(['GrubTimeout','ExternalManagersInstallationTimeout','HighAvailabilityTimeout']);
-const ARRAY_KEYS = new Set(['DNSServers','NtpServer']);
+const ARRAY_KEYS = new Set(['DNSServers','NtpServer','HostsEntries']);
 
 function formToConfigJSON(fd) {
   const out = {};
