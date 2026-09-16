@@ -90,7 +90,13 @@
           if (p.text && p.text.wire_license) licenseFile = p.text.wire_license;
           if (p.text && p.text.wire_s3_mount_node) s3MountNode = p.text.wire_s3_mount_node;
           if (p.text && p.text.target_deploy_id) targetDeployID = p.text.target_deploy_id;
-          wireAdv = wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server);
+          // Prefer the stored toggle. Templates saved before wire_advanced existed do
+          // not carry it, so fall back to inferring it from the values they do carry —
+          // otherwise an old template would restore with Advanced collapsed and its
+          // settings silently dropped by the server-side guard.
+          wireAdv = (p.checks && 'wire_advanced' in p.checks)
+            ? !!p.checks.wire_advanced
+            : (wireNodeExp || wireS3 || !!(p.text && p.text.wire_syslog_server));
           // Seed res[] for all discoverable fields so the hidden inputs submit
           // the correct prefilled values even before Connect is pressed.
           const discoFields=[
@@ -209,7 +215,13 @@
                       wire_s3_folder:'s3_folder', wire_s3_access_key:'s3_access_key', wire_s3_secret_key:'s3_secret_key',
                       wire_s3_immutable_days:'s3_immutable_days', wire_s3_mount_node:'s3_mount_node',
                       wire_s3_overwrite:'s3_overwrite', cluster_dns:'cluster_dns', cluster_endpoint:'cluster_vip' };
-                    Object.keys(map).forEach(k=>{ const v=g(k); if(v!=='') fd.set(map[k], v); });
+                    /* Advanced-block keys are sent only while the toggle is on. g() reads
+                       el.checked/el.value regardless of visibility, so without this filter the
+                       preview would show node_exporter/syslog/S3 calls that the deployment
+                       itself discards via the wire_advanced server-side guard.
+                       No double quotes here: this code lives inside an x-data attribute. */
+                    const advOnly=k=>k.startsWith('wire_node_exporter')||k.startsWith('wire_syslog')||k.startsWith('wire_s3');
+                    Object.keys(map).forEach(k=>{ if(!this.wireAdv&&advOnly(k)) return; const v=g(k); if(v!=='') fd.set(map[k], v); });
                     const ta=g('target_address');
                     if(ta){ fd.set('base_url','https://'+ta+':'+(g('target_port')||'9419')); }
                     const r=await fetch('/craft-api/render',{method:'POST',body:fd});
@@ -1097,7 +1109,8 @@
                 <span class="rule"></span>
               </div>
               <label class="ad-checkrow" style="font-size:12px;color:var(--body);margin-bottom:10px;">
-                <input type="checkbox" x-model="wireAdv" class="ad-check">
+                <input type="checkbox" name="wire_advanced" x-model="wireAdv" class="ad-check"
+                       @change="if(!wireAdv){ restPreview={ps:'',curl:''}; restShown=false; restErr=''; }">
                 {{t "deploy.wire_advanced"}}
               </label>
 

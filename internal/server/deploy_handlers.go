@@ -711,6 +711,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		"xen_insecure":           r.FormValue("xen_insecure") != "",
 		"ws_https":               r.FormValue("ws_https") != "",
 		"ws_insecure":            r.FormValue("ws_insecure") != "",
+		"wire_advanced":          r.FormValue("wire_advanced") != "",
 		"wire_node_exporter":     r.FormValue("wire_node_exporter") != "",
 		"wire_node_exporter_tls": r.FormValue("wire_node_exporter_tls") != "",
 		"wire_s3":                r.FormValue("wire_s3") != "",
@@ -918,37 +919,7 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 			wireCfg.Password = primaryCfg.VeeamAdminPassword
 		}
 
-		// Advanced wiring options (revealed under the "Advanced" toggle). These are
-		// GLOBAL VBR settings (node_exporter, syslog) or add a new object-storage
-		// repository, so they are only applied when deploying a NEW environment.
-		// For standalone (add-to-existing) deploys they are skipped, so adding a
-		// proxy/repo never mutates the existing VBR's global configuration.
-		if !standalone && r.FormValue("wire_node_exporter") != "" {
-			wireCfg.NodeExporter = true
-			wireCfg.NodeExporterTLS = r.FormValue("wire_node_exporter_tls") != ""
-			wireCfg.NodeExporterUser = strings.TrimSpace(r.FormValue("wire_node_exporter_user"))
-			wireCfg.NodeExporterPass = r.FormValue("wire_node_exporter_pass")
-		}
-		if sl := strings.TrimSpace(r.FormValue("wire_syslog_server")); !standalone && sl != "" {
-			wireCfg.SyslogServer = sl
-			wireCfg.SyslogPort = atoiDefault(r.FormValue("wire_syslog_port"), 514)
-			wireCfg.SyslogProtocol = strDefault(strings.TrimSpace(r.FormValue("wire_syslog_protocol")), "Udp")
-		}
-		if !standalone && r.FormValue("wire_s3") != "" && strings.TrimSpace(r.FormValue("wire_s3_bucket")) != "" {
-			wireCfg.S3 = &wiring.S3Config{
-				Name:            strDefault(strings.TrimSpace(r.FormValue("wire_s3_name")), "Object Storage"),
-				Compatible:      r.FormValue("wire_s3_compatible") != "",
-				ServicePoint:    strings.TrimSpace(r.FormValue("wire_s3_endpoint")),
-				Region:          strings.TrimSpace(r.FormValue("wire_s3_region")),
-				Bucket:          strings.TrimSpace(r.FormValue("wire_s3_bucket")),
-				Folder:          strDefault(strings.TrimSpace(r.FormValue("wire_s3_folder")), "backups"),
-				AccessKey:       strings.TrimSpace(r.FormValue("wire_s3_access_key")),
-				SecretKey:       r.FormValue("wire_s3_secret_key"),
-				ImmutableDays:   atoiDefault(r.FormValue("wire_s3_immutable_days"), 0),
-				MountServerNode: strings.TrimSpace(r.FormValue("wire_s3_mount_node")),
-				OverwriteOwner:  r.FormValue("wire_s3_overwrite") != "",
-			}
-		}
+		applyAdvancedWiring(r, &wireCfg, standalone)
 		wirer = wiring.New(wireCfg)
 	}
 
@@ -969,6 +940,52 @@ func (s *Server) handleDeployStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/deploy/"+d.ID, http.StatusSeeOther)
+}
+
+// applyAdvancedWiring copies the "Advanced" wiring options (node_exporter, syslog,
+// S3 repository) from the form into cfg.
+//
+// Two gates, both deliberate:
+//
+// 1. wire_advanced — the state of the "Advanced options" toggle. Alpine's x-show only
+// sets display:none, so every field inside the collapsed block is still submitted with
+// whatever value it last held. Without reading the toggle server-side, unticking
+// "Advanced" still applied node_exporter and the S3 repository. Same trap as the VSA
+// 13.1 section in form_decode.go, which guards server-side for the same reason.
+//
+// 2. standalone — these are GLOBAL VBR settings, or add a repository, so they are only
+// applied when deploying a NEW environment. Adding a proxy/repo to an existing VBR must
+// never mutate that VBR's global configuration.
+func applyAdvancedWiring(r *http.Request, cfg *wiring.Config, standalone bool) {
+	if standalone || r.FormValue("wire_advanced") == "" {
+		return
+	}
+	if r.FormValue("wire_node_exporter") != "" {
+		cfg.NodeExporter = true
+		cfg.NodeExporterTLS = r.FormValue("wire_node_exporter_tls") != ""
+		cfg.NodeExporterUser = strings.TrimSpace(r.FormValue("wire_node_exporter_user"))
+		cfg.NodeExporterPass = r.FormValue("wire_node_exporter_pass")
+	}
+	if sl := strings.TrimSpace(r.FormValue("wire_syslog_server")); sl != "" {
+		cfg.SyslogServer = sl
+		cfg.SyslogPort = atoiDefault(r.FormValue("wire_syslog_port"), 514)
+		cfg.SyslogProtocol = strDefault(strings.TrimSpace(r.FormValue("wire_syslog_protocol")), "Udp")
+	}
+	if r.FormValue("wire_s3") != "" && strings.TrimSpace(r.FormValue("wire_s3_bucket")) != "" {
+		cfg.S3 = &wiring.S3Config{
+			Name:            strDefault(strings.TrimSpace(r.FormValue("wire_s3_name")), "Object Storage"),
+			Compatible:      r.FormValue("wire_s3_compatible") != "",
+			ServicePoint:    strings.TrimSpace(r.FormValue("wire_s3_endpoint")),
+			Region:          strings.TrimSpace(r.FormValue("wire_s3_region")),
+			Bucket:          strings.TrimSpace(r.FormValue("wire_s3_bucket")),
+			Folder:          strDefault(strings.TrimSpace(r.FormValue("wire_s3_folder")), "backups"),
+			AccessKey:       strings.TrimSpace(r.FormValue("wire_s3_access_key")),
+			SecretKey:       r.FormValue("wire_s3_secret_key"),
+			ImmutableDays:   atoiDefault(r.FormValue("wire_s3_immutable_days"), 0),
+			MountServerNode: strings.TrimSpace(r.FormValue("wire_s3_mount_node")),
+			OverwriteOwner:  r.FormValue("wire_s3_overwrite") != "",
+		}
+	}
 }
 
 func atoiDefault(s string, def int) int {
