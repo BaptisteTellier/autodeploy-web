@@ -22,6 +22,8 @@ func Defaults() Config {
 		Subnet:     "255.255.255.0",
 		Gateway:    "192.168.1.1",
 		DNSServers: FlexStringArray{"192.168.1.1", "8.8.8.8"},
+		// Empty: /etc/hosts is left as the image ships it.
+		HostsEntries: nil,
 
 		VeeamAdminPassword:     "Aa1!Bb2!Cc3!Dd4!",
 		VeeamAdminMfaSecretKey: "JBSWY3DPEHPK3PXP",

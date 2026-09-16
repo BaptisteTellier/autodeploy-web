@@ -80,6 +80,7 @@ func configFromForm(r *http.Request) (config.Config, error) {
 	c.Subnet = get("Subnet")
 	c.Gateway = get("Gateway")
 	c.DNSServers = getArray("DNSServers")
+	c.HostsEntries = getArray("HostsEntries")
 
 	// Veeam accounts
 	c.VeeamAdminPassword = get("VeeamAdminPassword")

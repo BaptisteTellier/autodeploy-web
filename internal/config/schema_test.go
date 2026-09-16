@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -174,4 +175,89 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// HostsEntries must survive the same shapes autodeploy.ps1 v2.9 accepts:
+// an array, a bare string (one entry), and absent/null (feature off).
+func TestHostsEntriesFlexParsing(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+		want []string
+	}{
+		{"array", `{"HostsEntries":["10.0.0.10 vbr01","# note","10.0.0.11 repo01 hr"]}`,
+			[]string{"10.0.0.10 vbr01", "# note", "10.0.0.11 repo01 hr"}},
+		{"bare string", `{"HostsEntries":"10.0.0.10 vbr01"}`, []string{"10.0.0.10 vbr01"}},
+		{"empty array", `{"HostsEntries":[]}`, nil},
+		{"absent", `{}`, nil},
+		{"null", `{"HostsEntries":null}`, nil},
+		{"empty string", `{"HostsEntries":""}`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Config
+			if err := json.Unmarshal([]byte(tc.json), &c); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(c.HostsEntries) != len(tc.want) {
+				t.Fatalf("len: want %d, got %d (%q)", len(tc.want), len(c.HostsEntries), c.HostsEntries)
+			}
+			for i := range tc.want {
+				if c.HostsEntries[i] != tc.want[i] {
+					t.Fatalf("entry %d: want %q, got %q", i, tc.want[i], c.HostsEntries[i])
+				}
+			}
+		})
+	}
+}
+
+// The generated JSON is consumed by autodeploy.ps1, so HostsEntries must always
+// marshal back as a JSON array -- never as a bare string, even when it was read
+// from one.
+func TestHostsEntriesMarshalsAsArray(t *testing.T) {
+	var c Config
+	if err := json.Unmarshal([]byte(`{"HostsEntries":"10.0.0.10 vbr01"}`), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(b), `"HostsEntries":["10.0.0.10 vbr01"]`) {
+		t.Fatalf("HostsEntries did not marshal as an array: %s", b)
+	}
+}
+
+// Validate must reject exactly what autodeploy.ps1 rejects -- an embedded line
+// break, and an entry that is the heredoc terminator -- and nothing else.
+func TestValidateHostsEntries(t *testing.T) {
+	base := Defaults()
+	base.ApplianceType = "VSA"
+
+	hasHostsErr := func(c Config) bool {
+		for _, e := range Validate(c) {
+			if e.Field == "HostsEntries" {
+				return true
+			}
+		}
+		return false
+	}
+
+	ok := base
+	ok.HostsEntries = FlexStringArray{"10.0.0.10 vbr01 vbr01.lab.local", "# a comment", "not-an-ip somehost"}
+	if hasHostsErr(ok) {
+		t.Fatalf("valid entries (incl. comment and odd shape) must not be rejected")
+	}
+
+	nl := base
+	nl.HostsEntries = FlexStringArray{"10.0.0.1 ok\nrm -rf /"}
+	if !hasHostsErr(nl) {
+		t.Fatalf("entry with an embedded line break must be rejected")
+	}
+
+	eof := base
+	eof.HostsEntries = FlexStringArray{"10.0.0.1 ok", "EOF", "echo pwned"}
+	if !hasHostsErr(eof) {
+		t.Fatalf("entry equal to the heredoc terminator must be rejected")
+	}
 }

@@ -159,6 +159,14 @@
         </div>
         <!-- DHCP info note -->
         <div x-show="dhcp" class="ad-info" style="margin-top:14px;"><span class="mi">info</span>{{t "form.dhcp_info"}}</div>
+        <!-- Extra /etc/hosts entries. Deliberately OUTSIDE the x-show="!dhcp" grid
+             above: these are appended to /etc/hosts regardless of how the NIC is
+             addressed, so hiding them in DHCP mode would be wrong. -->
+        <label style="display:block;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);">
+          <span class="ad-flabel">{{t "form.hosts_entries"}}</span>
+          <textarea name="HostsEntries" rows="3" placeholder="10.0.0.10   vbr01 vbr01.lab.local" class="ad-input mono" style="height:auto;padding:8px 11px;line-height:1.5;">{{range $i, $v := .Config.HostsEntries}}{{if $i}}
+{{end}}{{$v}}{{end}}</textarea>
+        </label>
       </div>
     </div>
 

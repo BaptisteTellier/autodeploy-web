@@ -41,6 +41,14 @@ autodeploy-web bundles three Veeam deployment workflows behind one web UI:
 
 ---
 
+## What's New
+
+**Custom `/etc/hosts` entries** — a new `HostsEntries` key, mirroring [autodeploy v2.9](https://github.com/BaptisteTellier/autodeploy). Add one `<ip> <name> [alias...]` line per entry in the network section of *New job* or the *Guided wizard*; they are **appended** to the appliance's `/etc/hosts`, so the stock `localhost` / `::1` lines are kept. Comment lines (`# ...`) pass through. Leave it empty to change nothing. Import/Export JSON round-trips it as an array, and two inputs are rejected up front because they would corrupt the generated kickstart: an entry containing a line break, and an entry that is exactly `EOF`.
+
+**Fix — the Deploy page's "Advanced options" toggle is now honoured.** Unticking it still applied node_exporter, syslog and the S3 repository: the fields it collapses are only hidden with CSS, so the browser kept submitting their last values, and the server never checked the toggle. It is now read server-side, and the REST preview no longer renders calls the deployment would discard.
+
+---
+
 ## Quick start — only requirement: Docker
 
 ```bash
@@ -220,7 +228,7 @@ The top navigation exposes everything the app does. Each page is detailed below.
 
 The main **ISO-build form** (expert mode) — every `autodeploy.ps1` configuration field on one page:
 
-- Appliance type (VSA / VIA-Proxy / VIA-HR / …), hostname, network (DHCP or static IP / subnet / gateway / DNS), NTP, timezone.
+- Appliance type (VSA / VIA-Proxy / VIA-HR / …), hostname, network (DHCP or static IP / subnet / gateway / DNS), **extra `/etc/hosts` entries**, NTP, timezone.
 - Veeam accounts (admin / SO) with **password generators** and complexity validation, **MFA**, GUID generator.
 - License baking (*LicenseVBRTune*), config restore (*RestoreConfig*), High-Availability, single-disk, GRUB timeout, and the rest of the PS1 options.
 - **Preset save/load**, **⬆️ Import / ⬇️ Export JSON** (round-trips with the PowerShell script), and live field validation.
@@ -309,6 +317,7 @@ Provision and wire a complete topology in one shot.
 | **Remote kickstart** | Injects a role-aware GRUB command over the console to fetch the kickstart over HTTP. `c` halts the GRUB countdown; a boot-wait (default 10 s) lets slow OVMF reach GRUB. Not on AHV/XCP-ng. |
 | **Static IP vs DHCP** | Fixed-IP → static `ip=<ip>::<gw>:<mask>:<host>::none` auto-generated (works without DHCP). DHCP → IP resolved from the guest agent before wiring. |
 | **Post-boot wiring** | Registers proxies & hardened repos over REST (`:9419`), waits per node, bounded timeout, re-auths on token expiry, parallelised across nodes. |
+| **"Advanced options" toggle** | node_exporter, syslog and the S3 repository are applied **only** while the toggle is ticked — the state is read server-side, not inferred from the collapsed fields. They are also skipped entirely on add-to-existing deploys, since they are global VBR settings. |
 | **License install (REST)** | Installs a `/data/license/*.lic` after boot (needed under remote kickstart, which boots unlicensed); warns if a license was baked into the output. |
 | **HA cluster** | HA topologies only — needs a DNS name + a free VIP. Config backup is redirected to the first hardened repo, the Default repo removed, then the 2-node cluster is formed. |
 | **node_exporter** | Enables the Prometheus metrics endpoint (optional TLS + basic auth). |
