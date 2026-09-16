@@ -42,7 +42,7 @@ jobs:
 
       - name: Open PR
         if: steps.latest.outputs.tag != steps.cur.outputs.current && steps.latest.outputs.tag != ''
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore: bump autodeploy to ${{ steps.latest.outputs.tag }}"
           title: "Bump autodeploy ${{ steps.cur.outputs.current }} → ${{ steps.latest.outputs.tag }}"
