@@ -223,6 +223,13 @@ func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 		deployments = s.deps.DeployManager.List()
 	}
 	outputs := s.listOutputs()
+	// A nil slice marshals to `null`, and the form does OUTPUTS.map(...) without a
+	// guard — so on a fresh install with no ISO built yet, the whole Alpine
+	// component threw on load and the Deploy page rendered dead: no dropdowns, no
+	// plan, no pre-flight. Marshal an empty array instead.
+	if outputs == nil {
+		outputs = []outputSummary{}
+	}
 	outputsJSON, _ := json.Marshal(outputs)
 
 	// Build the prefill payload from either ?copy=<deployment-id> (a past run)
@@ -529,6 +536,7 @@ func buildHypervisor(provider hypervisor.Provider, r *http.Request) (hypervisor.
 			Cluster:      get("vs_cluster"),
 			ResourcePool: get("vs_resource_pool"),
 			Datastore:    get("vs_datastore"),
+			ISODatastore: get("vs_iso_datastore"),
 			Network:      get("vs_network"),
 			Folder:       get("vs_folder"),
 		})
@@ -691,7 +699,7 @@ func deployFormSnapshot(r *http.Request, n int) deploy.FormSnapshot {
 		// Proxmox
 		"pve_url", "pve_node", "pve_storage", "pve_iso_storage", "pve_user", "pve_token_id",
 		// vSphere
-		"vs_url", "vs_user", "vs_datacenter", "vs_cluster", "vs_resource_pool", "vs_datastore", "vs_network", "vs_folder",
+		"vs_url", "vs_user", "vs_datacenter", "vs_cluster", "vs_resource_pool", "vs_datastore", "vs_iso_datastore", "vs_network", "vs_folder",
 		// Hyper-V
 		"hv_host", "hv_port", "hv_user", "hv_switch", "hv_vm_path", "hv_iso_path",
 		// Nutanix

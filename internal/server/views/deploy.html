@@ -101,7 +101,7 @@
           // the correct prefilled values even before Connect is pressed.
           const discoFields=[
             'pve_node','pve_storage','pve_iso_storage','vm_bridge',
-            'vs_datacenter','vs_cluster','vs_resource_pool','vs_datastore','vs_network','vs_folder',
+            'vs_datacenter','vs_cluster','vs_resource_pool','vs_datastore','vs_iso_datastore','vs_network','vs_folder',
             'hv_switch','hv_vm_path',
             'ws_install_dir','ws_vnet',
           ];
@@ -118,7 +118,7 @@
       x-data="{ kind:'', sel:{}, ks:false, wire:false, wireAdv:false, wireNodeExp:false, wireS3:false, wireS3Compat:false, wireS3Overwrite:false, s3MountNode:'', ksbase:'{{.KSBaseURL}}', adv:{}, bootcmd:{}, edited:{}, provider:'proxmox', powerOn:false, licenseFile:'', bootWait:10,
                 targetDeployID:'', targetInsecure:true,
                 testConn:{busy:false,state:'',msg:''},
-                res:{pve_node:'',pve_storage:'',pve_iso_storage:'',vm_bridge:'',vs_datacenter:'',vs_cluster:'',vs_resource_pool:'',vs_datastore:'',vs_network:'',vs_folder:'',hv_switch:'',hv_vm_path:'',ws_install_dir:'',ws_vnet:''},
+                res:{pve_node:'',pve_storage:'',pve_iso_storage:'',vm_bridge:'',vs_datacenter:'',vs_cluster:'',vs_resource_pool:'',vs_datastore:'',vs_iso_datastore:'',vs_network:'',vs_folder:'',hv_switch:'',hv_vm_path:'',ws_install_dir:'',ws_vnet:''},
                 manual:{},
                 disco:{busy:false,state:'',msg:'',resources:{}},
                 async connectLoad(provider){
@@ -169,6 +169,17 @@
                 get displayOrder(){ const idxs=this.roles.map((_,i)=>i); idxs.sort((a,b)=>{ const ra=this.groupRank(this.roles[a]),rb=this.groupRank(this.roles[b]); return ra!==rb?ra-rb:a-b; }); return idxs; },
                 addVIA(role){ this.extra.push(role); },
                 removeNode(idx){ const b=this.baseLen(); if(idx<b) return; this.extra.splice(idx-b,1); const n=this.roles.length; ['sel','bootcmd','adv','edited'].forEach(m=>{ for(let k=idx;k<n;k++){ this[m][k]=this[m][k+1]; } delete this[m][n]; }); },
+                /* Wiring drives the Veeam REST API to register proxies and repositories,
+                   and Community Edition refuses those calls — so wiring without a licence
+                   fails partway, after the VMs are already built. Two ways to be covered:
+                   under remote kickstart the .lic is pushed over REST (wire_license), and
+                   under ISO boot it must have been baked into the VSA output at build time.
+                   Only warn; a lab may deliberately wire an already-licensed VSA. */
+                get wiringNeedsLicense(){
+                  if(!this.wire || this.isStandalone) return false;
+                  if(this.ks) return !this.licenseFile;
+                  return !this.roles.some((r,i)=> (r||'').startsWith('VSA') && this.summ(i) && this.summ(i).license_baked);
+                },
                 get ipConflict(){ const seen={}, dups={}; this.roles.forEach((r,i)=>{ const o=this.summ(i); if(!o||!o.network||o.network==='DHCP') return; if(seen[o.network]) dups[o.network]=true; else seen[o.network]=true; }); return Object.keys(dups); },
                 get hasVSA(){ return this.roles.some(r => r.startsWith('VSA')); },
                 get hasVIA(){ return this.roles.some(r => r.startsWith('VIA')); },
@@ -702,6 +713,29 @@
                        href="#" @click.prevent="manual.vs_datastore=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
                   </div>
                 </template>
+              </label>
+
+              <!-- vs_iso_datastore — where ISOs are uploaded. Left empty it falls back
+                   to vs_datastore, which is what this did before the split. -->
+              <label class="block"><span class="ad-flabel">{{t "deploy.vs_iso_datastore"}}</span>
+                <input type="hidden" name="vs_iso_datastore" :value="res.vs_iso_datastore">
+                <template x-if="disco.resources.vs_iso_datastore && disco.resources.vs_iso_datastore.length && !manual.vs_iso_datastore">
+                  <select x-model="res.vs_iso_datastore" @change="if(res.vs_iso_datastore==='__manual__'){manual.vs_iso_datastore=true;res.vs_iso_datastore='';}" class="ad-select mono">
+                    <option value="">{{t "deploy.vs_iso_datastore_same"}}</option>
+                    <template x-for="opt in disco.resources.vs_iso_datastore" :key="opt.value">
+                      <option :value="opt.value" x-text="opt.label||opt.value"></option>
+                    </template>
+                    <option value="__manual__">{{t "deploy.enter_manually"}}</option>
+                  </select>
+                </template>
+                <template x-if="!(disco.resources.vs_iso_datastore && disco.resources.vs_iso_datastore.length && !manual.vs_iso_datastore)">
+                  <div>
+                    <input x-model="res.vs_iso_datastore" class="ad-input mono">
+                    <a x-show="disco.resources.vs_iso_datastore && disco.resources.vs_iso_datastore.length" x-cloak
+                       href="#" @click.prevent="manual.vs_iso_datastore=false" class="ad-btn-link" style="font-size:11px;">{{t "deploy.choose_from_list"}}</a>
+                  </div>
+                </template>
+                <span style="font-size:11px;color:var(--faint);">{{t "deploy.vs_iso_datastore_hint"}}</span>
               </label>
 
               <!-- vs_network -->
@@ -1312,8 +1346,11 @@
           <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;"><span style="color:var(--muted);">{{t "deploy.plan_rest_wiring"}}</span><span style="font-weight:600;" :style="wire ? 'color:var(--vg-deep);' : 'color:var(--muted);'" x-text="wire ? {{tjs "deploy.on"}} : {{tjs "deploy.off"}}"></span></div>
         </div>
         <!-- Pre-flight footer: green when OK, amber when duplicate IPs detected -->
-        <div x-show="!ipConflict.length" x-cloak style="padding:10px 16px;background:var(--vg-tint);border-top:1px solid var(--vg-100);display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--vg-deep);">
+        <div x-show="!ipConflict.length && !wiringNeedsLicense" x-cloak style="padding:10px 16px;background:var(--vg-tint);border-top:1px solid var(--vg-100);display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--vg-deep);">
           <span class="mi" style="font-size:15px;">verified</span>{{t "deploy.preflight_ok"}}
+        </div>
+        <div x-show="!ipConflict.length && wiringNeedsLicense" x-cloak style="padding:10px 16px;background:#FDF4E3;border-top:1px solid #EFDCB4;display:flex;align-items:flex-start;gap:8px;font-size:11.5px;color:#8A5A00;">
+          <span class="mi" style="font-size:15px;">warning</span><span>{{t "deploy.wiring_needs_license"}}</span>
         </div>
         <div x-show="ipConflict.length" x-cloak style="padding:10px 16px;background:#FCEEEC;border-top:1px solid #F3D6D1;display:flex;align-items:flex-start;gap:8px;font-size:11.5px;color:#8C2A1F;">
           <span class="mi" style="font-size:15px;">error</span><span x-text="'{{t "deploy.ip_conflict"}} ' + ipConflict.join(', ')"></span>

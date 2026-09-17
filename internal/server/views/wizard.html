@@ -228,7 +228,7 @@
           <div x-show="cfg.VeeamAdminIsMfaEnabled" style="padding-left:23px;">
             <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32"}} {{helpTip "wiz.help.VeeamAdminMfaSecretKey"}}</span>
             <div style="display:flex;gap:8px;">
-              <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
+              <input type="text" name="VeeamAdminMfaSecretKey" data-base32 data-base32-msg="{{t "form.mfa_invalid_chars"}}" maxlength="32" autocapitalize="characters" autocomplete="off" spellcheck="false" value="{{.Config.VeeamAdminMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
               <button type="button" @click="fillBase32('VeeamAdminMfaSecretKey')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
             </div>
           </div>
@@ -263,7 +263,7 @@
               <div x-show="cfg.VeeamSoIsMfaEnabled" style="grid-column:span 2;">
                 <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32"}} {{helpTip "wiz.help.VeeamSoMfaSecretKey"}}</span>
                 <div style="display:flex;gap:8px;">
-                  <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
+                  <input type="text" name="VeeamSoMfaSecretKey" data-base32 data-base32-msg="{{t "form.mfa_invalid_chars"}}" maxlength="32" autocapitalize="characters" autocomplete="off" spellcheck="false" value="{{.Config.VeeamSoMfaSecretKey}}" class="ad-input mono" style="flex:1;text-transform:uppercase;">
                   <button type="button" @click="fillBase32('VeeamSoMfaSecretKey')" class="ad-gen" title="Generate"><span class="mi">casino</span></button>
                 </div>
               </div>
