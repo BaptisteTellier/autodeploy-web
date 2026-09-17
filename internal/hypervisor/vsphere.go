@@ -29,7 +29,12 @@ type VSphereConfig struct {
 	Datacenter   string // datacenter name (empty = first/only)
 	Cluster      string // compute cluster or host; resource pool is derived
 	ResourcePool string // explicit resource pool (optional; overrides Cluster default)
-	Datastore    string // datastore for VM disks + ISO upload
+	Datastore    string // datastore for VM disks
+	// ISODatastore is where ISOs are uploaded. Empty falls back to Datastore,
+	// which is the historical behaviour. Splitting the two matches Proxmox
+	// (ISOStorage) and XCP-ng (ISOSR): a fast VM datastore is often not where
+	// you want to park a 20 GB image.
+	ISODatastore string
 	Network      string // port group the NIC attaches to
 	Folder       string // VM folder (optional)
 }
@@ -96,6 +101,29 @@ func (v *VSphere) finder(ctx context.Context) (*find.Finder, error) {
 }
 
 // datastore resolves the configured datastore via the Finder.
+// isoDatastoreName returns the datastore ISOs are uploaded to: the dedicated
+// one when set, otherwise the VM datastore.
+func (c VSphereConfig) isoDatastoreName() string {
+	if c.ISODatastore != "" {
+		return c.ISODatastore
+	}
+	return c.Datastore
+}
+
+// isoDatastore resolves the datastore used for ISO upload and lookup.
+func (v *VSphere) isoDatastore(ctx context.Context) (*object.Datastore, error) {
+	f, err := v.finder(ctx)
+	if err != nil {
+		return nil, err
+	}
+	name := v.cfg.isoDatastoreName()
+	ds, err := f.Datastore(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("vsphere: find ISO datastore %q: %w", name, err)
+	}
+	return ds, nil
+}
+
 func (v *VSphere) datastore(ctx context.Context) (*object.Datastore, error) {
 	f, err := v.finder(ctx)
 	if err != nil {
@@ -232,7 +260,7 @@ func (v *VSphere) UploadISO(ctx context.Context, localPath string, progress Prog
 	}
 	size := st.Size()
 
-	ds, err := v.datastore(ctx)
+	ds, err := v.isoDatastore(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -263,7 +291,9 @@ func (v *VSphere) UploadISO(ctx context.Context, localPath string, progress Prog
 // in the configured datastore, and returns the datastore reference if present
 // or "" if absent.
 func (v *VSphere) FindISO(ctx context.Context, name string) (string, error) {
-	ds, err := v.datastore(ctx)
+	// Must match UploadISO: looking in the VM datastore while uploading to the
+	// ISO datastore would report every already-uploaded ISO as missing.
+	ds, err := v.isoDatastore(ctx)
 	if err != nil {
 		return "", err
 	}

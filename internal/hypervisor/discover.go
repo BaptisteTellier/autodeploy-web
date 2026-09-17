@@ -8,17 +8,56 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/luthermonson/go-proxmox"
 	"github.com/masterzen/winrm"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
+	"github.com/vmware/govmomi/vim25/types"
 )
 
 // Option is a single selectable value returned by a discovery call. Label
 // defaults to Value when empty; callers may set Label for a friendlier display.
+// sortDiscovered alphabetises every option list in a discovery result, so the
+// dropdowns read the same way whatever the provider returned.
+//
+// Called through defer rather than before each return: discovery has several
+// early-return paths that hand back partial results, and those lists deserve the
+// same ordering. The map is a reference, so mutating it in the defer still
+// reaches the caller.
+//
+// Case-insensitive, because vCenter inventories routinely mix Capitalised and
+// lowercase names and a byte-order sort would scatter them into two blocks.
+func sortDiscovered(m map[string][]Option) {
+	for _, opts := range m {
+		sort.Slice(opts, func(i, j int) bool {
+			return strings.ToLower(opts[i].Value) < strings.ToLower(opts[j].Value)
+		})
+	}
+}
+
+// humanBytes renders a byte count as "1.5 TB", matching the formatting the
+// templates already use for file sizes (internal/server/embed.go). Duplicated
+// rather than shared because that one is a template FuncMap entry in package
+// server, and hypervisor must not depend on server.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
 type Option struct {
 	Value string `json:"value"`
 	Label string `json:"label,omitempty"`
@@ -94,6 +133,7 @@ func DiscoverProxmox(ctx context.Context, cfg ProxmoxConnConfig) (map[string][]O
 	}
 
 	result := make(map[string][]Option)
+	defer sortDiscovered(result)
 
 	// pve_node — one option per cluster node.
 	nodes := make([]Option, 0, len(nodeStatuses))
@@ -223,6 +263,7 @@ func DiscoverVSphere(ctx context.Context, cfg VSphereConnConfig) (map[string][]O
 	f := find.NewFinder(c.Client, true)
 
 	result := make(map[string][]Option)
+	defer sortDiscovered(result)
 
 	// Always list all datacenters — this is the connection test.
 	dcs, err := f.DatacenterList(ctx, "*")
@@ -292,16 +333,46 @@ func DiscoverVSphere(ctx context.Context, cfg VSphereConnConfig) (map[string][]O
 		}
 	}
 
-	// vs_datastore
+	// vs_datastore + vs_iso_datastore — same inventory, offered twice so ISOs can
+	// live somewhere other than the VM datastore (Proxmox and XCP-ng already
+	// split these). Each option is labelled with free/total capacity, because
+	// picking a datastore with no room for a 20 GB image is the mistake this
+	// dropdown exists to prevent.
 	if datastores, err := f.DatastoreList(ctx, "*"); err == nil {
+		// Capacity comes from ONE batched property request for every datastore, not
+		// one call each: discovery runs under a 15 s budget shared with five other
+		// inventory listings, and a per-datastore round-trip would push a large
+		// vCenter over it — turning a convenience label into a failed Connect.
+		summaries := map[types.ManagedObjectReference]types.DatastoreSummary{}
+		if len(datastores) > 0 {
+			refs := make([]types.ManagedObjectReference, 0, len(datastores))
+			for _, ds := range datastores {
+				refs = append(refs, ds.Reference())
+			}
+			var props []mo.Datastore
+			// Best-effort: on error every datastore still lists, just unlabelled.
+			if err := property.DefaultCollector(c.Client).Retrieve(ctx, refs, []string{"summary"}, &props); err == nil {
+				for _, pr := range props {
+					summaries[pr.Self] = pr.Summary
+				}
+			}
+		}
 		var opts []Option
 		for _, ds := range datastores {
-			if n := ds.Name(); n != "" {
-				opts = append(opts, Option{Value: n})
+			n := ds.Name()
+			if n == "" {
+				continue
 			}
+			opt := Option{Value: n}
+			if s, ok := summaries[ds.Reference()]; ok && s.Capacity > 0 {
+				opt.Label = fmt.Sprintf("%s — %s free / %s", n,
+					humanBytes(s.FreeSpace), humanBytes(s.Capacity))
+			}
+			opts = append(opts, opt)
 		}
 		if len(opts) > 0 {
 			result["vs_datastore"] = opts
+			result["vs_iso_datastore"] = opts
 		}
 	}
 
@@ -394,6 +465,7 @@ func DiscoverHyperV(ctx context.Context, cfg HyperVConnConfig) (map[string][]Opt
 	}
 
 	result := make(map[string][]Option)
+	defer sortDiscovered(result)
 
 	var switchOpts []Option
 	for _, line := range splitLines(switchOut) {
@@ -483,6 +555,7 @@ func DiscoverWorkstation(ctx context.Context, cfg WorkstationConnConfig) (map[st
 	}
 
 	result := make(map[string][]Option)
+	defer sortDiscovered(result)
 
 	// ws_install_dir — read from registry; try WOW6432Node first, fall back to
 	// the non-WOW6432 path. Serves as the first (connection test) PS command.

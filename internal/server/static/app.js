@@ -218,7 +218,7 @@ function initCollapsibleTables(root) {
   });
 }
 
-document.addEventListener('DOMContentLoaded', function () { initSortableTables(); initCollapsibleTables(); });
+document.addEventListener('DOMContentLoaded', function () { initSortableTables(); initCollapsibleTables(); initBase32Inputs(); });
 
 // --- Deploy templates --------------------------------------------------------
 // Save the current deploy form as a named template (a non-secret FormSnapshot),
@@ -279,6 +279,52 @@ function genCompliantPassword() {
   if (!/[0-9]/.test(out)) out = out.slice(0, -1) + pick(digit);
   if (!/[^A-Za-z0-9]/.test(out)) out = out.slice(0, -1) + pick(symbol);
   return out;
+}
+
+// Base32 secret inputs (MFA keys). RFC 4648 uses A-Z and 2-7 only: 0, 1, 8 and 9
+// are NOT in the alphabet, and they are exactly the characters people type by
+// reflex or transcribe wrongly from a printed secret (1/I, 0/O, 8/B). Both the
+// wizard and the server already reject a bad key, but only after the fact — on
+// submit, or when Next is blocked. Fixing it as it is typed is cheaper than
+// explaining it afterwards.
+//
+// Lowercase is folded up rather than rejected: it is the same secret, and typing
+// a secret in lowercase is normal. Anything outside the alphabet is dropped, and
+// we say which characters went, so the field does not just silently ignore keys.
+function initBase32Inputs(root) {
+  (root || document).querySelectorAll('input[data-base32]').forEach(function (el) {
+    if (el._base32Bound) return;
+    el._base32Bound = true;
+
+    let note = null;
+    function flash(dropped) {
+      const tpl = el.getAttribute('data-base32-msg');
+      if (!tpl) return;
+      if (!note) {
+        note = document.createElement('span');
+        note.style.cssText = 'display:block;font-size:11px;color:#8A5A00;margin-top:4px;';
+        (el.closest('label') || el.parentElement).appendChild(note);
+      }
+      note.textContent = tpl.replace('%s', dropped.join(' '));
+      clearTimeout(el._base32Timer);
+      el._base32Timer = setTimeout(function () { if (note) note.textContent = ''; }, 4000);
+    }
+
+    el.addEventListener('input', function () {
+      const before = el.value;
+      const up = before.toUpperCase();
+      const clean = up.replace(/[^A-Z2-7]/g, '').slice(0, 32);
+      if (clean === before) return;
+      // Keep the caret sensible when characters are removed mid-string.
+      const pos = el.selectionStart || 0;
+      const removedBefore = up.slice(0, pos).replace(/[A-Z2-7]/g, '').length;
+      el.value = clean;
+      const next = Math.max(0, pos - removedBefore);
+      try { el.setSelectionRange(next, next); } catch (e) { /* not all inputs support it */ }
+      const dropped = [...new Set(up.split('').filter(function (c) { return !/[A-Z2-7]/.test(c); }))];
+      if (dropped.length) flash(dropped);
+    });
+  });
 }
 
 function genBase32(n) {

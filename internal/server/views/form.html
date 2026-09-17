@@ -191,7 +191,7 @@
           <div x-show="adminMfa">
             <span class="ad-flabel">{{t "form.mfa_secret_b32"}}</span>
             <div style="display:flex;gap:7px;">
-              <input type="text" name="VeeamAdminMfaSecretKey" value="{{.Config.VeeamAdminMfaSecretKey}}" class="ad-input mono" style="flex:1;min-width:0;">
+              <input type="text" name="VeeamAdminMfaSecretKey" data-base32 data-base32-msg="{{t "form.mfa_invalid_chars"}}" maxlength="32" autocapitalize="characters" autocomplete="off" spellcheck="false" value="{{.Config.VeeamAdminMfaSecretKey}}" class="ad-input mono" style="flex:1;min-width:0;text-transform:uppercase;">
               <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genBase32(16)"><span class="mi">casino</span></button>
             </div>
           </div>
@@ -213,7 +213,7 @@
             <div style="margin-bottom:13px;">
               <span class="ad-flabel" style="display:flex;align-items:center;gap:6px;">{{t "form.mfa_secret_b32_short"}} <span class="ad-req">{{t "form.required"}}</span></span>
               <div style="display:flex;gap:7px;">
-                <input type="text" name="VeeamSoMfaSecretKey" value="{{.Config.VeeamSoMfaSecretKey}}" :required="soEnabled" class="ad-input mono" style="flex:1;min-width:0;">
+                <input type="text" name="VeeamSoMfaSecretKey" data-base32 data-base32-msg="{{t "form.mfa_invalid_chars"}}" maxlength="32" autocapitalize="characters" autocomplete="off" spellcheck="false" value="{{.Config.VeeamSoMfaSecretKey}}" :required="soEnabled" class="ad-input mono" style="flex:1;min-width:0;text-transform:uppercase;">
                 <button type="button" class="ad-gen" title="{{t "form.generate"}}" @click="$el.previousElementSibling.value=genBase32(16)"><span class="mi">casino</span></button>
               </div>
             </div>
