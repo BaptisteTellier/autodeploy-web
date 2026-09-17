@@ -43,6 +43,8 @@ autodeploy-web bundles three Veeam deployment workflows behind one web UI:
 
 ## What's New
 
+**Deploy** — pre-flight warns when REST wiring would run unlicensed (Community Edition refuses it); MFA secrets are sanitised as typed (Base32 drops 0/1/8/9); vSphere gains a separate ISO datastore, free-space labels, and alphabetical dropdowns.
+
 **Custom `/etc/hosts` entries** — a new `HostsEntries` key, mirroring [autodeploy v2.9](https://github.com/BaptisteTellier/autodeploy). Add one `<ip> <name> [alias...]` line per entry in the network section of *New job* or the *Guided wizard*; they are **appended** to the appliance's `/etc/hosts`, so the stock `localhost` / `::1` lines are kept. Comment lines (`# ...`) pass through. Leave it empty to change nothing. Import/Export JSON round-trips it as an array, and two inputs are rejected up front because they would corrupt the generated kickstart: an entry containing a line break, and an entry that is exactly `EOF`.
 
 **Fix — the Deploy page's "Advanced options" toggle is now honoured.** Unticking it still applied node_exporter, syslog and the S3 repository: the fields it collapses are only hidden with CSS, so the browser kept submitting their last values, and the server never checked the toggle. It is now read server-side, and the REST preview no longer renders calls the deployment would discard.
